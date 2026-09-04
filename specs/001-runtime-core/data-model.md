@@ -52,6 +52,11 @@ The central row. One per execution, including replays and resumes.
 | `credential_source` | string | As reported by the agent process, not asserted |
 | `error` | text, nullable | Terminal failure, already redacted |
 
+`trigger_kind` deserves a note before `status` does. Its values are not the playbook's
+`trigger.type` values and are not meant to match them: a playbook is triggered by `cron` or
+`manual`, while a run records how *it* came to exist — including `replay` and `resume`, which no
+playbook can declare. Two axes, deliberately.
+
 `status` deserves one note. `refused` is not the same as `failed`: a refused run never started,
 because the bounds receipt did not match the declaration or a gather step failed. It costs nothing
 and it is not an incident — but it must be visible, because a playbook that is refused every night

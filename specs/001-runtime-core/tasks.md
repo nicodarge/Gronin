@@ -157,28 +157,26 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 - [ ] T034 [P] [US2] `testdata/playbooks/hostile/`: one playbook per refusal rule — bare shell in
       the tool set, a writing tool, an allowlist naming a whole MCP server, a file scope escaping
       the working directory (absolute and relative forms), an unknown MCP server, a creating sink
-      with no cap, a `guard` block, a `retrieve` block, a duplicate name, an interpolation naming
-      something only the environment has
+      with no cap, a `guard` block, a `retrieve` block, an unknown sink type, a bare interpolation
+      missing its namespace, a duplicate name, and an interpolation naming something only the
+      environment has
 - [ ] T035 [P] [US2] `testdata/playbooks/valid/`: the accepting corpus. A denylist probed only on
       its refusals is an allowlist in disguise
 - [ ] T071 [P] [US2] Credential test: with no source configured the runtime refuses to start and
       names the sources it consulted; with either of two sources configured it starts and reports
       which one the agent process named (FR-032, FR-033, SC-008)
-- [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
-      copy of the validator and assert the suite fails. A refusal case that passes with its check
-      deleted is not testing anything, and nothing else would ever tell you
 
 ### Implementation for User Story 2
 
 - [ ] T037 [US2] `internal/playbook/validate`: the gate skeleton — collect every refusal, never stop
       at the first, and refuse the whole set rather than arming the valid remainder (FR-001)
-- [ ] T038 [P] [US2] Refuse a shell or a writing tool in the declared tool set (FR-003)
-- [ ] T039 [P] [US2] Refuse an allowlist entry naming a whole MCP server (FR-004)
-- [ ] T040 [P] [US2] Refuse a file scope resolving outside the working directory — resolve the path
+- [ ] T038 [US2] Refuse a shell or a writing tool in the declared tool set (FR-003)
+- [ ] T039 [US2] Refuse an allowlist entry naming a whole MCP server (FR-004)
+- [ ] T040 [US2] Refuse a file scope resolving outside the working directory — resolve the path
       before deciding, so a relative traversal is caught (FR-005)
-- [ ] T041 [P] [US2] Refuse a creating sink without a cap (FR-006), and an MCP server this
+- [ ] T041 [US2] Refuse a creating sink without a cap (FR-006), and an MCP server this
       deployment does not provide (FR-007)
-- [ ] T042 [P] [US2] Refuse a `guard` or `retrieve` block (FR-034): a declared bound the runtime
+- [ ] T042 [US2] Refuse a `guard` or `retrieve` block (FR-034): a declared bound the runtime
       does not apply is worse than an absent one
 - [ ] T043 [US2] Refusal output per `contracts/cli.md`: playbook, field, what was found, what would
       be accepted, and the closing line stating that nothing was armed (FR-002)
@@ -192,6 +190,17 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 - [ ] T047 [US2] Agent version floor, checked at startup and reported by `gronin version` (FR-019)
 - [ ] T048 [US2] Credential verification at startup, reporting the source the agent process names
       rather than asserting one (FR-032, FR-033)
+- [ ] T072 [US2] Refuse a sink type this deployment does not implement (FR-038), and an
+      interpolation that omits its namespace (FR-039)
+- [ ] T073 [US2] `gronin config set` and `gronin config list`, with secret values redacted on
+      display (FR-040)
+- [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
+      copy of the validator and assert the suite fails. A refusal case that passes with its check
+      deleted is not testing anything, and nothing else would ever tell you
+
+T036 sits after the implementation deliberately. Every other test in this file is written first and
+fails first; this one is a post-hoc audit of a finished gate and cannot run before there is a
+validator to mutate. Listing it with the tests would have read as red-green and been wrong.
 
 **Checkpoint**: nothing unsafe can be armed. Still not shippable — a runtime that records runs
 nobody can read fails Principle III, which US3 closes.
@@ -269,14 +278,19 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
   built in parallel with it; US2's receipt check (T046) needs T024.
 - **US3 (Phase 5)** needs a run to exist, so it follows US1 — but it ships with it. It does not
   need US4.
+- **T036 needs T037-T042 and T072.** It mutates the validator, so it cannot precede it. This is the
+  one test in the file that is not red-green, and it is placed after the implementation for that
+  reason.
 - **US4 (Phase 6)** needs only the sink interface from T028.
 - **Polish (Phase 7)** follows the stories it documents.
 
 ### Parallel opportunities
 
-Within Phase 2, T008 / T009 and T011 are independent. Within Phase 3, all six tests and the three
-sink tasks are independent. Within Phase 4, the individual refusal rules T038-T042 are five
-independent functions behind one gate.
+Within Phase 2, T008 / T009 and T011 are independent. Within Phase 3, the nine tests and the three
+sink tasks are independent. Within Phase 4 the tests are, but **the refusal rules T038-T042 are
+not**: they are five independent functions in one package, behind one gate, landing in the same
+file. They carried a `[P]` until the second review round pointed out that the marker promises no
+file conflict, not conceptual independence.
 
 ---
 

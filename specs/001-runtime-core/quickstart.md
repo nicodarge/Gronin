@@ -40,8 +40,10 @@ sinks:
       webhook: ${config.discord_webhook}
 ```
 
-The destination is a reference, not a value. Secrets and endpoints live in the deployment's
-configuration, never in a playbook — which is what lets you commit the playbook and share it.
+The destination is a reference, not a value, and the `config.` prefix names where it resolves from.
+Secrets and endpoints live in the deployment's configuration, never in a playbook — which is what
+lets you commit the playbook and share it. The other namespace is `${trigger.…}`, for what fired the
+run; a bare `${name}` is refused, so a payload can never shadow a configuration value.
 
 ```bash
 gronin config set discord_webhook 'https://discord.com/api/webhooks/REPLACE_ME'

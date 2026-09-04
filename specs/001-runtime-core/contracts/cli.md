@@ -15,7 +15,14 @@ every rule and no second path that can drift from it.
 | `gronin show <run>` | Prints one run's record | Non-zero if unknown |
 | `gronin replay <run>` | Re-runs the agent stage against the recorded inputs | Non-zero if the replay did not succeed |
 | `gronin resume <run>` | Re-runs only the sinks against the recorded report | Non-zero if a sink failed |
+| `gronin config set <key> <value>` | Sets a deployment configuration value playbooks interpolate against | Non-zero on an invalid key |
+| `gronin config list` | Lists configuration keys and values, secrets redacted | |
 | `gronin version` | Prints its own version and the agent version it found | Non-zero if the agent is below the floor |
+
+`gronin config` exists so a playbook can name a destination without containing one. A playbook
+holds `${config.discord_webhook}`; the value lives here, on the deployment. That separation is what
+makes a playbook committable and shareable, so the command that maintains it is part of the
+contract rather than a convenience.
 
 `gronin validate` exists because the load gate is the thing most worth running in CI, and requiring
 a credential to check a playbook's shape would put it out of reach there. It is the same code path

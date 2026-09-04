@@ -196,6 +196,13 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **FR-034**: The runtime MUST refuse a playbook declaring a capability it does not yet apply — a
   `guard` or a `retrieve` block — rather than accepting it and ignoring the block. A declared bound
   nothing enforces is worse than an absent one, because it reads as enforced in review.
+- **FR-038**: The runtime MUST refuse a playbook naming a sink type this deployment does not
+  implement, on the same terms as FR-007 refuses an unknown MCP server. Without it a mistyped sink
+  name survives the gate and fails at delivery, after a full agent run has been paid for.
+- **FR-039**: Interpolation MUST name its source — the deployment configuration or the trigger
+  payload — and the runtime MUST refuse a reference that does not. A bare reference resolves
+  against whichever source happens to hold the name, so a trigger payload, which for a webhook is
+  written by whoever sends the request, can shadow a configuration value.
 
 #### Execution
 
@@ -240,6 +247,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **FR-036**: The operator API MUST bind a loopback address by default, and binding it to any other
   address MUST require a credential to be configured first. An unauthenticated listener that can
   invoke playbooks is a remote execution surface, and the default must not be one step from it.
+- **FR-040**: Operators MUST be able to set and inspect the deployment configuration values that
+  playbooks interpolate against, without editing a file the runtime also writes. Inspecting a
+  secret value MUST redact it.
 
 #### Sinks
 
@@ -296,7 +306,8 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **SC-001**: An operator who has never seen this runtime can take a documented example playbook,
   change its schedule and its destination, and get a report delivered, in under 30 minutes and
   without reading the runtime's source.
-- **SC-002**: Every playbook in a hostile-playbook corpus covering FR-003 through FR-008 and FR-013
+- **SC-002**: Every playbook in a hostile-playbook corpus covering FR-003 through FR-008, FR-013,
+  FR-034, FR-038 and FR-039
   is refused at load, and every playbook in a valid corpus is accepted. Both corpora are part of
   the test suite, and each refusal case fails the suite when its check is removed.
 - **SC-003**: For any completed run, an operator can state what the agent was asked, what it

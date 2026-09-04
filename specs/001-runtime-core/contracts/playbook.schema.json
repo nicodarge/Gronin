@@ -2,10 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/nicodarge/Gronin/schemas/playbook.json",
   "title": "Gronin playbook",
-  "description": "The shape of a playbook. This schema is the shape layer only: it is published so editors can complete and lint a playbook, and it is NOT the gate. The semantic refusals - path traversal resolution, MCP server existence, shell detection in a tool set, the receipt check - cannot be expressed here and live in the runtime's validator. A playbook that satisfies this schema may still be refused at load, by design.",
+  "description": "The shape of a playbook. This schema is the shape layer only: it is published so editors can complete and lint a playbook, and it is NOT the gate. The semantic refusals - path traversal resolution, MCP server existence, shell detection in a tool set, the receipt check - cannot be expressed here and live in the runtime's validator. A playbook that satisfies this schema may still be refused at load, by design. Interpolation is namespaced (${config.x} or ${trigger.x}); the shape layer does not check that either, so a bare ${x} passes here and is refused by the runtime (FR-039).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "trigger", "agent", "sinks"],
+  "required": [
+    "name",
+    "trigger",
+    "agent",
+    "sinks"
+  ],
   "properties": {
     "name": {
       "type": "string",
@@ -19,9 +24,16 @@
     "trigger": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "properties": {
-        "type": { "enum": ["cron", "manual"] },
+        "type": {
+          "enum": [
+            "cron",
+            "manual"
+          ]
+        },
         "schedule": {
           "type": "string",
           "description": "Required when type is cron. Standard five-field cron expression."
@@ -29,8 +41,18 @@
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "cron" } } },
-          "then": { "required": ["schedule"] }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cron"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "schedule"
+            ]
+          }
         }
       ]
     },
@@ -39,20 +61,36 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["run", "as"],
+        "required": [
+          "run",
+          "as"
+        ],
         "properties": {
-          "run": { "type": "string" },
-          "as": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }
+          "run": {
+            "type": "string"
+          },
+          "as": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+$"
+          }
         }
       }
     },
     "agent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "prompt_file", "output_schema"],
+      "required": [
+        "model",
+        "prompt_file",
+        "output_schema"
+      ],
       "properties": {
-        "model": { "type": "string" },
-        "prompt_file": { "type": "string" },
+        "model": {
+          "type": "string"
+        },
+        "prompt_file": {
+          "type": "string"
+        },
         "restricted": {
           "type": "boolean",
           "default": true,
@@ -60,22 +98,31 @@
         },
         "tools": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "The replacing tool set. The runtime refuses a shell or a writing tool here; the schema cannot tell them apart."
         },
         "mcp": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Server names. The runtime refuses a name this deployment does not provide."
         },
         "allow": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Path-scoped file tools and individually named MCP tools. The runtime refuses an entry naming a whole server, and resolves every path before deciding."
         },
         "output_schema": {
           "description": "JSON Schema the agent report is validated against.",
-          "type": ["object", "string"]
+          "type": [
+            "object",
+            "string"
+          ]
         },
         "timeout": {
           "type": "string",
@@ -91,7 +138,7 @@
         "type": "object",
         "minProperties": 1,
         "maxProperties": 1,
-        "description": "One key naming the sink type, whose value configures it. A sink that creates things must declare a cap; the runtime enforces that, because which sinks create is not knowable from the shape."
+        "description": "One key naming the sink type, whose value configures it. The runtime refuses a type this deployment does not implement (FR-038) and a creating sink without a cap; neither is knowable from the shape alone."
       }
     },
     "guard": {

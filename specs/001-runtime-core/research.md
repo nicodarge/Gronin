@@ -69,7 +69,7 @@ failing, and the version floor above is what protects the fields it does depend 
 
 ## 3. Credential sources
 
-**Question**: which credential sources does the CLI consult, so FR-030 can name them without
+**Question**: which credential sources does the CLI consult, so FR-032 can name them without
 inventing one?
 
 **Method**: read off `claude --help`, plus the `apiKeySource` field observed in `system/init`.
@@ -85,7 +85,7 @@ can take. Neither is guessed.
 
 **Consequence for the design**: the runtime does not reimplement resolution. It supports its own
 explicit configuration, passes what it has to the child through the environment — never through
-`argv`, per the constitution — and otherwise lets the CLI resolve. FR-030's "report which source it
+`argv`, per the constitution — and otherwise lets the CLI resolve. FR-032's "report which source it
 used" is then satisfied by reading `apiKeySource` off the first `system/init` of the startup
 verification run rather than by the runtime asserting anything it has not observed.
 
