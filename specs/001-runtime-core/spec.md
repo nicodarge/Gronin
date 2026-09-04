@@ -84,6 +84,11 @@ confirm each is refused with the field named. Requires no trigger, no agent and 
 6. **Given** a playbook that does not explicitly opt out of restricted execution, **When** it
    runs, **Then** the agent is started with the command- and code-running built-in tools removed
    at the process level, independently of its declared tool set.
+7. **Given** an agent process that reports receiving a tool set wider than the playbook declared,
+   **When** the run starts, **Then** it aborts before any model output is produced and the
+   discrepancy is recorded.
+8. **Given** an agent executable older than the verified version floor, **When** the runtime
+   starts, **Then** it refuses to start and names the version it found and the one it requires.
 
 ---
 
@@ -202,43 +207,51 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **FR-016**: The runtime MUST NOT run two instances of the same playbook concurrently.
 - **FR-017**: The runtime MUST pass side effects exclusively to sinks; the agent stage MUST NOT be
   granted tools that create, modify or delete outside its working directory.
+- **FR-018**: The runtime MUST read the agent process's own report of the tool set and MCP servers
+  it received, MUST compare it against what the playbook declared, and MUST abort the run before
+  any model output is produced when the two differ.
+- **FR-019**: The runtime MUST verify at startup that the agent executable is at or above the
+  version on which its bounding flags were confirmed, and MUST refuse to start otherwise — a
+  bounding flag an older executable does not recognise is ignored rather than refused, which leaves
+  a run unbounded while appearing bounded.
 
 #### Operator surface
 
-- **FR-018**: The runtime MUST be a single executable that both runs the scheduler and serves as
+- **FR-020**: The runtime MUST be a single executable that both runs the scheduler and serves as
   the client for every operator action.
-- **FR-019**: Operators MUST be able to invoke any playbook immediately, list runs, read one run's
+- **FR-021**: Operators MUST be able to invoke any playbook immediately, list runs, read one run's
   record, replay a run and resume a run, without stopping the scheduler.
-- **FR-020**: A manually invoked run MUST be recorded as manually invoked and MUST be subject to
+- **FR-022**: A manually invoked run MUST be recorded as manually invoked and MUST be subject to
   the same validation and bounds as a scheduled one.
 
 #### Sinks
 
-- **FR-021**: The runtime MUST support at least three sinks: two messaging and one creating.
-- **FR-022**: A creating sink MUST NOT create more items than its declared cap, counting items it
+- **FR-023**: The runtime MUST support at least three sinks: two messaging and one creating.
+- **FR-024**: A creating sink MUST NOT create more items than its declared cap, counting items it
   previously created and that remain open.
-- **FR-023**: A sink failure MUST be recorded per sink and MUST NOT discard the agent report.
+- **FR-025**: A sink failure MUST be recorded per sink and MUST NOT discard the agent report.
 
 #### Recording
 
-- **FR-024**: The runtime MUST record for every run: the resolved playbook, gathered inputs, the
+- **FR-026**: The runtime MUST record for every run: the resolved playbook, gathered inputs, the
   full prompt, every tool call with input and output, per-stage timings, token cost, how the run
-  was triggered, terminal status, and per-sink outcome.
-- **FR-025**: The runtime MUST support replaying a recorded run — re-executing the agent stage
+  was triggered, terminal status, per-sink outcome, and every action the agent attempted that its
+  bounds refused.
+- **FR-027**: The runtime MUST support replaying a recorded run — re-executing the agent stage
   against the recorded inputs without re-running gather and without firing the trigger — and MUST
   record the replay as a distinct run linked to the original.
-- **FR-026**: The runtime MUST support resuming a recorded run — re-executing only its sinks
+- **FR-028**: The runtime MUST support resuming a recorded run — re-executing only its sinks
   against the recorded agent report, without re-executing the agent stage.
-- **FR-027**: The runtime MUST redact credential values from every record and log.
-- **FR-028**: The runtime MUST record a scheduled occurrence that did not execute, and the reason.
-- **FR-029**: The runtime MUST mark a run interrupted by runtime shutdown as interrupted, retain
+- **FR-029**: The runtime MUST redact credential values from every record and log.
+- **FR-030**: The runtime MUST record a scheduled occurrence that did not execute, and the reason.
+- **FR-031**: The runtime MUST mark a run interrupted by runtime shutdown as interrupted, retain
   its partial record, and MUST NOT resume it automatically on restart.
 
 #### Credentials
 
-- **FR-030**: The runtime MUST accept a credential from more than one source, MUST document the
-  order in which sources are consulted, and MUST report which source it used at startup.
-- **FR-031**: The runtime MUST verify the configured credential at startup and MUST refuse to
+- **FR-032**: The runtime MUST accept a credential from more than one source and MUST report which
+  source was used, reading that from the agent process's own report rather than asserting it.
+- **FR-033**: The runtime MUST verify the configured credential at startup and MUST refuse to
   start when it is absent or rejected.
 
 ### Key Entities
@@ -277,7 +290,10 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **SC-007**: The runtime is installable as a single self-contained executable with no language
   runtime, package manager or interpreter present on the target machine.
 - **SC-008**: With the deployment's credential removed, the runtime refuses to start and names the
-  sources it consulted; with either of two configured sources present, it starts.
+  sources it consulted; with either of two configured sources present, it starts and reports which
+  one was used.
+- **SC-009**: A run whose agent process reports a tool set wider than declared is aborted with no
+  model output produced, demonstrated by a stub agent that reports a wider set than it was given.
 
 ## Assumptions
 
