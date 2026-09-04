@@ -26,6 +26,8 @@ repos:
     hooks:
       - id: markdownlint
         args: ['--disable', 'MD013', 'MD033', 'MD041', '--']
+        # Vendored Spec Kit assets, refreshed by the Specify CLI.
+        exclude: '^(\.claude/skills/speckit-|\.specify/(templates|scripts|integrations|workflows)/)'
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
