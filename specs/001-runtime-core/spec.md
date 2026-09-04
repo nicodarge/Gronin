@@ -92,7 +92,7 @@ confirm each is refused with the field named. Requires no trigger, no agent and 
 
 ---
 
-### User Story 3 - An operator finds out why a run did what it did (Priority: P2)
+### User Story 3 - An operator finds out why a run did what it did (Priority: P1)
 
 A run produced a surprising report. The operator opens its record and sees the resolved playbook,
 what each gather command returned, what the agent was asked, every tool call with its input and
@@ -100,9 +100,15 @@ output, how long each took, what it cost, and what each sink did. They then eith
 agent against the same recorded inputs to test a prompt change, or re-run only the sinks against
 the report already produced.
 
-**Why this priority**: what this replaces shows an operator where a run stopped and with what
-data. Without it, adoption stalls at the first surprising run — but a first run has to exist
-before there is anything to inspect, so it follows User Story 1 rather than blocking it.
+**Why this priority**: P1, and not by preference. Constitution Principle III requires that a run
+be replayable and resumable from its record, and that inspection ship with the stage it inspects —
+so a release that records runs nobody can read does not satisfy it. This story was first written as
+P2 and the analysis pass caught the contradiction: the plan claimed compliance because replay and
+resume are in the feature, while the task strategy drew a release boundary underneath them. The
+priority was what was wrong, not the principle.
+
+It still depends on User Story 1 — a run has to exist before there is anything to inspect — so it
+is built after it. It ships with it.
 
 **Independent Test**: execute a playbook, then reconstruct from its record alone what the agent
 was asked and what it answered, without reading the runtime's logs. Replay it and confirm the
@@ -187,6 +193,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
   not provide.
 - **FR-008**: The runtime MUST resolve interpolation only against the trigger payload and the
   deployment configuration, and MUST NOT expose the process environment to interpolation.
+- **FR-034**: The runtime MUST refuse a playbook declaring a capability it does not yet apply — a
+  `guard` or a `retrieve` block — rather than accepting it and ignoring the block. A declared bound
+  nothing enforces is worse than an absent one, because it reads as enforced in review.
 
 #### Execution
 
@@ -205,8 +214,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
   MUST mark the run failed when it does not conform.
 - **FR-015**: The runtime MUST terminate an agent stage that exceeds its declared timeout.
 - **FR-016**: The runtime MUST NOT run two instances of the same playbook concurrently.
-- **FR-017**: The runtime MUST pass side effects exclusively to sinks; the agent stage MUST NOT be
-  granted tools that create, modify or delete outside its working directory.
+- **FR-017**: The runtime MUST pass side effects exclusively to sinks. No stage other than a sink
+  may reach anything outside the run's working directory. (The tool-set half of this bound is
+  FR-003, which refuses such a tool at load.)
 - **FR-018**: The runtime MUST read the agent process's own report of the tool set and MCP servers
   it received, MUST compare it against what the playbook declared, and MUST abort the run before
   any model output is produced when the two differ.
@@ -223,6 +233,13 @@ only the cap is created, then run it again unchanged and confirm nothing further
   record, replay a run and resume a run, without stopping the scheduler.
 - **FR-022**: A manually invoked run MUST be recorded as manually invoked and MUST be subject to
   the same validation and bounds as a scheduled one.
+- **FR-035**: The runtime MUST offer a way to run the load gate alone, exiting non-zero on refusal,
+  without requiring a credential and without arming anything — so the gate can run wherever the
+  playbooks are reviewed. It MUST be the same code path the scheduler runs: a validator that can
+  disagree with the runtime is worse than none.
+- **FR-036**: The operator API MUST bind a loopback address by default, and binding it to any other
+  address MUST require a credential to be configured first. An unauthenticated listener that can
+  invoke playbooks is a remote execution surface, and the default must not be one step from it.
 
 #### Sinks
 
@@ -246,6 +263,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **FR-030**: The runtime MUST record a scheduled occurrence that did not execute, and the reason.
 - **FR-031**: The runtime MUST mark a run interrupted by runtime shutdown as interrupted, retain
   its partial record, and MUST NOT resume it automatically on restart.
+- **FR-037**: A run's terminal status MUST distinguish a run that was refused before it started
+  from one that ran and failed. A playbook refused every night costs nothing and is not an
+  incident, but it is broken, and one status for both hides that.
 
 #### Credentials
 
@@ -299,11 +319,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
 
 - **Guard is out of scope.** Cross-process locking, rate limiting and deduplication are specified
   separately. This feature provides only the single-process guarantee that one playbook does not
-  run twice concurrently (FR-016). The published schema accepts a `guard` block and the runtime
-  MUST refuse to start when one is present, rather than accepting and silently ignoring it — a
-  playbook that declares a bound the runtime does not apply is exactly what Principle I forbids.
-- **Retrieve is out of scope.** Semantic retrieval is specified separately. As with `guard`, a
-  playbook declaring a `retrieve` block is refused rather than silently ignored.
+  run twice concurrently (FR-016). A playbook declaring a `guard` block is refused, per FR-034.
+- **Retrieve is out of scope.** Semantic retrieval is specified separately. A playbook declaring a
+  `retrieve` block is refused on the same terms, per FR-034.
 - **Webhook triggers are out of scope.** Only schedule and manual invocation are in scope.
 - **One agent stage per playbook.** Multi-stage playbooks, conditional branching and iteration
   between stages are deliberately excluded until a real playbook needs them.

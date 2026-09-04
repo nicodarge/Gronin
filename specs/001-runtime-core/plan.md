@@ -91,10 +91,17 @@ requirement (FR-006), not a runtime check.
 
 ### III. Every Run Is Inspectable — PASS, with the reading deliberately narrowed
 
-Records, replay and resume all ship in this feature (FR-026 through FR-031). The web dashboard does
-not, and that is a considered reading rather than a deferral of the principle: Principle III demands
-the record and the ability to re-run from it, not a particular way of looking at it. The API that a
-dashboard would consume is built here; only the HTML is deferred.
+Records, replay and resume all ship in this feature (FR-026 through FR-031), **and in its first
+tag**. That second clause is not redundant: an earlier draft of the task list drew a release
+boundary inside the feature, below replay and resume, and this gate read PASS anyway because the
+capabilities were present *somewhere* in the feature. A constitutional gate that only asks whether
+a principle is satisfied eventually says nothing about what actually ships, so this one names the
+release.
+
+The web dashboard is deferred, and that is a considered reading rather than a departure: Principle
+III demands the record and the ability to re-run from it, not a particular way of looking at it.
+The operator commands that satisfy it ship in the first tag, and so does the API a dashboard would
+later consume; only the HTML waits.
 
 ### IV. Playbooks Are Portable Data — PASS
 
@@ -193,6 +200,11 @@ on.
 No constitutional violation requires justification. One deliberate narrowing is recorded above under
 Principle III (dashboard deferred, API built) rather than here, because it is a reading of the
 principle rather than a departure from it.
+
+One conflict existed and was removed rather than justified. The task list originally made the first
+tag US1 + US2, leaving replay and resume to a later release; the analysis pass found that this
+contradicted Principle III. The resolution was to correct User Story 3's priority to P1, not to
+reinterpret the principle — which is what the constitution's own governance section requires.
 
 | Choice | Why | Simpler alternative rejected because |
 | ------ | --- | ------------------------------------ |

@@ -15,9 +15,15 @@ refusal fails the suite when its check is removed, and the constitution requires
 a bound to be tested against what it refuses. A guard probed only on its accepted values is
 untested.
 
-**Organization**: grouped by user story. The two P1 stories ship together — Constitution Principle I
-forbids releasing US1 without US2 — but they are separately implementable and separately testable,
-which is why they stay separate phases.
+**Organization**: grouped by user story. The three P1 stories ship together — Principle I forbids
+releasing US1 without US2, and Principle III forbids releasing either without US3, which requires
+that a run be replayable and resumable from its record. They stay separate phases because each is
+separately implementable and separately testable, not because each is separately releasable.
+
+**Task numbering**: T068-T071 were added after the analysis pass and sit in the phase they belong
+to rather than at the end of the file, so the identifiers are not in document order. Identifiers
+are stable and tasks reference each other; renumbering to restore the order would break those
+references silently, which is exactly how the earlier renumbering went wrong.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -61,7 +67,7 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
 - [ ] T010 Test: no configured secret value appears in any record or log line produced by the whole
       suite, asserted by scanning the suite's own output (SC-005)
 - [ ] T011 `internal/playbook`: YAML parse into typed structs (shape layer), and embed
-      `contracts/playbook.schema.json` for publication
+      `contracts/playbook.schema.json` for publication (FR-002)
 - [ ] T012 Port the schema probe to Go: fourteen documents, ten of which must be refused. The Python
       probe run on 2026-09-04 passed all fourteen; this is the same assertion, in the test suite,
       where it can keep passing
@@ -71,7 +77,8 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
 - [ ] T014 `testdata/fakeclaude/`: a stub agent binary emitting canned `stream-json`, with knobs for
       success, timeout, malformed output, a mismatched tool-set receipt, and a non-zero exit. Every
       agent-stage test uses it; none spends a token
-- [ ] T015 `cmd/gronin`: cobra skeleton with `version` and the flag plumbing for the state directory
+- [ ] T015 `cmd/gronin`: cobra skeleton with `version` and the flag plumbing for the state
+      directory (FR-020)
 
 **Checkpoint**: playbooks parse, runs can be created and recorded, and the agent can be faked.
 
@@ -98,6 +105,14 @@ scheduled a minute out; a report arrives referencing the fixture.
       the run failed and sends the validation failure, not the malformed content (FR-014)
 - [ ] T021 [P] [US1] Working-directory test: after a run ends by any path — success, failure,
       timeout, refusal — the directory is gone and the gathered inputs are still in the record
+- [ ] T068 [P] [US1] Concurrency test: a trigger firing while a run of the same playbook is in
+      flight does not start a second one (FR-016, US1 acceptance scenario 4)
+- [ ] T069 [P] [US1] Manual-invocation test: a playbook invoked by hand runs immediately, is
+      recorded as manually invoked, and is subject to the same bounds as a scheduled run (FR-022,
+      US1 acceptance scenario 5)
+- [ ] T070 [P] [US1] Sinks-only test: with an agent report asking for something no sink was
+      declared to do, nothing outside the sinks is created or modified (FR-017, US1 acceptance
+      scenario 7). This is Principle II's runtime property and the only test that asserts it
 
 ### Implementation for User Story 1
 
@@ -106,22 +121,23 @@ scheduled a minute out; a report arrives referencing the fixture.
       limits, per-step exit code and stderr capture
 - [ ] T024 [US1] `internal/stage/agent`: build the argument vector from the playbook's agent
       declaration; spawn the child; pass credentials through the environment, never `argv`
+      (FR-012)
 - [ ] T025 [US1] `internal/stage/agent`: `stream-json` decoder — ignore unknown event types and
       unknown fields, so a CLI update degrades rather than breaks (research.md §2)
 - [ ] T026 [US1] `internal/stage/agent`: timeout, cancellation and child cleanup on shutdown
 - [ ] T027 [US1] Validate the agent report against the playbook's `output_schema` (FR-014)
 - [ ] T028 [P] [US1] `internal/sink`: the sink interface, the cap contract, and per-sink outcome
-      recording
-- [ ] T029 [P] [US1] `internal/sink/discord`
-- [ ] T030 [P] [US1] `internal/sink/slack`
+      recording (FR-017, FR-025)
+- [ ] T029 [P] [US1] `internal/sink/discord` (FR-023)
+- [ ] T030 [P] [US1] `internal/sink/slack` (FR-023)
 - [ ] T031 [US1] Copy gathered inputs into the record store **before** removing the working
       directory — the record is empty without this, and the ordering is the whole of it
 - [ ] T032 [US1] `gronin run`: manual invocation, recorded as manually invoked and subject to the
       same bounds as a scheduled run (FR-022)
-- [ ] T033 [US1] `gronin serve`: load, verify, arm, serve
+- [ ] T033 [US1] `gronin serve`: load, verify, arm, serve (FR-020)
 
-**Checkpoint**: a playbook runs on its schedule and a report arrives. Not shippable yet — US2 is the
-other half of this release.
+**Checkpoint**: a playbook runs on its schedule and a report arrives. Not shippable — US2 and US3
+are the rest of this release.
 
 ---
 
@@ -145,6 +161,9 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
       something only the environment has
 - [ ] T035 [P] [US2] `testdata/playbooks/valid/`: the accepting corpus. A denylist probed only on
       its refusals is an allowlist in disguise
+- [ ] T071 [P] [US2] Credential test: with no source configured the runtime refuses to start and
+      names the sources it consulted; with either of two sources configured it starts and reports
+      which one the agent process named (FR-032, FR-033, SC-008)
 - [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
       copy of the validator and assert the suite fails. A refusal case that passes with its check
       deleted is not testing anything, and nothing else would ever tell you
@@ -159,12 +178,12 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
       before deciding, so a relative traversal is caught (FR-005)
 - [ ] T041 [P] [US2] Refuse a creating sink without a cap (FR-006), and an MCP server this
       deployment does not provide (FR-007)
-- [ ] T042 [P] [US2] Refuse a `guard` or `retrieve` block: a declared bound the runtime does not
-      apply is worse than an absent one
+- [ ] T042 [P] [US2] Refuse a `guard` or `retrieve` block (FR-034): a declared bound the runtime
+      does not apply is worse than an absent one
 - [ ] T043 [US2] Refusal output per `contracts/cli.md`: playbook, field, what was found, what would
-      be accepted, and the closing line stating that nothing was armed
-- [ ] T044 [US2] `gronin validate`: the same code path as `serve`, with no credential required so it
-      can run in CI. A validator that can disagree with the runtime is worse than none
+      be accepted, and the closing line stating that nothing was armed (FR-002)
+- [ ] T044 [US2] `gronin validate`: the same code path as `serve`, with no credential required so
+      it can run in CI (FR-035). A validator that can disagree with the runtime is worse than none
 - [ ] T045 [US2] Restricted execution as the default, overridable only with a stated reason
       (FR-013)
 - [ ] T046 [US2] The receipt check: compare the tool set and MCP servers the child reports in its
@@ -174,19 +193,20 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 - [ ] T048 [US2] Credential verification at startup, reporting the source the agent process names
       rather than asserting one (FR-032, FR-033)
 
-**Checkpoint**: the release is now shippable. US1 and US2 together are the first thing worth
-tagging.
+**Checkpoint**: nothing unsafe can be armed. Still not shippable — a runtime that records runs
+nobody can read fails Principle III, which US3 closes.
 
 ---
 
-## Phase 5: User Story 3 — Finding out why a run did what it did (P2)
+## Phase 5: User Story 3 — Finding out why a run did what it did (P1)
 
 **Goal**: a record that answers the question, and two ways to act on it that cost differently.
 
 ### Tests for User Story 3
 
 - [ ] T049 [P] [US3] Record-completeness test: for a completed run, every field FR-026 lists is
-      present and readable
+      present and readable, and its terminal status distinguishes refused from failed (FR-037,
+      SC-003)
 - [ ] T050 [P] [US3] Replay test: recorded inputs are reused, gather does not re-execute, no trigger
       fires, and the replay is a distinct run linked to its parent (FR-027)
 - [ ] T051 [P] [US3] Resume test: the recorded report is reused, the agent does not re-execute, and
@@ -197,15 +217,17 @@ tagging.
 ### Implementation for User Story 3
 
 - [ ] T053 [US3] Record every action the agent attempted that its bounds refused (FR-026). Small
-      table, and the only thing in the record that says a playbook's tool set is wrong
+      table, and the only thing in the record that says a playbook's tool set is wrong (FR-037)
 - [ ] T054 [US3] `internal/api`: the local HTTP API — list runs, read one, invoke, replay, resume.
-      Loopback by default; binding elsewhere requires a configured credential first
-- [ ] T055 [P] [US3] `gronin runs` and `gronin show`
+      Loopback by default; binding elsewhere requires a configured credential first (FR-021,
+      FR-036)
+- [ ] T055 [P] [US3] `gronin runs` and `gronin show` (FR-021)
 - [ ] T056 [P] [US3] `gronin replay` — re-run the agent against recorded inputs
 - [ ] T057 [P] [US3] `gronin resume` — re-run only the sinks against the recorded report
 - [ ] T058 [US3] Interrupted-run reconciliation on startup
 
-**Checkpoint**: a surprising run can be understood and acted on without paying twice.
+**Checkpoint**: a surprising run can be understood and acted on without paying twice. **This is the
+first tag**: US1, US2 and US3 together are the smallest thing that satisfies the constitution.
 
 ---
 
@@ -223,7 +245,7 @@ tagging.
 ### Implementation for User Story 4
 
 - [ ] T062 [US4] `internal/sink/github`: create issues, count open ones against the cap, and avoid
-      re-opening a match
+      re-opening a match (FR-023, FR-024)
 
 ---
 
@@ -245,7 +267,8 @@ tagging.
 - **Setup (Phase 1)** → **Foundational (Phase 2)** → everything else.
 - **US1 and US2 (Phases 3-4)** are one release. US2's load gate needs nothing from US1 and can be
   built in parallel with it; US2's receipt check (T046) needs T024.
-- **US3 (Phase 5)** needs a run to exist, so it follows US1. It does not need US4.
+- **US3 (Phase 5)** needs a run to exist, so it follows US1 — but it ships with it. It does not
+  need US4.
 - **US4 (Phase 6)** needs only the sink interface from T028.
 - **Polish (Phase 7)** follows the stories it documents.
 
@@ -259,12 +282,17 @@ independent functions behind one gate.
 
 ## Implementation Strategy
 
-**The first shippable thing is US1 + US2 together**, not US1 alone. That is a constitutional
-constraint rather than a preference: a runtime that executes unvalidated playbooks hands a shell to
-a model on someone else's machine, and shipping it "temporarily" is how that ends up permanent.
+**The first shippable thing is US1 + US2 + US3 together.** Both halves of that are constitutional
+constraints rather than preferences. A runtime that executes unvalidated playbooks hands a shell to
+a model on someone else's machine, and shipping it "temporarily" is how that becomes permanent.
+A runtime that records runs nobody can read, replay or resume fails Principle III just as squarely
+— and it is also where a tool gets abandoned, at the first surprising run.
 
-Then US3, which is what makes the thing adoptable rather than merely functional — the first
-surprising run is where a tool without inspection gets abandoned. Then US4.
+This was originally written as a two-story first release. The analysis pass found that it
+contradicted Principle III, and the priority was what was wrong, not the principle.
+
+Then US4, which is genuinely deferrable: the messaging sinks already prove the pipeline, and the
+creating sink adds reach rather than correctness.
 
 ## Notes
 
