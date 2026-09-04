@@ -158,8 +158,8 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
       the tool set, a writing tool, an allowlist naming a whole MCP server, a file scope escaping
       the working directory (absolute and relative forms), an unknown MCP server, a creating sink
       with no cap, a `guard` block, a `retrieve` block, an unknown sink type, a bare interpolation
-      missing its namespace, a duplicate name, and an interpolation naming something only the
-      environment has
+      missing its namespace, restricted execution turned off with no stated reason, a duplicate
+      name, and an interpolation naming something only the environment has (FR-041, FR-042)
 - [ ] T035 [P] [US2] `testdata/playbooks/valid/`: the accepting corpus. A denylist probed only on
       its refusals is an allowlist in disguise
 - [ ] T071 [P] [US2] Credential test: with no source configured the runtime refuses to start and
@@ -183,15 +183,15 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 - [ ] T044 [US2] `gronin validate`: the same code path as `serve`, with no credential required so
       it can run in CI (FR-035). A validator that can disagree with the runtime is worse than none
 - [ ] T045 [US2] Restricted execution as the default, overridable only with a stated reason
-      (FR-013)
+      (FR-013, FR-041)
 - [ ] T046 [US2] The receipt check: compare the tool set and MCP servers the child reports in its
       first event against what the playbook declared, and abort before any model output when they
       differ (FR-018). Test it with the stub reporting a wider set than it was given (SC-009)
 - [ ] T047 [US2] Agent version floor, checked at startup and reported by `gronin version` (FR-019)
 - [ ] T048 [US2] Credential verification at startup, reporting the source the agent process names
       rather than asserting one (FR-032, FR-033)
-- [ ] T072 [US2] Refuse a sink type this deployment does not implement (FR-038), and an
-      interpolation that omits its namespace (FR-039)
+- [ ] T072 [US2] Refuse a sink type this deployment does not implement (FR-038), an interpolation
+      that omits its namespace (FR-039), and two playbooks declaring the same name (FR-042)
 - [ ] T073 [US2] `gronin config set` and `gronin config list`, with secret values redacted on
       display (FR-040)
 - [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a

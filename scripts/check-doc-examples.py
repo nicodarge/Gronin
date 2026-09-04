@@ -52,7 +52,7 @@ def main(argv: list[str]) -> int:
 
     validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text()))
 
-    paths = [Path(a) for a in argv[1:]] or sorted(
+    paths = [Path(a).resolve() for a in argv[1:]] or sorted(
         {*ROOT.glob("docs/**/*.md"), *ROOT.glob("specs/**/*.md"), *ROOT.glob("*.md")}
     )
     paths = [p for p in paths if p.suffix == ".md" and p.exists()]
@@ -61,7 +61,8 @@ def main(argv: list[str]) -> int:
     failures = 0
 
     for path, line, body in found:
-        where = f"{path.relative_to(ROOT)}:{line}"
+        shown = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+        where = f"{shown}:{line}"
         try:
             doc = yaml.safe_load(body)
         except yaml.YAMLError as exc:

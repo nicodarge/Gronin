@@ -30,7 +30,7 @@ DEFINES = {
     "SC": re.compile(r"^- \*\*(SC-\d+)\*\*:", re.M),
     "T": re.compile(r"^- \[[ x]\] (T\d+)", re.M),
 }
-REFERENCE = re.compile(r"\b((?:FR|SC)-\d+|T\d{3})\b")
+REFERENCE = re.compile(r"\b((?:FR|SC)-\d+|T\d{2,4})\b")
 
 
 def check_feature(feature: Path) -> int:
