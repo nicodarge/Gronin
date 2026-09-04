@@ -26,8 +26,36 @@ repos:
     hooks:
       - id: markdownlint
         args: ['--disable', 'MD013', 'MD033', 'MD041', '--']
+        # Vendored Spec Kit assets, refreshed by the Specify CLI.
+        exclude: '^(\.claude/skills/speckit-|\.specify/(templates|scripts|integrations|workflows)/)'
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
     hooks:
       - id: actionlint
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # Both sweep the whole tree rather than the changed files: the failures they
+      # exist for are a document contradicting a neighbour nobody edited.
+      - id: doc-examples
+        name: documented playbook examples validate
+        entry: scripts/check-doc-examples.py
+        language: python
+        additional_dependencies: [jsonschema==4.23.0, pyyaml==6.0.2]
+        pass_filenames: false
+        always_run: true
+
+      - id: spec-refs
+        name: spec identifiers resolve
+        entry: scripts/check-spec-refs.py
+        language: python
+        pass_filenames: false
+        always_run: true
