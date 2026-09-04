@@ -51,8 +51,8 @@ mutated into a different failure keeps being treated as the original one.
 
 ### `gather`
 
-Shell commands, HTTP calls and file reads, written to a scratch directory the
-agent is pointed at. This is the stage that carries a deployment's specifics,
+Shell commands, HTTP calls and file reads, written into the run's working directory, which is
+what the agent is pointed at. This is the stage that carries a deployment's specifics,
 and the reason a playbook can be generic while its inputs are not.
 
 ### `retrieve`
@@ -62,15 +62,17 @@ Optional; a playbook that omits it simply runs without prior context.
 
 ### `agent`
 
-One agent run through the Claude Agent SDK, in process. Not an SSH call to a
-machine that happens to have a CLI installed: in-process execution is what makes
-streaming, typed errors, per-run cost and cancellation possible at all.
+One agent run, driven as a child process over the Claude Code command-line contract — the same
+contract a language-specific agent SDK wraps. Not an SSH call to a machine that happens to have
+the CLI installed: the runtime owns the process, which is what makes streaming, timeouts,
+cancellation, per-run cost and a complete transcript possible at all.
 
 The tool set is declared and enforced. Three separate mechanisms are needed to
 bound an agent, and only one of them is obvious:
 
 | Mechanism | What it actually does |
 | --------- | -------------------- |
+| Restricted execution | Removes the command- and code-running built-in tools from the process outright. The default here, and the only one a playbook cannot widen by accident |
 | The tool set | Replaces the built-in tools, so a name that is absent is absent rather than merely unpermitted |
 | Strict MCP configuration | Loads only the declared servers; an empty configuration removes them outright |
 | The allowlist | Path-scopes file tools and names individual tools inside a loaded server |
@@ -93,3 +95,8 @@ Every run is recorded: events, tool calls, timings, cost. A visual workflow tool
 shows you where a run stopped and with what data; a service that does not
 replace that capability is a downgrade, however much cleaner its code is. This
 is not a phase-3 nicety, it ships with the runtime.
+
+Two things can be done with a record, and they are different operations with different costs.
+**Replay** re-runs the agent stage against the recorded inputs — what you reach for after
+changing a prompt. **Resume** re-runs only the sinks against the report already produced — what
+you reach for when a sink failed and the reasoning was fine. Neither fires a trigger.

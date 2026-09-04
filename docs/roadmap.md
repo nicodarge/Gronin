@@ -19,9 +19,10 @@ whether the subject interests anyone.
 
 ## Phase 2 — The runtime core
 
-Playbook loading and validation, the cron trigger, the agent stage on the Claude
-Agent SDK, and two sinks. Execution records and replay ship in this phase, not
-after it. Proven by porting the simplest existing agent command end to end.
+One executable that is both the scheduler and the operator's client. Playbook loading and
+validation, the cron trigger, the agent stage driven over the Claude Code command-line contract,
+and three sinks — two messaging, one creating. Execution records, replay and resume ship in this
+phase, not after it. Proven by porting the simplest existing agent command end to end.
 
 ## Phase 3 — Guard, retrieve, webhook
 

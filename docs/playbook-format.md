@@ -33,6 +33,7 @@ retrieve:                        # optional
 agent:
   model: sonnet
   prompt_file: doc-check.prompt
+  restricted: true               # default; removes command- and code-running built-ins
   tools: [Read, Grep, Glob]      # the bound, validated at load
   mcp: []                        # declared servers only
   allow:
@@ -56,11 +57,15 @@ The runtime rejects a playbook at load time, before any trigger is armed, when:
 
 - `agent.tools` contains a bare shell tool, or a write-capable tool that the
   playbook's sinks do not require.
+- `agent.restricted` is set to false without the playbook stating why in its
+  `description` — turning the coarsest bound off is a decision, not a default.
 - `agent.allow` names a whole MCP server rather than individual tools, or
   path-scopes a file tool to a path outside the run's working directory.
 - `agent.mcp` names a server that is not configured on this deployment.
 - `guard.dedup_key` interpolates a timestamp originating in the trigger payload.
 - A sink that creates things omits its `cap`.
+- A `guard` or `retrieve` block is present while the runtime does not yet apply it. A declared
+  bound the runtime ignores is worse than an absent one, so it is refused rather than dropped.
 
 A refusal is loud and names the field. The failure mode being prevented is a
 playbook that looks bounded, reads as bounded in review, and is not — which is

@@ -10,7 +10,8 @@ Added sections:
   - Governance
 Removed sections: none
 Templates requiring review:
-  - .specify/templates/plan-template.md — Constitution Check gate reads Principle I and II
+  - .specify/templates/plan-template.md — its Constitution Check gate is an unfilled
+    placeholder; it SHOULD be filled with Principles I, II and V when a plan is written
   - .specify/templates/spec-template.md — no change required
   - .specify/templates/tasks-template.md — no change required
 Follow-up TODOs: none
@@ -45,7 +46,7 @@ It is the only failure here that harms someone other than the person who made it
 ### II. The Agent Reports, the Runtime Acts
 
 An agent stage produces a structured report against a declared schema. It MUST NOT be granted
-tools that create, modify or delete anything outside its own scratch directory. Every side
+tools that create, modify or delete anything outside the run's working directory. Every side
 effect — an issue, a message, a document, a metric — is performed by a sink, after the run has
 returned.
 
@@ -60,7 +61,9 @@ lost along with the noise.
 
 The runtime MUST record, for every run: the resolved playbook, the gathered inputs, the
 retrieved context, every tool call with its input and output, the timings, the token cost, and
-the outcome of every sink. A run MUST be replayable from that record without re-triggering it.
+the outcome of every sink. From that record, and without firing a trigger, a run MUST be
+replayable — re-running the agent stage against the recorded inputs — and resumable —
+re-running only its sinks against the report already produced.
 
 Inspection ships with the stage it inspects. A stage merged without its execution record is
 incomplete.

@@ -7,6 +7,6 @@ description = "Hiera eyaml ciphertext must never reach this repository"
 regex = '''ENC\[PKCS7,'''
 
 [[rules]]
-id = "claude-oauth-token"
-description = "Claude Code OAuth token"
+id = "claude-token"
+description = "Claude OAuth token or API key"
 regex = '''sk-ant-(api|oat)[0-9a-zA-Z_\-]{20,}'''

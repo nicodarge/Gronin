@@ -8,6 +8,15 @@
 
 **Input**: User description: "The runtime core: load and validate playbooks, run them on a schedule, execute one bounded agent stage, route the result to a sink, and record every run so it can be inspected and replayed."
 
+## Clarifications
+
+### Session 2026-09-04
+
+- Q: Which language and execution model for the agent stage? → A: Go. The Claude Agent SDK exists only for Python and TypeScript, so the runtime drives the Claude Code CLI directly over its documented `--print --output-format stream-json` contract — the same contract the SDK wraps, and the same one the containment flags belong to. Distribution as a single static binary was judged worth more than a language-specific SDK wrapper.
+- Q: What does replaying a run mean? → A: Two distinct verbs. `replay` re-runs the agent stage against the recorded inputs; `resume` re-runs only the sinks against the report already produced. Different costs, different purposes, no ambiguity.
+- Q: How does an operator invoke a playbook manually and inspect a run? → A: One binary that is both daemon and client. `gronin serve` runs the scheduler and a local API; `gronin run`, `gronin runs`, `gronin show`, `gronin replay` and `gronin resume` are clients of that API. A web dashboard is deferred to a later feature and will be served by the same API.
+- Q: Which concrete sinks ship first? → A: Three — Discord, Slack, and GitHub issues. Two messaging implementations validate the sink interface properly, and nothing is left to build before the repository goes public.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A scheduled playbook produces a report where the operator works (Priority: P1)
@@ -37,6 +46,12 @@ arrives that references the fixture content. No other user story needs to exist.
    validation failure rather than the malformed content.
 4. **Given** a run already in progress for a playbook, **When** its trigger fires again, **Then**
    the second run does not start concurrently.
+5. **Given** any playbook, **When** an operator invokes it manually rather than waiting for its
+   schedule, **Then** it executes immediately and its run is recorded as manually invoked.
+6. **Given** a running playbook, **When** the run ends for any reason, **Then** its working
+   directory no longer exists.
+7. **Given** a playbook whose agent report asks for something no sink was declared to do, **When**
+   the run completes, **Then** nothing outside the sinks is created or modified.
 
 ---
 
@@ -63,9 +78,12 @@ confirm each is refused with the field named. Requires no trigger, no agent and 
    **When** the runtime loads it, **Then** startup fails, including when the escape is expressed
    through a relative path.
 4. **Given** a playbook with a creating sink and no cap, **When** the runtime loads it, **Then**
-   startup fails naming the sink.
+   startup fails naming the sink and its missing `cap` field.
 5. **Given** one invalid playbook among several valid ones, **When** the runtime loads them,
    **Then** no playbook is armed — the runtime refuses to start rather than starting partially.
+6. **Given** a playbook that does not explicitly opt out of restricted execution, **When** it
+   runs, **Then** the agent is started with the command- and code-running built-in tools removed
+   at the process level, independently of its declared tool set.
 
 ---
 
@@ -73,8 +91,9 @@ confirm each is refused with the field named. Requires no trigger, no agent and 
 
 A run produced a surprising report. The operator opens its record and sees the resolved playbook,
 what each gather command returned, what the agent was asked, every tool call with its input and
-output, how long each took, what it cost, and what each sink did. They replay the run against the
-same inputs without re-triggering it.
+output, how long each took, what it cost, and what each sink did. They then either re-run the
+agent against the same recorded inputs to test a prompt change, or re-run only the sinks against
+the report already produced.
 
 **Why this priority**: what this replaces shows an operator where a run stopped and with what
 data. Without it, adoption stalls at the first surprising run — but a first run has to exist
@@ -90,10 +109,14 @@ same inputs produce a second recorded run marked as a replay.
    playbook, gathered inputs, the full prompt, every tool call with input and output, per-stage
    timings, token cost, and per-sink outcome.
 2. **Given** a completed run, **When** it is replayed, **Then** the recorded inputs are reused,
-   no trigger fires, and the replay is recorded as a distinct run linked to the original.
-3. **Given** a run that failed at the sink stage, **When** its record is read, **Then** the agent
+   the gather stage does not re-execute, no trigger fires, and the replay is recorded as a
+   distinct run linked to the original.
+3. **Given** a run whose agent succeeded and whose sink failed, **When** it is resumed, **Then**
+   the recorded report is reused, the agent stage does not re-execute, no tokens are spent, and
+   only the sinks run again.
+4. **Given** a run that failed at the sink stage, **When** its record is read, **Then** the agent
    report is present in full and the sink failure is attributed to the sink.
-4. **Given** any recorded run, **When** its record is read, **Then** no credential value appears
+5. **Given** any recorded run, **When** its record is read, **Then** no credential value appears
    in it.
 
 ---
@@ -103,9 +126,9 @@ same inputs produce a second recorded run marked as a replay.
 A playbook reports findings as issues in a tracker. It never opens more than its declared cap, and
 it does not re-open an issue matching one already open.
 
-**Why this priority**: the second sink proves the sink interface is genuinely an interface rather
-than one destination with a plugin-shaped name. It is deferrable because the first sink already
-demonstrates the pipeline end to end.
+**Why this priority**: the creating sink is the one whose failure mode is loud and public, and it
+is what makes a reported finding actionable rather than merely visible. It is deferrable because
+the messaging sinks already demonstrate the pipeline end to end.
 
 **Independent Test**: run a playbook whose agent returns more findings than the cap and confirm
 only the cap is created, then run it again unchanged and confirm nothing further is created.
@@ -126,12 +149,14 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - The agent stage exceeds its declared timeout: the run is terminated, marked timed out, and the
   partial transcript is retained in the record.
 - A sink fails after the agent succeeded: the report is preserved in the record so no work is lost
-  and the run can be replayed against the sink alone.
+  and the run can be resumed against the sinks alone.
 - A playbook interpolates a name that resolves to nothing: refused at load, not at trigger time.
-- The credential is missing or rejected at startup: the runtime refuses to start and names the
-  credential source, rather than arming triggers that will each fail later.
+- No credential source is configured, or the configured one is rejected: the runtime refuses to
+  start and names the source it tried, rather than arming triggers that will each fail later.
 - The system clock jumps or the runtime restarts across a scheduled time: a missed occurrence is
   not silently skipped without a record of the miss.
+- The runtime is stopped while a run is in flight: on restart that run is marked interrupted with
+  its partial record intact, and is never silently resumed.
 - A gather command writes more output than the run is allowed to hold: truncated at a declared
   limit, with the truncation recorded.
 - Two playbooks declare the same name: refused at load.
@@ -161,50 +186,70 @@ only the cap is created, then run it again unchanged and confirm nothing further
 #### Execution
 
 - **FR-009**: The runtime MUST execute a playbook on its declared schedule without operator
-  interaction, and MUST support manual invocation of any playbook.
+  interaction.
 - **FR-010**: The runtime MUST execute gather steps before the agent stage, and MUST abort the run
   without invoking the agent if any gather step fails.
 - **FR-011**: The runtime MUST execute each run in its own working directory, and MUST remove it
   when the run ends.
 - **FR-012**: The runtime MUST enforce the declared tool set, MCP server list and allowlist on the
   agent, and MUST NOT allow a run to widen them.
-- **FR-013**: The runtime MUST validate the agent's response against the declared output schema and
+- **FR-013**: The runtime MUST start the agent with the command- and code-running built-in tools
+  removed at the process level by default, independently of the declared tool set. A playbook MAY
+  opt out only by declaring the opt-out explicitly.
+- **FR-014**: The runtime MUST validate the agent's response against the declared output schema and
   MUST mark the run failed when it does not conform.
-- **FR-014**: The runtime MUST terminate an agent stage that exceeds its declared timeout.
-- **FR-015**: The runtime MUST NOT run two instances of the same playbook concurrently.
-- **FR-016**: The runtime MUST pass side effects exclusively to sinks; the agent stage MUST NOT be
+- **FR-015**: The runtime MUST terminate an agent stage that exceeds its declared timeout.
+- **FR-016**: The runtime MUST NOT run two instances of the same playbook concurrently.
+- **FR-017**: The runtime MUST pass side effects exclusively to sinks; the agent stage MUST NOT be
   granted tools that create, modify or delete outside its working directory.
+
+#### Operator surface
+
+- **FR-018**: The runtime MUST be a single executable that both runs the scheduler and serves as
+  the client for every operator action.
+- **FR-019**: Operators MUST be able to invoke any playbook immediately, list runs, read one run's
+  record, replay a run and resume a run, without stopping the scheduler.
+- **FR-020**: A manually invoked run MUST be recorded as manually invoked and MUST be subject to
+  the same validation and bounds as a scheduled one.
 
 #### Sinks
 
-- **FR-017**: The runtime MUST support at least two sink types, one messaging and one creating.
-- **FR-018**: A creating sink MUST NOT create more items than its declared cap, counting items it
+- **FR-021**: The runtime MUST support at least three sinks: two messaging and one creating.
+- **FR-022**: A creating sink MUST NOT create more items than its declared cap, counting items it
   previously created and that remain open.
-- **FR-019**: A sink failure MUST be recorded per sink and MUST NOT discard the agent report.
+- **FR-023**: A sink failure MUST be recorded per sink and MUST NOT discard the agent report.
 
 #### Recording
 
-- **FR-020**: The runtime MUST record for every run: the resolved playbook, gathered inputs, the
-  full prompt, every tool call with input and output, per-stage timings, token cost, terminal
-  status, and per-sink outcome.
-- **FR-021**: The runtime MUST allow a recorded run to be replayed from its recorded inputs
-  without firing its trigger, recording the replay as a distinct run linked to the original.
-- **FR-022**: The runtime MUST redact credential values from every record and log.
-- **FR-023**: The runtime MUST record a scheduled occurrence that did not execute, and the reason.
+- **FR-024**: The runtime MUST record for every run: the resolved playbook, gathered inputs, the
+  full prompt, every tool call with input and output, per-stage timings, token cost, how the run
+  was triggered, terminal status, and per-sink outcome.
+- **FR-025**: The runtime MUST support replaying a recorded run — re-executing the agent stage
+  against the recorded inputs without re-running gather and without firing the trigger — and MUST
+  record the replay as a distinct run linked to the original.
+- **FR-026**: The runtime MUST support resuming a recorded run — re-executing only its sinks
+  against the recorded agent report, without re-executing the agent stage.
+- **FR-027**: The runtime MUST redact credential values from every record and log.
+- **FR-028**: The runtime MUST record a scheduled occurrence that did not execute, and the reason.
+- **FR-029**: The runtime MUST mark a run interrupted by runtime shutdown as interrupted, retain
+  its partial record, and MUST NOT resume it automatically on restart.
 
 #### Credentials
 
-- **FR-024**: The runtime MUST support more than one credential source and MUST verify the
-  configured credential at startup, refusing to start when it is absent or rejected.
+- **FR-030**: The runtime MUST accept a credential from more than one source, MUST document the
+  order in which sources are consulted, and MUST report which source it used at startup.
+- **FR-031**: The runtime MUST verify the configured credential at startup and MUST refuse to
+  start when it is absent or rejected.
 
 ### Key Entities
 
 - **Playbook**: the declarative unit an operator writes and shares. Holds a name, a trigger, the
   gather steps, the agent declaration (model, prompt, tool set, MCP servers, allowlist, output
   schema, timeout) and the sinks. Contains no deployment-specific values.
-- **Run**: one execution of one playbook. Holds a status, a working directory, the resolved
-  playbook, timings and cost, and a link to the run it replays when it is a replay.
-- **Gathered input**: a named artifact produced by a gather step and readable by the agent.
+- **Run**: one execution of one playbook. Holds a status, how it was triggered, a working
+  directory, the resolved playbook, timings and cost, and a link to the run it replays or resumes.
+- **Gathered input**: a named artifact produced by a gather step into the run's working directory
+  and readable by the agent.
 - **Agent report**: the structured result of the agent stage, valid against the playbook's output
   schema; the only thing a sink is allowed to act on.
 - **Tool call**: one tool invocation within a run, with its input, output, duration and outcome.
@@ -218,29 +263,40 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **SC-001**: An operator who has never seen this runtime can take a documented example playbook,
   change its schedule and its destination, and get a report delivered, in under 30 minutes and
   without reading the runtime's source.
-- **SC-002**: Every playbook in a hostile-playbook corpus covering all of FR-003 through FR-008 is
-  refused at load, and every playbook in a valid corpus is accepted. Both corpora are part of the
-  test suite, and each refusal case fails the suite when its check is removed.
+- **SC-002**: Every playbook in a hostile-playbook corpus covering FR-003 through FR-008 and FR-013
+  is refused at load, and every playbook in a valid corpus is accepted. Both corpora are part of
+  the test suite, and each refusal case fails the suite when its check is removed.
 - **SC-003**: For any completed run, an operator can state what the agent was asked, what it
   answered, and what each sink did, using only the run record.
-- **SC-004**: A run whose sink failed can be replayed to completion without re-running the agent
-  stage.
+- **SC-004**: A run whose sink failed can be resumed to completion without re-running the agent
+  stage, and the resumed run reports zero additional token cost.
 - **SC-005**: No credential value appears in any run record or log line, verified by scanning the
   full output of the test suite.
 - **SC-006**: An existing scheduled workflow is retired and replaced by a playbook whose output the
   operator judges equivalent.
+- **SC-007**: The runtime is installable as a single self-contained executable with no language
+  runtime, package manager or interpreter present on the target machine.
+- **SC-008**: With the deployment's credential removed, the runtime refuses to start and names the
+  sources it consulted; with either of two configured sources present, it starts.
 
 ## Assumptions
 
-- The full guard layer — cross-process locking, rate limiting and deduplication — is out of scope
-  here and specified separately. This feature provides only the single-process guarantee that one
-  playbook does not run twice concurrently (FR-015).
-- Semantic retrieval is out of scope here. A playbook that declares no retrieval simply runs
-  without prior context, and the field is reserved rather than implemented.
-- Webhook triggers are out of scope here; only schedule and manual invocation are in scope.
-- One agent stage per playbook. Multi-stage playbooks, conditional branching and iteration between
-  stages are deliberately excluded until a real playbook needs them.
-- The deployment provides the MCP servers a playbook names; discovering or installing them is out
-  of scope.
-- Run records are retained locally. Retention policy and external export are out of scope.
-- Operators are comfortable editing YAML and reading a prompt file. There is no authoring UI.
+- **Guard is out of scope.** Cross-process locking, rate limiting and deduplication are specified
+  separately. This feature provides only the single-process guarantee that one playbook does not
+  run twice concurrently (FR-016). The published schema accepts a `guard` block and the runtime
+  MUST refuse to start when one is present, rather than accepting and silently ignoring it — a
+  playbook that declares a bound the runtime does not apply is exactly what Principle I forbids.
+- **Retrieve is out of scope.** Semantic retrieval is specified separately. As with `guard`, a
+  playbook declaring a `retrieve` block is refused rather than silently ignored.
+- **Webhook triggers are out of scope.** Only schedule and manual invocation are in scope.
+- **One agent stage per playbook.** Multi-stage playbooks, conditional branching and iteration
+  between stages are deliberately excluded until a real playbook needs them.
+- **The agent stage is driven through the Claude Code command-line contract**, not through a
+  language-specific agent SDK. The bounds in FR-012 and FR-013 are expressed as that contract's
+  own execution flags.
+- **A web dashboard is out of scope**, deferred to a later feature. The operator surface here is
+  the executable itself.
+- **The deployment provides the MCP servers a playbook names**; discovering or installing them is
+  out of scope.
+- **Run records are retained locally.** Retention policy and external export are out of scope.
+- **Operators are comfortable editing YAML and reading a prompt file.** There is no authoring UI.
