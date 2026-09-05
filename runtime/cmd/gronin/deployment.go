@@ -1,0 +1,145 @@
+package main
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/nicodarge/Gronin/runtime/internal/config"
+	"github.com/nicodarge/Gronin/runtime/internal/logging"
+	"github.com/nicodarge/Gronin/runtime/internal/playbook"
+	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/run"
+)
+
+// deployment is everything one invocation needs: where this deployment keeps its state,
+// what it knows about itself, and the record it writes to.
+type deployment struct {
+	config   *config.Config
+	store    *record.Store
+	manager  *run.Manager
+	executor *run.Executor
+	log      *slog.Logger
+	stateDir string
+}
+
+func (d *deployment) close() {
+	if d.store != nil {
+		_ = d.store.Close()
+	}
+}
+
+// agentEnvVars are the variables the agent child inherits from this process. It is a
+// named list rather than the whole environment: the child is a language model with tools,
+// and handing it everything this process holds is the failure FR-008 describes for
+// interpolation, one layer down.
+var agentEnvVars = []string{
+	"PATH", "HOME", "TMPDIR", "LANG",
+	// Credential sources. research.md established which exist; their resolution order is
+	// the CLI's, and the runtime reports what the child says it used rather than
+	// asserting one.
+	"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+	"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+	"AWS_REGION", "AWS_PROFILE", "GOOGLE_CLOUD_PROJECT",
+}
+
+func openDeployment(cmd *cobra.Command) (*deployment, error) {
+	stateDir := stateDirOf(cmd)
+
+	cfg, err := config.Load(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	store, err := record.Open(cmd.Context(), filepath.Join(stateDir, "record"),
+		record.NewRedactor(cfg.Secrets()))
+	if err != nil {
+		return nil, err
+	}
+
+	executable, err := cmd.Flags().GetString("agent")
+	if err != nil || executable == "" {
+		executable = "claude"
+	}
+
+	// The redactor seeds the log as well as the store. A credential is likeliest to
+	// surface in the line describing what failed, because it is usually the thing that
+	// failed to authenticate.
+	log := logging.New(cmd.ErrOrStderr(), record.NewRedactor(cfg.Secrets()), logLevel(cmd))
+
+	manager := run.NewManager(store, filepath.Join(stateDir, "work"))
+	return &deployment{
+		config:   cfg,
+		store:    store,
+		manager:  manager,
+		log:      log,
+		stateDir: stateDir,
+		executor: &run.Executor{
+			Manager:         manager,
+			Store:           store,
+			Config:          cfg,
+			AgentExecutable: executable,
+			AgentEnv:        inheritedEnv(agentEnvVars),
+			// A gather step gets a path and nothing else. It is a command a playbook
+			// author wrote, and this process holds the deployment's credentials.
+			StepEnv: inheritedEnv([]string{"PATH", "HOME", "TMPDIR", "LANG"}),
+			Log:     log,
+			Now:     func() time.Time { return time.Now().UTC() },
+		},
+	}, nil
+}
+
+func inheritedEnv(names []string) []string {
+	var env []string
+	for _, name := range names {
+		if value, set := os.LookupEnv(name); set {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
+}
+
+// playbooksDir is where this deployment keeps its playbooks.
+func playbooksDir(cmd *cobra.Command) string {
+	if dir, err := cmd.Flags().GetString("playbooks"); err == nil && dir != "" {
+		return dir
+	}
+	return filepath.Join(stateDirOf(cmd), "playbooks")
+}
+
+// loadPlaybooks reads the directory and refuses the whole set if any of it is refused.
+// The last line is deliberate: a gate that refuses two out of six and starts anyway is
+// the failure the design exists to prevent, so the output says nothing was armed.
+func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
+	dir := playbooksDir(cmd)
+	loaded, err := playbook.Load(dir)
+	if err != nil {
+		return loaded, err
+	}
+	if loaded.OK() {
+		return loaded, nil
+	}
+
+	out := cmd.ErrOrStderr()
+	for _, refusal := range loaded.Refusals {
+		_, _ = fmt.Fprintf(out, "refused: %s\n  %s\n\n",
+			filepath.Base(refusal.Path), refusal.Reason)
+	}
+	// Deliberate: a refusal that cannot be printed is still a refusal, and the exit code
+	// below carries it either way.
+	_, _ = fmt.Fprintf(out, "%d playbook(s) refused, %d accepted. Nothing was armed.\n",
+		len(loaded.Refusals), len(loaded.Playbooks))
+	return loaded, fmt.Errorf("%d playbook(s) refused", len(loaded.Refusals))
+}
+
+// logLevel is how much the deployment says. Info by default: a runtime that says nothing
+// until it breaks leaves an operator reconstructing what it did from the record alone.
+func logLevel(cmd *cobra.Command) slog.Level {
+	if verbose, err := cmd.Flags().GetBool("verbose"); err == nil && verbose {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
+}

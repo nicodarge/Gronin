@@ -37,6 +37,9 @@ const (
 	// ModeUnknown emits event types and fields the decoder has never seen, so a CLI
 	// update degrades rather than breaks.
 	ModeUnknown = "unknown"
+	// ModeOversize emits a line past what the decoder will read, so the stream fails
+	// after the receipt is already out — a failure of the stream and not of the report.
+	ModeOversize = "oversize"
 
 	// ResultVar hands the stub the report it should answer with.
 	ResultVar = "FAKECLAUDE_RESULT"

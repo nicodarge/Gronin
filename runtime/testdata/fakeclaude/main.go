@@ -34,6 +34,7 @@ const (
 	modeMismatch  = "mismatch"   // reports a tool set wider than it was given
 	modeExitError = "exit-error" // emits a failing result and exits non-zero
 	modeUnknown   = "unknown"    // emits event types and fields the runtime has never seen
+	modeOversize  = "oversize"   // emits one line larger than the decoder will read
 )
 
 // Version is what this reports as the CLI version, high enough to clear a floor.
@@ -42,13 +43,17 @@ const Version = "2.1.261"
 func main() {
 	flags := parseFlags(os.Args[1:])
 
-	if flags["version"] != "" || hasBare(os.Args[1:], "--version") {
+	if len(flags["version"]) > 0 || hasBare(os.Args[1:], "--version") {
 		fmt.Println(Version + " (fakeclaude)")
 		return
 	}
 
-	tools := splitList(flags["tools"])
-	servers := serversFrom(flags["mcp-config"])
+	// --tools and --allowedTools are variadic on the real executable, so the receipt has
+	// to be built from every argument the flag consumed. A stub that read only the first
+	// one reported a narrower tool set than the process was given, which is the wrong
+	// direction for a receipt to be wrong in.
+	tools := entries(flags["tools"])
+	servers := serversFrom(first(flags["mcp-config"]))
 
 	mode := os.Getenv(modeVar)
 	if mode == "" {
@@ -64,8 +69,8 @@ func main() {
 	emit(map[string]any{
 		"type": "system", "subtype": "init",
 		"session_id":          "fake-session-0001",
-		"model":               flags["model"],
-		"permissionMode":      flags["permission-mode"],
+		"model":               first(flags["model"]),
+		"permissionMode":      first(flags["permission-mode"]),
 		"apiKeySource":        apiKeySource(),
 		"mcp_servers":         servers,
 		"claude_code_version": Version,
@@ -80,15 +85,47 @@ func main() {
 		time.Sleep(24 * time.Hour)
 	case modeMalformed:
 		fmt.Println("this line is not JSON, and the decoder is expected to survive it")
+	case modeOversize:
+		// Larger than the decoder's per-line bound, so the stream fails rather than the
+		// report. The receipt is already out, which is what makes the two distinguishable.
+		fmt.Println(strings.Repeat("x", 9<<20))
+		return
 	case modeUnknown:
 		// A CLI update must degrade rather than break: unknown types and unknown fields.
 		emit(map[string]any{"type": "something_new", "payload": map[string]any{"a": 1}})
 		emit(map[string]any{"type": "assistant", "message": "hello", "field_from_the_future": true})
 	}
 
+	// Shaped like the real thing: content is a list of blocks, and a tool call is a
+	// tool_use block. The record reads them from here, so a stub emitting a bare string
+	// would make the extractor look like it worked.
 	emit(map[string]any{
-		"type":    "assistant",
-		"message": map[string]any{"role": "assistant", "content": "working on it"},
+		"type": "assistant",
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []any{
+				map[string]any{"type": "text", "text": "reading the gathered facts"},
+				map[string]any{
+					"type":  "tool_use",
+					"id":    "toolu_0001",
+					"name":  "Read",
+					"input": map[string]any{"file_path": "facts.json"},
+				},
+			},
+		},
+	})
+	emit(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []any{
+				map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": "toolu_0001",
+					"content":     "{\"drift\": 0}",
+				},
+			},
+		},
 	})
 
 	result := map[string]any{
@@ -155,11 +192,12 @@ func emit(event map[string]any) {
 	time.Sleep(time.Millisecond)
 }
 
-// parseFlags reads --name=value and --name value into a map. It is deliberately
-// forgiving: this stands in for a CLI whose flag set the runtime does not control, and a
-// stub that refused an unfamiliar flag would fail tests for the wrong reason.
-func parseFlags(args []string) map[string]string {
-	flags := map[string]string{}
+// parseFlags reads --name=value and --name value... into a map of lists, because the
+// flags that carry the bounds are variadic. It is deliberately forgiving otherwise: this
+// stands in for a CLI whose flag set the runtime does not control, and a stub that
+// refused an unfamiliar flag would fail tests for the wrong reason.
+func parseFlags(args []string) map[string][]string {
+	flags := map[string][]string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {
@@ -167,17 +205,41 @@ func parseFlags(args []string) map[string]string {
 		}
 		name := strings.TrimPrefix(arg, "--")
 		if name, value, found := strings.Cut(name, "="); found {
-			flags[name] = value
+			flags[name] = append(flags[name], value)
 			continue
 		}
-		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
-			flags[name] = args[i+1]
+		consumed := false
+		for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+			flags[name] = append(flags[name], args[i+1])
 			i++
-			continue
+			consumed = true
 		}
-		flags[name] = "true"
+		if !consumed {
+			flags[name] = append(flags[name], "true")
+		}
 	}
 	return flags
+}
+
+func first(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+// entries is the tool set the process ended up with. A single empty argument is how the
+// built-in set is disabled, and it means no tools rather than one tool with no name.
+func entries(values []string) []string {
+	out := []string{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+	}
+	return out
 }
 
 func hasBare(args []string, want string) bool {
@@ -187,20 +249,6 @@ func hasBare(args []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func splitList(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return []string{}
-	}
-	parts := strings.Split(value, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
 }
 
 // serversFrom reports the MCP servers this process was actually configured with, read

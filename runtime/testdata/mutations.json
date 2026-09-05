@@ -155,6 +155,229 @@
         "./internal/config",
         "-count=1"
       ]
+    },
+    {
+      "name": "a failing gather step does not stop the run",
+      "tree": "..",
+      "file": "internal/stage/gather/gather.go",
+      "find": "\t\tresults = append(results, result)\n\t\tif err != nil {\n\t\t\treturn results, err\n\t\t}",
+      "replace": "\t\tresults = append(results, result)\n\t\t_ = err",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/gather",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "output past the limit is written whole and called complete",
+      "tree": "..",
+      "file": "internal/stage/gather/gather.go",
+      "find": "\t\tchunk = chunk[:max(w.remaining, 0)]\n\t\tw.truncated = true",
+      "replace": "\t\tw.truncated = false",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/gather",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the tool set flag is omitted when a playbook declares none",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\targs = append(args, flagTools)\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the MCP configuration is not made strict",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\tflagStrictMCP,\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a timed-out stage is not reported as timed out",
+      "tree": "..",
+      "file": "internal/stage/agent/agent.go",
+      "find": "\t\toutcome.TimedOut = true",
+      "replace": "\t\toutcome.TimedOut = false",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a report is accepted whatever the declared schema says",
+      "tree": "..",
+      "file": "internal/stage/agent/validate.go",
+      "find": "\tif err := compiled.Validate(document); err != nil {",
+      "replace": "\tif err := error(nil); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gathered inputs are copied after the directory is removed",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\tincomplete.note(e.Store.AddGatheredInput(ctx, started.ID, input))",
+      "replace": "\t\t_ = input",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a refused report is delivered anyway",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\tdelivery.Failure = reportErr",
+      "replace": "\t\tdelivery.Report = report",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a backlog runs instead of being recorded",
+      "tree": "..",
+      "file": "internal/schedule/schedule.go",
+      "find": "\tlast := due[len(due)-1]\n\tfor _, at := range due[:len(due)-1] {",
+      "replace": "\tlast := due[len(due)-1]\n\tfor _, at := range []time.Time{} {",
+      "command": [
+        "go",
+        "test",
+        "./internal/schedule",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "one sink failing stops the others",
+      "tree": "..",
+      "file": "internal/sink/sink.go",
+      "find": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)",
+      "replace": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)\n\t\tif err != nil {\n\t\t\treturn outcomes\n\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a secret reaches the log",
+      "tree": "..",
+      "file": "internal/logging/logging.go",
+      "find": "\t\treturn slog.String(attr.Key, h.redactor.Redact(value.String()))\n\tcase slog.KindGroup:",
+      "replace": "\t\treturn attr\n\tcase slog.KindGroup:",
+      "command": [
+        "go",
+        "test",
+        "./internal/logging",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an entry holding the separator is joined anyway",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\t\tif strings.Contains(entry, \",\") {",
+      "replace": "\t\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a creating sink needs no cap after all",
+      "tree": "..",
+      "file": "internal/sink/sink.go",
+      "find": "\tif !declared {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a failed run is reported as a missed occurrence",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\tif finished.ID == \"\" {",
+      "replace": "\tif finished.Status != record.StatusSucceeded {",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestOnlyAnOccurrence"
+      ]
+    },
+    {
+      "name": "the tool set flag loses its empty argument",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\tif len(decl.Tools) == 0 {\n\t\targs = append(args, \"\")\n\t} else {",
+      "replace": "\tif false {\n\t\targs = append(args, \"\")\n\t} else {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a stream that failed is reported as a missing result",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tcase stage.DecodeErr != nil && stage.Stream.Result == nil:",
+      "replace": "\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an entry that would be read as a flag is passed through",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\t\tif strings.HasPrefix(entry, \"-\") {",
+      "replace": "\t\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
     }
   ]
 }
