@@ -42,10 +42,19 @@ var validKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // Every unresolved reference is reported, not just the first: fixing them one round
 // trip at a time is how a gate gets switched off.
 func (c *Config) Interpolate(text string, trigger map[string]string) (string, error) {
-	var problems []error
+	problems := unterminated(text)
 
 	resolved := reference.ReplaceAllStringFunc(text, func(match string) string {
 		name := reference.FindStringSubmatch(match)[1]
+		if strings.Contains(name, "${") {
+			// `${config.${trigger.x}}` matches only as far as the first closing brace,
+			// so without this the refusal names `${trigger.x` as a missing key and sends
+			// the author looking for a configuration value they never wrote.
+			problems = append(problems, fmt.Errorf(
+				"${%s} nests a reference inside another; accepted: one ${config.x} or "+
+					"${trigger.x} at a time", name))
+			return match
+		}
 		namespace, key, found := strings.Cut(name, ".")
 		if !found {
 			problems = append(problems, fmt.Errorf(
@@ -79,4 +88,35 @@ func (c *Config) Interpolate(text string, trigger map[string]string) (string, er
 		return "", errors.Join(problems...)
 	}
 	return resolved, nil
+}
+
+// unterminated reports a `${` with no closing brace. The regex simply does not match
+// one, so without this it passes through as literal text — the only malformed reference
+// that resolves to something rather than being refused, and the one a typo produces.
+func unterminated(text string) []error {
+	matched := reference.FindAllStringIndex(text, -1)
+	var problems []error
+
+	for offset := 0; ; {
+		start := strings.Index(text[offset:], "${")
+		if start < 0 {
+			return problems
+		}
+		start += offset
+		offset = start + 2
+
+		covered := false
+		for _, span := range matched {
+			if span[0] == start {
+				covered = true
+				offset = span[1]
+				break
+			}
+		}
+		if !covered {
+			problems = append(problems, fmt.Errorf(
+				"a reference opens at byte %d and never closes; accepted: ${config.x} or "+
+					"${trigger.x}", start))
+		}
+	}
 }

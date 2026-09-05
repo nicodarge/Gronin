@@ -326,6 +326,12 @@ func TestASecondFinishKeepsWhatTheFirstRecorded(t *testing.T) {
 	if got.Status != record.StatusSucceeded {
 		t.Fatalf("status = %q; the second call is meant to set it", got.Status)
 	}
+	// The error describes the terminal state this call is writing, so a resume that
+	// succeeds clears the failure it followed. Keeping it left a succeeded run reading
+	// as failed forever, which the first version of this fix did.
+	if got.Error != "" {
+		t.Errorf("error = %q after a successful second finish; it should be cleared", got.Error)
+	}
 	for _, kept := range []struct {
 		name string
 		got  any
@@ -336,7 +342,6 @@ func TestASecondFinishKeepsWhatTheFirstRecorded(t *testing.T) {
 		{"session id", got.AgentSessionID, "sess-1"},
 		{"credential source", got.CredentialSource, "ANTHROPIC_API_KEY"},
 		{"report ref", got.ReportRef, "run-1/report.json"},
-		{"error", got.Error, "a sink failed"},
 	} {
 		if kept.got != kept.want {
 			t.Errorf("%s = %v after a second finish, want %v kept", kept.name, kept.got, kept.want)

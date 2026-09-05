@@ -111,3 +111,52 @@ func TestInterpolateLeavesTextWithNoReferencesAlone(t *testing.T) {
 		t.Fatalf("got %q, want it unchanged", got)
 	}
 }
+
+// The two malformed forms the regex alone did not answer for.
+func TestInterpolateRefusesAMalformedReference(t *testing.T) {
+	c := configWith(t, map[string]config.Value{"x": {Value: "resolved"}})
+
+	t.Run("a reference that never closes", func(t *testing.T) {
+		// It matches nothing, so without a check of its own it passes through as literal
+		// text — the one malformed form that resolves rather than being refused.
+		for _, text := range []string{"${config.x", "a ${config.x and a tail", "${"} {
+			if got, err := c.Interpolate(text, nil); err == nil {
+				t.Errorf("%q was accepted and produced %q", text, got)
+			}
+		}
+	})
+
+	t.Run("a reference nested in another", func(t *testing.T) {
+		_, err := c.Interpolate("${config.${trigger.x}}", map[string]string{"x": "x"})
+		if err == nil {
+			t.Fatal("a nested reference was accepted")
+		}
+		if !strings.Contains(err.Error(), "nests a reference") {
+			t.Errorf("the refusal reads as something else: %v", err)
+		}
+	})
+
+	t.Run("a closing brace on its own is text", func(t *testing.T) {
+		const text = "} and { and $ walk into a bar"
+		got, err := c.Interpolate(text, nil)
+		if err != nil || got != text {
+			t.Fatalf("got %q, err %v", got, err)
+		}
+	})
+}
+
+// A resolved value that itself looks like a reference is data, not a template. Resolving
+// it again would let a configured value reach into the trigger payload, or the reverse.
+func TestInterpolateDoesNotResolveWhatItJustResolved(t *testing.T) {
+	c := configWith(t, map[string]config.Value{
+		"template": {Value: "${trigger.secret}"},
+	})
+
+	got, err := c.Interpolate("${config.template}", map[string]string{"secret": "leaked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "${trigger.secret}" {
+		t.Fatalf("got %q; a resolved value was resolved a second time", got)
+	}
+}

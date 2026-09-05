@@ -131,15 +131,28 @@
       ]
     },
     {
-      "name": "finishing a run twice erases what the first recorded",
+      "name": "a resume keeps the failure it followed",
       "tree": "..",
       "file": "internal/record/runs.go",
-      "find": "\t\t       cost_usd          = coalesce(?, cost_usd),",
-      "replace": "\t\t       cost_usd          = ?,",
+      "find": "\t\t       error             = ?,",
+      "replace": "\t\t       error             = coalesce(?, error),",
       "command": [
         "go",
         "test",
         "./internal/record",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a reference that never closes passes through as text",
+      "tree": "..",
+      "file": "internal/config/interpolate.go",
+      "find": "\tproblems := unterminated(text)",
+      "replace": "\tvar problems []error",
+      "command": [
+        "go",
+        "test",
+        "./internal/config",
         "-count=1"
       ]
     }

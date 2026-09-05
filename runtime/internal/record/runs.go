@@ -34,27 +34,36 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 // redactor on the way in — an error message is one of the likeliest places for a
 // credential to surface, because it is usually the thing that failed to authenticate.
 //
-// Status and the end time are written; everything else is coalesced, so a field this
-// call says nothing about keeps what it already held. The asymmetry was the other way
-// round first, and a second call — which resume will make — would have zeroed the cost,
-// the token count and the credential source of the run it was updating, silently.
+// Which fields are overwritten and which are kept follows from what each one describes,
+// and getting it uniform in either direction is wrong.
+//
+// Status, the end time and the error describe THIS terminal state, so they are written
+// every time — the error including when it is empty. A resume that succeeds after a
+// failure has to clear the failure; coalescing it left a succeeded run carrying "a sink
+// failed" forever, which the first version of this fix did and pinned in a test.
+//
+// Cost, tokens, the session id, the credential source and the two blob references
+// describe the agent stage, which a second call did not re-run. They are kept, because
+// zero there means "this call knows nothing about it", not "it cost nothing" — the
+// version before that wrote them unconditionally and a resume zeroed all of them.
 func (s *Store) FinishRun(ctx context.Context, run Run) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE runs
 		   SET status            = ?,
 		       ended_at          = ?,
+		       error             = ?,
 		       cost_usd          = coalesce(?, cost_usd),
 		       tokens            = coalesce(?, tokens),
 		       agent_session_id  = coalesce(?, agent_session_id),
 		       credential_source = coalesce(?, credential_source),
-		       error             = coalesce(?, error),
 		       report_ref        = coalesce(?, report_ref),
 		       prompt_ref        = coalesce(?, prompt_ref)
 		 WHERE id = ?`,
 		string(run.Status), formatTime(run.EndedAt),
+		nullable(s.redactor.Redact(run.Error)),
 		nullableFloat(run.CostUSD), nullableInt(run.Tokens),
 		nullable(run.AgentSessionID), nullable(run.CredentialSource),
-		nullable(s.redactor.Redact(run.Error)), nullable(run.ReportRef), nullable(run.PromptRef),
+		nullable(run.ReportRef), nullable(run.PromptRef),
 		run.ID)
 	if err != nil {
 		return fmt.Errorf("finishing run %s: %w", run.ID, err)
