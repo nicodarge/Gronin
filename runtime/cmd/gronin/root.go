@@ -27,6 +27,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		"directory holding the playbooks (default: <state-dir>/playbooks)")
 	root.PersistentFlags().String("agent", "claude",
 		"the agent executable this deployment drives")
+	root.PersistentFlags().Bool("verbose", false, "log what each stage is doing")
 
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newStateDirCommand())

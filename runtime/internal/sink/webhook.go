@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // postTimeout bounds one delivery. A sink that hangs holds the run open long after the
@@ -87,9 +88,16 @@ func message(delivery Delivery) string {
 	return truncate(out.String())
 }
 
+// truncate cuts on a rune boundary. A byte cut lands mid-character on any report holding
+// accented text, and what reaches the destination is then invalid UTF-8 rather than a
+// shortened message.
 func truncate(text string) string {
 	if len(text) <= maxMessage {
 		return text
 	}
-	return text[:maxMessage] + "\n… truncated; the full report is in the run record."
+	cut := maxMessage
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "\n… truncated; the full report is in the run record."
 }

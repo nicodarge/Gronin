@@ -1,6 +1,7 @@
 package sink_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -240,5 +241,48 @@ func TestAMessagingSinkDeclaresNoCapAndNeedsNone(t *testing.T) {
 		if _, declared := one.Cap(); declared {
 			t.Errorf("%s declares a cap it does not need", one.Name())
 		}
+	}
+}
+
+// A sink that creates things, which this deployment does not yet ship. It exists so the
+// cap contract is probed against what it refuses rather than described in a comment.
+type creating struct {
+	cap      int
+	declared bool
+}
+
+func (creating) Name() string  { return "creating" }
+func (creating) Creates() bool { return true }
+func (c creating) Cap() (int, bool) {
+	return c.cap, c.declared
+}
+func (creating) Deliver(context.Context, sink.Delivery) (sink.Outcome, error) {
+	return sink.Outcome{Status: sink.StatusCreated, ItemsCreated: 1}, nil
+}
+
+// FR-006. An uncapped creator gets muted within a month, and the useful signal is lost
+// along with the noise.
+func TestACreatingSinkWithoutACapIsRefused(t *testing.T) {
+	if err := sink.CheckCap(creating{declared: false}); !errors.Is(err, sink.ErrNoCap) {
+		t.Fatalf("err = %v, want ErrNoCap", err)
+	}
+	if err := sink.CheckCap(creating{cap: 0, declared: true}); !errors.Is(err, sink.ErrNoCap) {
+		t.Fatalf("a ceiling of zero was accepted: %v", err)
+	}
+	if err := sink.CheckCap(creating{cap: 3, declared: true}); err != nil {
+		t.Fatalf("a declared ceiling was refused: %v", err)
+	}
+	// And a sink that creates nothing needs none.
+	if err := sink.CheckCap(sink.NewDiscord("u", nil)); err != nil {
+		t.Fatalf("a messaging sink was asked for a cap: %v", err)
+	}
+}
+
+func TestASinkThatNamesNoTypeIsRefusedByName(t *testing.T) {
+	_, problems := sink.Build([]sink.Declaration{{Type: "", Config: map[string]any{}}},
+		sink.BuildOptions{})
+
+	if len(problems) != 1 || !strings.Contains(problems[0].Error(), "names no type") {
+		t.Fatalf("problems = %v", problems)
 	}
 }

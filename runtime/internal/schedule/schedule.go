@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -40,8 +41,13 @@ func (s Schedule) String() string { return s.expr }
 // Next is the first occurrence strictly after t.
 func (s Schedule) Next(t time.Time) time.Time { return s.inner.Next(t) }
 
-// Fire runs one occurrence. An error is what the scheduler records; it does not stop the
-// scheduler, because one playbook failing is not a reason for the others to stop.
+// Fire runs one occurrence.
+//
+// Its error means the occurrence never became a run — the playbook was already in
+// flight, or it could not be found. It does NOT mean the run failed: a run that
+// happened and went badly is a run record, and recording it as a missed occurrence as
+// well would tell an operator that something did not happen when it did. So a fire that
+// produced a run of any status returns nil.
 type Fire func(ctx context.Context, playbookName string, dueAt time.Time) error
 
 // Missed records an occurrence that did not execute, and why.
@@ -177,8 +183,8 @@ func (s *Scheduler) tickOne(ctx context.Context, e *entry, now time.Time) []erro
 	}
 
 	if err := s.fire(ctx, e.name, last); err != nil {
-		reason := err.Error()
-		if recordErr := s.record(ctx, e.name, last, reason); recordErr != nil {
+		// The occurrence did not become a run. That is what a missed occurrence is.
+		if recordErr := s.record(ctx, e.name, last, err.Error()); recordErr != nil {
 			problems = append(problems, recordErr)
 		}
 	}
@@ -193,21 +199,30 @@ func (s *Scheduler) record(ctx context.Context, name string, at time.Time, reaso
 }
 
 // Run ticks until the context ends, waking for the next armed occurrence.
-func (s *Scheduler) Run(ctx context.Context, now func() time.Time) error {
+func (s *Scheduler) Run(ctx context.Context, now func() time.Time, log *slog.Logger) error {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	for {
 		at := now()
 		if err := s.Tick(ctx, at); err != nil {
-			// A tick's problems are recorded, not fatal: one playbook failing is not a
-			// reason for the others to stop being scheduled.
-			_ = err
+			// A tick's problems do not stop the scheduler — one playbook failing is not
+			// a reason for the others to stop being scheduled — but they are said out
+			// loud. A failure to record a missed occurrence that disappears silently is
+			// FR-030 quietly not happening.
+			log.Error("the scheduler could not record everything this tick produced",
+				"err", err)
 		}
 
-		next := s.NextDue(now())
+		at = now()
+		next := s.NextDue(at)
 		var wait time.Duration
 		if next.IsZero() {
 			wait = time.Minute
 		} else {
-			wait = time.Until(next)
+			// Against the injected clock, not time.Until: a method that takes a clock
+			// and then reads another one is a seam that only looks like one.
+			wait = next.Sub(at)
 		}
 		if wait < time.Second {
 			wait = time.Second

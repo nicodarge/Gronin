@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -36,8 +37,16 @@ type Executor struct {
 	StepEnv []string
 
 	Client         *http.Client
+	Log            *slog.Logger
 	Now            func() time.Time
 	GatherMaxBytes int64
+}
+
+func (e *Executor) log() *slog.Logger {
+	if e.Log == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return e.Log
 }
 
 // problems collects what could not be written down. A record write that fails silently
@@ -80,7 +89,13 @@ func (e *Executor) Execute(
 	defer func() {
 		outcome.EndedAt = e.now()
 		if err := e.Manager.Finish(ctx, started, outcome); err != nil {
-			_ = err
+			// This is the write that makes the run's terminal state durable, and the one
+			// place the problems accumulator cannot reach: it runs after the value it
+			// would have gone into was returned. Swallowing it left a run whose final
+			// state never landed and nothing anywhere said so.
+			e.log().Error("the run's terminal state could not be recorded",
+				"run", started.ID, "playbook", started.PlaybookName,
+				"status", string(outcome.Status), "err", err)
 		}
 	}()
 
@@ -337,6 +352,8 @@ func declarationsOf(book *playbook.Playbook) []sink.Declaration {
 	for _, one := range book.Sinks {
 		name, value, ok := one.Type()
 		if !ok {
+			// Malformed: no key, more than one, or something that is not a mapping under
+			// it. Named as empty so the sink builder refuses it and says which entry.
 			declared = append(declared, sink.Declaration{Type: "", Config: map[string]any{}})
 			continue
 		}

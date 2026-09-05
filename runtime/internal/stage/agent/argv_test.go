@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -11,6 +12,15 @@ import (
 )
 
 func argIndex(args []string, want string) int { return slices.Index(args, want) }
+
+func mustBuild(t *testing.T, decl agent.Declaration, mcpConfigPath string) []string {
+	t.Helper()
+	args, err := agent.BuildArgs(decl, mcpConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return args
+}
 
 func valueAfter(t *testing.T, args []string, flag string) string {
 	t.Helper()
@@ -27,7 +37,7 @@ func valueAfter(t *testing.T, args []string, flag string) string {
 // The design in one test: a playbook that declares nothing still gets every bound. An
 // absent flag is not a neutral default — it is the machine's own configuration.
 func TestAPlaybookThatDeclaresNothingStillGetsEveryBound(t *testing.T) {
-	args := agent.BuildArgs(agent.Declaration{Restricted: true}, "/run/mcp.json")
+	args := mustBuild(t, agent.Declaration{Restricted: true}, "/run/mcp.json")
 
 	if got := valueAfter(t, args, "--tools"); got != "" {
 		t.Errorf(`--tools = %q, want "" — omitting it leaves the built-in set`, got)
@@ -53,7 +63,7 @@ func TestAPlaybookThatDeclaresNothingStillGetsEveryBound(t *testing.T) {
 }
 
 func TestRestrictedIsOffOnlyWhenTheDeclarationSaysSo(t *testing.T) {
-	off := agent.BuildArgs(agent.Declaration{Restricted: false}, "/run/mcp.json")
+	off := mustBuild(t, agent.Declaration{Restricted: false}, "/run/mcp.json")
 	if argIndex(off, "--restricted") >= 0 {
 		t.Error("--restricted was passed for a declaration that turned it off")
 	}
@@ -65,7 +75,7 @@ func TestRestrictedIsOffOnlyWhenTheDeclarationSaysSo(t *testing.T) {
 }
 
 func TestTheDeclaredToolSetAndAllowlistReachTheVector(t *testing.T) {
-	args := agent.BuildArgs(agent.Declaration{
+	args := mustBuild(t, agent.Declaration{
 		Restricted: true,
 		Tools:      []string{"Read", "Grep"},
 		Allow:      []string{"Read(./**)", "mcp__grafana__query_prometheus"},
@@ -86,7 +96,7 @@ func TestTheDeclaredToolSetAndAllowlistReachTheVector(t *testing.T) {
 // The constitution's Secrets constraint. Interpolation can put a configured value into a
 // prompt, and a command line is journalled.
 func TestThePromptIsNotInTheArgumentVector(t *testing.T) {
-	args := agent.BuildArgs(agent.Declaration{Restricted: true}, "/run/mcp.json")
+	args := mustBuild(t, agent.Declaration{Restricted: true}, "/run/mcp.json")
 
 	for _, arg := range args {
 		if strings.Contains(arg, "the prompt text") {
@@ -101,7 +111,7 @@ func TestThePromptIsNotInTheArgumentVector(t *testing.T) {
 
 func TestTheOutputSchemaIsPassedThroughAsJSON(t *testing.T) {
 	schema := map[string]any{"type": "object", "required": []any{"findings"}}
-	args := agent.BuildArgs(agent.Declaration{Restricted: true, OutputSchema: schema}, "/run/mcp.json")
+	args := mustBuild(t, agent.Declaration{Restricted: true, OutputSchema: schema}, "/run/mcp.json")
 
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(valueAfter(t, args, "--json-schema")), &decoded); err != nil {
@@ -144,5 +154,29 @@ func TestAnEmptyMCPConfigurationIsStillWritten(t *testing.T) {
 	}
 	if mode := info.Mode().Perm(); mode&0o077 != 0 {
 		t.Fatalf("mode %o; a server entry can carry a credential", mode)
+	}
+}
+
+// One entry holding the separator becomes two entries on the command line, which is how
+// a tool nobody declared reaches the process while every entry passes a per-entry check.
+func TestAnEntryHoldingTheSeparatorIsRefused(t *testing.T) {
+	for _, decl := range []agent.Declaration{
+		{Restricted: true, Tools: []string{"Read,Bash"}},
+		{Restricted: true, Allow: []string{"Read(./**),Bash(rm *)"}},
+		{Restricted: true, Tools: []string{"Read", "Grep,Bash"}},
+	} {
+		args, err := agent.BuildArgs(decl, "/run/mcp.json")
+		if !errors.Is(err, agent.ErrSeparatorInEntry) {
+			t.Errorf("%+v was accepted and produced %v", decl, args)
+		}
+	}
+}
+
+func TestAnEntryWithoutTheSeparatorIsFine(t *testing.T) {
+	if _, err := agent.BuildArgs(agent.Declaration{
+		Restricted: true, Tools: []string{"Read", "Grep"},
+		Allow: []string{"Read(./**)", "mcp__grafana__query_prometheus"},
+	}, "/run/mcp.json"); err != nil {
+		t.Fatal(err)
 	}
 }

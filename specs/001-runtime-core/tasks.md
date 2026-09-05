@@ -87,11 +87,10 @@ runs against the binary itself, and CI blocks on all of it.
 - [x] T007 `internal/record`: the SQLite schema from data-model.md and its migration path
 - [x] T008 [P] `internal/record`: blob store for gathered inputs, prompts and transcripts, keyed per
       run
-- [ ] T009 [P] `internal/record`: the redactor, applied at the write boundary of the store and the
-      logger, seeded from configured secret values (FR-029). **Half done**: the store's boundary
-      applies it and SC-005 is asserted against the store's own files. There is no logger yet, so
-      the other half lands with the one `gronin serve` brings (T033) and this stays open until it
-      does
+- [x] T009 [P] `internal/record`: the redactor, applied at the write boundary of the store and the
+      logger, seeded from configured secret values (FR-029). The logger arrived with T033 and
+      `internal/logging` puts the redactor at its boundary too; SC-005 is asserted against the
+      store's files, the suite's output and now the log
 - [x] T010 Test: no configured secret value appears in any record or log line produced by the whole
       suite, asserted by scanning the suite's own output (SC-005)
 - [x] T011 `internal/playbook`: YAML parse into typed structs (shape layer), and embed

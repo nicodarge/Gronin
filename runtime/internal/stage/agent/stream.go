@@ -70,6 +70,15 @@ type PermissionDenial struct {
 	Reason string `json:"reason"`
 }
 
+// RefusedByCallback is what Decode returns when onEvent refused the run, so a caller can
+// tell a bound being enforced from the stream simply failing.
+type RefusedByCallback struct{ inner error }
+
+func (e *RefusedByCallback) Error() string { return e.inner.Error() }
+
+// Unwrap returns the callback's own error.
+func (e *RefusedByCallback) Unwrap() error { return e.inner }
+
 // Stream is what one decode of the child's output produced.
 type Stream struct {
 	Init      *Event
@@ -126,7 +135,7 @@ func Decode(from io.Reader, onEvent func(Event) error) (*Stream, error) {
 			if err := onEvent(event); err != nil {
 				stream.Raw = raw
 				stream.ToolCalls = calls.calls
-				return stream, err
+				return stream, &RefusedByCallback{inner: err}
 			}
 		}
 	}

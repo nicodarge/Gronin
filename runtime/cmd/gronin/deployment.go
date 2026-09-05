@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
+	"github.com/nicodarge/Gronin/runtime/internal/logging"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
@@ -21,6 +23,7 @@ type deployment struct {
 	store    *record.Store
 	manager  *run.Manager
 	executor *run.Executor
+	log      *slog.Logger
 	stateDir string
 }
 
@@ -62,11 +65,17 @@ func openDeployment(cmd *cobra.Command) (*deployment, error) {
 		executable = "claude"
 	}
 
+	// The redactor seeds the log as well as the store. A credential is likeliest to
+	// surface in the line describing what failed, because it is usually the thing that
+	// failed to authenticate.
+	log := logging.New(cmd.ErrOrStderr(), record.NewRedactor(cfg.Secrets()), logLevel(cmd))
+
 	manager := run.NewManager(store, filepath.Join(stateDir, "work"))
 	return &deployment{
 		config:   cfg,
 		store:    store,
 		manager:  manager,
+		log:      log,
 		stateDir: stateDir,
 		executor: &run.Executor{
 			Manager:         manager,
@@ -77,6 +86,7 @@ func openDeployment(cmd *cobra.Command) (*deployment, error) {
 			// A gather step gets a path and nothing else. It is a command a playbook
 			// author wrote, and this process holds the deployment's credentials.
 			StepEnv: inheritedEnv([]string{"PATH", "HOME", "TMPDIR", "LANG"}),
+			Log:     log,
 			Now:     func() time.Time { return time.Now().UTC() },
 		},
 	}, nil
@@ -123,4 +133,13 @@ func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
 	_, _ = fmt.Fprintf(out, "%d playbook(s) refused, %d accepted. Nothing was armed.\n",
 		len(loaded.Refusals), len(loaded.Playbooks))
 	return loaded, fmt.Errorf("%d playbook(s) refused", len(loaded.Refusals))
+}
+
+// logLevel is how much the deployment says. Info by default: a runtime that says nothing
+// until it breaks leaves an operator reconstructing what it did from the record alone.
+func logLevel(cmd *cobra.Command) slog.Level {
+	if verbose, err := cmd.Flags().GetBool("verbose"); err == nil && verbose {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
 }

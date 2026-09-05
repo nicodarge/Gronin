@@ -25,7 +25,7 @@ type BuildOptions struct {
 }
 
 // Build turns declarations into sinks, refusing a type this deployment does not
-// implement (FR-038) and a creating sink with no cap (FR-006).
+// implement (FR-038) and a creating sink with no cap (FR-006, applied by CheckCap).
 //
 // Every refusal is collected rather than the first returned: fixing them one round trip
 // at a time is how a gate gets switched off.
@@ -36,8 +36,18 @@ func Build(declared []Declaration, opts BuildOptions) ([]Sink, []error) {
 	)
 
 	for at, decl := range declared {
+		if decl.Type == "" {
+			problems = append(problems, fmt.Errorf(
+				"sinks[%d]: names no type; accepted: one key naming the sink, e.g. %s",
+				at, Types()[0]))
+			continue
+		}
 		built, err := buildOne(decl, opts)
 		if err != nil {
+			problems = append(problems, fmt.Errorf("sinks[%d].%s: %w", at, decl.Type, err))
+			continue
+		}
+		if err := CheckCap(built); err != nil {
 			problems = append(problems, fmt.Errorf("sinks[%d].%s: %w", at, decl.Type, err))
 			continue
 		}

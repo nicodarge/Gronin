@@ -147,6 +147,10 @@ func runStep(ctx context.Context, step Step, opts Options) (Result, error) {
 		result.ExitCode = -1
 		return result, fmt.Errorf("%w: %s: %w", ErrStepFailed, step.As, runErr)
 	}
+	// A step that exits cleanly in the same instant its deadline expires is reported as
+	// timed out. Deliberate: the output it produced is already truncated by the deadline
+	// in every case that matters, and calling a run successful on a race is the more
+	// expensive mistake of the two.
 	if stepCtx.Err() != nil {
 		return result, fmt.Errorf("%w: %s: %w", ErrStepFailed, step.As, stepCtx.Err())
 	}

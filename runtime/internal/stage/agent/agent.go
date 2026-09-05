@@ -48,7 +48,11 @@ type Outcome struct {
 	Duration time.Duration
 	Stderr   []byte
 	Aborted  error // an OnEvent refusal, kept so the caller can tell it from a failure
-	ArgvUsed []string
+	// DecodeErr is the stream itself failing — an oversized line, a broken pipe.
+	// Separate from Aborted: reporting it as a refusal would tell a caller the bounds
+	// stopped a run they did not.
+	DecodeErr error
+	ArgvUsed  []string
 }
 
 // ErrNoTerminalEvent is returned when the child ended without saying how it ended.
@@ -69,7 +73,10 @@ func Run(ctx context.Context, decl Declaration, opts Options) (*Outcome, error) 
 	if err != nil {
 		return nil, err
 	}
-	args := BuildArgs(decl, mcpConfig)
+	args, err := BuildArgs(decl, mcpConfig)
+	if err != nil {
+		return nil, err
+	}
 	outcome := &Outcome{ArgvUsed: args}
 
 	stageCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
@@ -96,11 +103,19 @@ func Run(ctx context.Context, decl Declaration, opts Options) (*Outcome, error) 
 	}
 
 	stream, decodeErr := Decode(stdout, opts.OnEvent)
-	if decodeErr != nil {
-		// An OnEvent refusal is the receipt check aborting the run. The child is killed
-		// rather than left running: it has already been told to do something the
-		// runtime has decided it may not do.
-		outcome.Aborted = decodeErr
+	var refused *RefusedByCallback
+	switch {
+	case decodeErr == nil:
+	case errors.As(decodeErr, &refused):
+		// The receipt check aborting the run. The child is killed rather than left
+		// running: it has already been told to do something the runtime has decided it
+		// may not do.
+		outcome.Aborted = refused.Unwrap()
+		cancel()
+	default:
+		// The stream itself failed — an oversized line, a broken pipe. Reporting that as
+		// Aborted would tell a caller the bounds refused a run they did not.
+		outcome.DecodeErr = decodeErr
 		cancel()
 	}
 	// Drain whatever is left so the child is not blocked writing into a pipe nobody

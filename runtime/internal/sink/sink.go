@@ -75,6 +75,26 @@ type Sink interface {
 // noise.
 var ErrNoCap = errors.New("a sink that creates things must declare a cap")
 
+// CheckCap applies FR-006 to a built sink.
+//
+// It is a function rather than a line inside Build so it can be probed against a sink
+// that creates things, which this deployment does not yet ship — a check no test can
+// reach is a comment, and the comment claiming Build enforced this was exactly that
+// until a review looked for the code behind it.
+func CheckCap(one Sink) error {
+	if !one.Creates() {
+		return nil
+	}
+	ceiling, declared := one.Cap()
+	if !declared {
+		return fmt.Errorf("%w", ErrNoCap)
+	}
+	if ceiling <= 0 {
+		return fmt.Errorf("%w: %d creates nothing, which is not a ceiling", ErrNoCap, ceiling)
+	}
+	return nil
+}
+
 // ErrUnknownType is what the load gate reports for a sink type this deployment does not
 // implement (FR-038). Accepting it and doing nothing would leave a playbook that looks
 // delivered and is not.

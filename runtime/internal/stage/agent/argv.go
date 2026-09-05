@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,9 +38,18 @@ const (
 	flagModel          = "--model"
 )
 
+// ErrSeparatorInEntry is returned for a declared tool or allowlist entry that contains
+// the separator the flag is joined with. One entry holding "Read,Bash" becomes two on the
+// command line, so a validator checking entries one at a time would pass it while the
+// process received a tool nobody declared — the same smuggling an approved command prefix
+// allows elsewhere. It is refused here, at the join, rather than left for a checker to
+// remember.
+var ErrSeparatorInEntry = errors.New("a declared entry contains a comma, which would split it into two")
+
 // BuildArgs constructs the argument vector.
 //
-// None of the bounding flags is ever omitted, and that is the whole design. A playbook
+// The bounding flags — the tool set, the strict MCP configuration and the setting
+// sources — are never omitted, and that is the whole design. A playbook
 // declaring no MCP servers still gets `--strict-mcp-config` against an empty
 // configuration, because omitting the flag inherits the machine's; a playbook declaring
 // no tools still gets `--tools ""`, because omitting it leaves the built-in set. An
@@ -49,7 +59,15 @@ const (
 // configured value into it and the constitution does not allow a secret on a command
 // line. The MCP configuration is a file for the same reason: a server entry can carry a
 // token.
-func BuildArgs(decl Declaration, mcpConfigPath string) []string {
+func BuildArgs(decl Declaration, mcpConfigPath string) ([]string, error) {
+	for _, group := range [][]string{decl.Tools, decl.Allow} {
+		for _, entry := range group {
+			if strings.Contains(entry, ",") {
+				return nil, fmt.Errorf("%w: %q", ErrSeparatorInEntry, entry)
+			}
+		}
+	}
+
 	args := []string{
 		flagPrint,
 		flagOutputFormat, "stream-json",
@@ -71,11 +89,13 @@ func BuildArgs(decl Declaration, mcpConfigPath string) []string {
 		args = append(args, flagModel, decl.Model)
 	}
 	if decl.OutputSchema != nil {
-		if schema, err := json.Marshal(decl.OutputSchema); err == nil {
-			args = append(args, flagJSONSchema, string(schema))
+		schema, err := json.Marshal(decl.OutputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("the declared output schema cannot be encoded: %w", err)
 		}
+		args = append(args, flagJSONSchema, string(schema))
 	}
-	return args
+	return args, nil
 }
 
 // WriteMCPConfig writes the strict configuration this run is bounded by and returns its

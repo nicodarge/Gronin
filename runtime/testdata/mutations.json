@@ -285,6 +285,45 @@
         "./internal/sink",
         "-count=1"
       ]
+    },
+    {
+      "name": "a secret reaches the log",
+      "tree": "..",
+      "file": "internal/logging/logging.go",
+      "find": "\t\treturn slog.String(attr.Key, h.redactor.Redact(value.String()))\n\tcase slog.KindGroup:",
+      "replace": "\t\treturn attr\n\tcase slog.KindGroup:",
+      "command": [
+        "go",
+        "test",
+        "./internal/logging",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an entry holding the separator is joined anyway",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\t\tif strings.Contains(entry, \",\") {",
+      "replace": "\t\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a creating sink needs no cap after all",
+      "tree": "..",
+      "file": "internal/sink/sink.go",
+      "find": "\tif !declared {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

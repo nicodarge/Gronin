@@ -92,7 +92,10 @@ func (s Sink) Type() (string, map[string]any, bool) {
 		case nil:
 			return name, map[string]any{}, true
 		default:
-			return name, map[string]any{}, true
+			// A scalar under a sink key. Returning an empty configuration here would
+			// make it read as a sink that configured nothing, and the refusal would name
+			// the missing field rather than the shape that is wrong.
+			return name, nil, false
 		}
 	}
 	return "", nil, false

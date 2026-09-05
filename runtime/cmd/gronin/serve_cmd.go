@@ -56,10 +56,18 @@ func newServeCommand() *cobra.Command {
 					finished, err := deployment.executor.Execute(
 						ctx, book, record.TriggerSchedule, nil)
 					if err != nil {
+						// The occurrence never became a run — already in flight, or the
+						// working directory could not be made. That is what the
+						// scheduler records as missed.
 						return err
 					}
+					// It ran. Whatever its status, it is a run record and not a missed
+					// occurrence: telling an operator that something did not happen when
+					// it did is worse than saying nothing.
 					if finished.Status != record.StatusSucceeded {
-						return errors.New(string(finished.Status) + ": " + finished.Error)
+						deployment.log.Warn("a scheduled run did not succeed",
+							"playbook", name, "run", finished.ID,
+							"status", string(finished.Status), "err", finished.Error)
 					}
 					return nil
 				},
@@ -87,7 +95,7 @@ func newServeCommand() *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
-			err = scheduler.Run(ctx, func() time.Time { return time.Now().UTC() })
+			err = scheduler.Run(ctx, func() time.Time { return time.Now().UTC() }, deployment.log)
 			if errors.Is(err, context.Canceled) {
 				cmd.Println("stopping; runs in flight are marked interrupted on the next start")
 				return nil
