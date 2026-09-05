@@ -20,10 +20,11 @@ releasing US1 without US2, and Principle III forbids releasing either without US
 that a run be replayable and resumable from its record. They stay separate phases because each is
 separately implementable and separately testable, not because each is separately releasable.
 
-**Task numbering**: T068-T071 were added after the analysis pass and sit in the phase they belong
-to rather than at the end of the file, so the identifiers are not in document order. Identifiers
-are stable and tasks reference each other; renumbering to restore the order would break those
-references silently, which is exactly how the earlier renumbering went wrong.
+**Task numbering**: T068-T071 and T074-T078 were added after their phase was written and sit in
+the phase they belong to rather than at the end of the file, so the identifiers are not in
+document order. Identifiers are stable and tasks reference each other; renumbering to restore the
+order would break those references silently, which is exactly how the earlier renumbering went
+wrong.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -49,8 +50,26 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
       darwin/arm64 with `CGO_ENABLED=0`
 - [ ] T005 Add a CI check that fails if the built binary is dynamically linked — SC-007 is the
       requirement most easily lost to an innocent dependency bump, and nothing else notices
+- [ ] T074 One entry point for the suite — `go vet`, then `go test ./... -race -count=1` under a
+      declared timeout — and run it in CI with no route to the network, so a test that reaches out
+      fails on the machine that reviews the change rather than passing on the one that wrote it
+      (SC-010, SC-011)
+- [ ] T077 `scripts/check-mutation.py`: mutate a named line in a copy of its target, assert the
+      exit code flips, and prove on an unmodified tree that the harness can print zero (SC-014).
+      T036 asserts through this rather than rolling its own
+- [ ] T078 Binary-level test harness: build the executable into a temporary directory and drive it
+      through its command surface (SC-013). Its first subject is `version`; every later
+      operator-surface test uses it instead of calling the packages behind it
+- [ ] T076 Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
+      it (SC-011). A flake found here is a bug; found later it is a reason to stop reading
+      red. Not `[P]`: it configures the same CI workflow as T074 and T075
+- [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
+      check, the binary-level test and the static-link check each block the merge (SC-012). A job
+      that reports without blocking is a dashboard. It lands last in the phase because a check
+      cannot be made required before it exists
 
-**Checkpoint**: an empty binary builds statically on three platforms and CI proves it.
+**Checkpoint**: an empty binary builds statically on three platforms, a hermetic race-enabled suite
+runs against the binary itself, and CI blocks on all of it.
 
 ---
 
@@ -195,8 +214,9 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 - [ ] T073 [US2] `gronin config set` and `gronin config list`, with secret values redacted on
       display (FR-040)
 - [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
-      copy of the validator and assert the suite fails. A refusal case that passes with its check
-      deleted is not testing anything, and nothing else would ever tell you
+      copy of the validator and assert the suite fails, through the harness from T077. A refusal
+      case that passes with its check deleted is not testing anything, and nothing else would ever
+      tell you
 
 T036 sits after the implementation deliberately. Every other test in this file is written first and
 fails first; this one is a post-hoc audit of a finished gate and cannot run before there is a
@@ -273,7 +293,10 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
 
 ## Dependencies & Execution Order
 
-- **Setup (Phase 1)** → **Foundational (Phase 2)** → everything else.
+- **Setup (Phase 1)** → **Foundational (Phase 2)** → everything else. T074 and T076-T078 are part of
+  Setup on purpose: they are what every later phase asserts through, and a harness written after
+  the tests that need it gets shaped to agree with them. T075 closes the phase because it makes
+  each of them required, and a check cannot be made required before it exists.
 - **US1 and US2 (Phases 3-4)** are one release. US2's load gate needs nothing from US1 and can be
   built in parallel with it; US2's receipt check (T046) needs T024.
 - **US3 (Phase 5)** needs a run to exist, so it follows US1 — but it ships with it. It does not
@@ -310,7 +333,9 @@ creating sink adds reach rather than correctness.
 
 ## Notes
 
-- Every agent test uses the stub from T014. If a test needs a real token, it is in the wrong place.
+- Every agent test uses the stub from T014. If a test needs a real token, it is in the wrong place,
+  and T074 fails it there rather than leaving it to a reader.
 - T036 is the task most likely to be skipped and the one that makes the rest mean anything. A green
-  suite is not evidence that a check ran.
+  suite is not evidence that a check ran — which is why T077 has to be able to print zero before
+  any count it produces is worth reading.
 - Commit per task or per logical group. Stop at any checkpoint.

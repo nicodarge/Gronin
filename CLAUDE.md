@@ -45,6 +45,14 @@ Run `pre-commit run --files <files>` after every modification and fix
 everything it reports before considering the work complete. Run the hook, not
 the underlying tool — a hook can load plugins the bare command does not.
 
+## Tests
+
+What the suite has to be is Principle VI of
+[.specify/memory/constitution.md](.specify/memory/constitution.md). Read it there; a
+paraphrase here would drift from it silently.
+
+`scripts/check-mutation.py` is how a test is shown to be able to fail.
+
 ## Documentation
 
 State facts. Do not write a version number or a count into a README or into
