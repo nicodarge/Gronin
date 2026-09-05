@@ -52,7 +52,9 @@ func main() {
 	// to be built from every argument the flag consumed. A stub that read only the first
 	// one reported a narrower tool set than the process was given, which is the wrong
 	// direction for a receipt to be wrong in.
-	tools := entries(flags["tools"])
+	// The receipt reports everything the process was granted, the allowlist included.
+	// A stub that echoed only --tools made a whole half of the bound untestable.
+	tools := append(entries(flags["tools"]), entries(flags["allowedTools"])...)
 	servers := serversFrom(first(flags["mcp-config"]))
 
 	mode := os.Getenv(modeVar)

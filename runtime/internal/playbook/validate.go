@@ -78,12 +78,20 @@ func mcpShape(entry string) (server string, wholeServer bool, isMCP bool) {
 	if len(parts) < 2 || parts[0] != "mcp" || parts[1] == "" {
 		return "", false, false
 	}
-	if len(parts) == 2 {
+	// What decides is whether a TOOL follows the server, not how many parts there are.
+	// Counting parts let mcp__grafana__ through — split gives ["mcp","grafana",""],
+	// three parts, which read as "a tool". Requiring the remainder to be empty then let
+	// mcp__grafana____ through, whose remainder is "__". Naming the accepted shape is
+	// the only version of this that does not need another empty form to be thought of.
+	if !toolName.MatchString(strings.Join(parts[2:], "__")) {
 		return parts[1], true, true
 	}
-	// Three or more: a server and something inside it.
 	return parts[1], false, true
 }
+
+// toolName is what a tool inside an MCP server may be called. An allowlist for the same
+// reason the tool set uses one: the shapes that are not names are not worth enumerating.
+var toolName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 // scopedTool matches `Read(./**)` — a file tool with a path scope.
 var scopedTool = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*)\((.*)\)$`)
@@ -172,12 +180,20 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 	// A prompt that is not there arms a playbook that cannot run. The gate is where that
 	// is cheap to find.
 	if agent.PromptFile != "" && book.Path != "" {
-		if _, err := os.Stat(book.PromptPath()); err != nil {
+		body, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names
+		if err != nil {
 			problems = append(problems, Problem{
 				Field:    "agent.prompt_file",
 				Found:    fmt.Sprintf("%q is not readable from the playbook's directory", agent.PromptFile),
 				Accepted: "a path to a file beside the playbook",
 			})
+		} else {
+			// The prompt body is the string the runtime actually interpolates against the
+			// trigger payload, so it is where FR-039 most needs applying. The walk covered
+			// the prompt's PATH and not its content, so a bare reference there was caught
+			// at run time — after the gather steps had already run and cost money.
+			problems = append(problems,
+				bareReferences("agent.prompt_file ("+agent.PromptFile+")", string(body))...)
 		}
 	}
 
@@ -336,14 +352,20 @@ func validateReserved(book *Playbook) []Problem {
 func validateInterpolation(book *Playbook) []Problem {
 	var problems []Problem
 	for _, held := range interpolatable(book) {
-		for _, match := range bareReference.FindAllStringSubmatch(held.text, -1) {
-			name := match[1]
-			problems = append(problems, Problem{
-				Field:    held.field,
-				Found:    fmt.Sprintf("${%s} does not name its source", name),
-				Accepted: fmt.Sprintf("${config.%s} or ${trigger.%s}", name, name),
-			})
-		}
+		problems = append(problems, bareReferences(held.field, held.text)...)
+	}
+	return problems
+}
+
+func bareReferences(field, text string) []Problem {
+	var problems []Problem
+	for _, match := range bareReference.FindAllStringSubmatch(text, -1) {
+		name := match[1]
+		problems = append(problems, Problem{
+			Field:    field,
+			Found:    fmt.Sprintf("${%s} does not name its source", name),
+			Accepted: fmt.Sprintf("${config.%s} or ${trigger.%s}", name, name),
+		})
 	}
 	return problems
 }
@@ -359,6 +381,11 @@ type held struct {
 // than the raw document means a field added later is not silently exempt from the rule —
 // it has to be added here, which is a compile-time-shaped reminder rather than a silent
 // hole.
+//
+// Two of these strings are interpolated by the runtime today — the prompt body, checked
+// where it is read above, and a sink's configuration. The rest are checked anyway: an
+// author who writes ${x} in a gather command means it to be resolved, and a gate that
+// stays quiet teaches them it works.
 func interpolatable(book *Playbook) []held {
 	out := []held{
 		{"description", book.Description},

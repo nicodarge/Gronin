@@ -282,3 +282,81 @@ func TestAnMCPEntryIsReadByItsShape(t *testing.T) {
 		t.Error("a tool on a server this deployment does not provide was accepted")
 	}
 }
+
+// The form that got past the rule: a trailing separator names a server with nothing
+// inside it, and splitting on the separator gives three parts, which read as a tool.
+func TestAnEntryNamingAServerWithNothingInsideItIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "prompt.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refusals := func(t *testing.T, field, entry string) []playbook.Problem {
+		t.Helper()
+		path := filepath.Join(dir, "mcp.yaml")
+		document := "name: mcp\ntrigger: {type: manual}\nagent:\n  model: m\n  prompt_file: prompt.md\n" +
+			"  mcp: [grafana]\n  " + field + ": [\"" + entry + "\"]\n  output_schema: {type: object}\n" +
+			"sinks: [{discord: {webhook: \"${config.w}\"}}]\n"
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		book, err := playbook.ParseFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return playbook.Validate(book, deployment())
+	}
+
+	for _, field := range []string{"allow", "tools"} {
+		for _, entry := range []string{"mcp__grafana", "mcp__grafana__", "mcp__grafana____"} {
+			problems := refusals(t, field, entry)
+			if len(problems) == 0 {
+				t.Errorf("agent.%s: %q was accepted", field, entry)
+				continue
+			}
+			if !strings.Contains(problems[0].Found, "whole MCP server") {
+				t.Errorf("agent.%s: %q was refused for another reason: %s",
+					field, entry, problems[0].Error())
+			}
+		}
+	}
+}
+
+// The prompt body is the string the runtime actually interpolates against the trigger
+// payload. The walk covered the prompt's path and not its content, so a bare reference
+// there was caught at run time — after the gather steps had cost money.
+func TestABareReferenceInThePromptIsRefusedAtTheGate(t *testing.T) {
+	dir := t.TempDir()
+	write := func(t *testing.T, prompt string) []playbook.Problem {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "prompt.md"), []byte(prompt), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "p.yaml")
+		document := "name: p\ntrigger: {type: manual}\nagent:\n  model: m\n  prompt_file: prompt.md\n" +
+			"  tools: [Read]\n  output_schema: {type: object}\n" +
+			"sinks: [{discord: {webhook: \"${config.w}\"}}]\n"
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		book, err := playbook.ParseFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return playbook.Validate(book, deployment())
+	}
+
+	problems := write(t, "Report on ${alert_name} and say what changed.")
+	if len(problems) == 0 {
+		t.Fatal("a bare reference in the prompt was accepted")
+	}
+	if !strings.Contains(problems[0].Found, "does not name its source") {
+		t.Fatalf("refused for another reason: %s", problems[0].Error())
+	}
+	if !strings.Contains(problems[0].Field, "prompt") {
+		t.Fatalf("the refusal does not point at the prompt: %s", problems[0].Field)
+	}
+
+	if problems := write(t, "Report on ${trigger.alert_name} and ${config.fleet}."); len(problems) != 0 {
+		t.Fatalf("a namespaced reference was refused: %s", problems[0].Error())
+	}
+}

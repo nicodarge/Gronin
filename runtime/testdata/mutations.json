@@ -474,8 +474,8 @@
       "name": "the gate accepts a reference that names no source",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\t\tfor _, match := range bareReference.FindAllStringSubmatch(held.text, -1) {",
-      "replace": "\t\tfor _, match := range [][]string{} {",
+      "find": "\tfor _, match := range bareReference.FindAllStringSubmatch(text, -1) {",
+      "replace": "\tfor _, match := range [][]string{} {",
       "command": [
         "go",
         "test",
@@ -500,8 +500,8 @@
       "name": "the gate accepts a prompt file that is not there",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\t\tif _, err := os.Stat(book.PromptPath()); err != nil {",
-      "replace": "\t\tif _, err := os.Stat(book.PromptPath()); false {",
+      "find": "\t\tbody, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names\n\t\tif err != nil {",
+      "replace": "\t\tbody, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names\n\t\tif false {",
       "command": [
         "go",
         "test",
@@ -605,12 +605,64 @@
       "name": "the API token is compared by prefix",
       "tree": "..",
       "file": "internal/api/api.go",
-      "find": "\t\tif offered == \"\" || offered != s.token {",
+      "find": "\t\tif offered == \"\" || subtle.ConstantTimeCompare([]byte(offered), []byte(s.token)) != 1 {",
       "replace": "\t\tif offered == \"\" || !strings.HasPrefix(s.token, offered) {",
       "command": [
         "go",
         "test",
         "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an MCP entry with no tool after the server is read as a tool",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif !toolName.MatchString(strings.Join(parts[2:], \"__\")) {",
+      "replace": "\tif len(parts) == 2 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a bare reference in the prompt body is not seen",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tproblems = append(problems,\n\t\t\t\tbareReferences(\"agent.prompt_file (\"+agent.PromptFile+\")\", string(body))...)",
+      "replace": "\t\t\t_ = body",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the receipt ignores the allowlist",
+      "tree": "..",
+      "file": "internal/stage/agent/receipt.go",
+      "find": "\tdeclaredTools := set(append(append([]string{}, decl.Tools...), decl.Allow...))",
+      "replace": "\tdeclaredTools := set(decl.Tools)",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a replay runs under a playbook that has changed",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tif !bytes.Equal(bytes.TrimSpace(recorded), bytes.TrimSpace(now)) {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
         "-count=1"
       ]
     }

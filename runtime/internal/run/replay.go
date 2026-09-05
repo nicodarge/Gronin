@@ -1,7 +1,9 @@
 package run
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +17,36 @@ import (
 
 // ErrNotReplayable is returned for a run whose record does not hold what a replay needs.
 var ErrNotReplayable = errors.New("this run cannot be replayed from its record")
+
+// ErrPlaybookChanged refuses a replay or a resume whose playbook is no longer the one
+// that produced the record.
+//
+// The record keeps the playbook as it actually ran, precisely so it stays readable after
+// the file changes underneath it. Rebuilding the bound from whatever is on disk now
+// would let a replay run under a WIDER declaration than the one whose inputs it is
+// reusing, and a resume deliver an old report to a destination nobody reviewed against
+// it — silently in both cases, which is the part that matters.
+var ErrPlaybookChanged = errors.New("the playbook has changed since the run being replayed")
+
+// sameAsRecorded compares the playbook now against the one the record kept.
+func (e *Executor) sameAsRecorded(parent record.Run, book *playbook.Playbook) error {
+	if parent.ResolvedPlaybookRef == "" {
+		return fmt.Errorf("%w: it recorded no copy of the playbook it ran", ErrNotReplayable)
+	}
+	recorded, err := e.Store.Blobs().Get(parent.ResolvedPlaybookRef)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrNotReplayable, err)
+	}
+	now, err := json.MarshalIndent(book, "", "  ")
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(bytes.TrimSpace(recorded), bytes.TrimSpace(now)) {
+		return fmt.Errorf("%w: %s no longer matches what run %s used; read it with "+
+			"`gronin show %s`", ErrPlaybookChanged, book.Name, parent.ID, parent.ID)
+	}
+	return nil
+}
 
 // ErrNotResumable is returned for a run that produced no report to deliver.
 var ErrNotResumable = errors.New("this run has no recorded report to resume from")
@@ -41,6 +73,9 @@ func (e *Executor) Replay(
 	}
 	if parent.PromptRef == "" {
 		return record.Run{}, fmt.Errorf("%w: it recorded no prompt", ErrNotReplayable)
+	}
+	if err := e.sameAsRecorded(parent, book); err != nil {
+		return record.Run{}, err
 	}
 	prompt, err := e.Store.Blobs().Get(parent.PromptRef)
 	if err != nil {
@@ -111,6 +146,9 @@ func (e *Executor) Resume(
 	report, err := e.Store.Blobs().Get(parent.ReportRef)
 	if err != nil {
 		return record.Run{}, fmt.Errorf("%w: %w", ErrNotResumable, err)
+	}
+	if err := e.sameAsRecorded(parent, book); err != nil {
+		return record.Run{}, err
 	}
 
 	started, err := e.Manager.Begin(ctx, book.Name, record.TriggerResume, parentID)

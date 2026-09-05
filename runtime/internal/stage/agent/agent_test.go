@@ -472,3 +472,55 @@ func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 		}
 	})
 }
+
+// The receipt covers the allowlist, which is where an individually named MCP tool is
+// declared. A check that read only the built-in names was blind to a child that received
+// a different tool inside a server the playbook did allow.
+func TestTheReceiptCoversTheAllowlist(t *testing.T) {
+	decl := agent.Declaration{
+		Restricted: true,
+		Tools:      []string{"Read"},
+		MCPServers: []string{"grafana"},
+		Allow:      []string{"mcp__grafana__query_prometheus"},
+	}
+	check := agent.CheckReceipt(decl)
+
+	if err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__query_prometheus"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	}); err != nil {
+		t.Fatalf("a receipt matching the allowlist was refused: %v", err)
+	}
+
+	err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__update_dashboard"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("a tool nobody allowed, on a server that was allowed, passed: %v", err)
+	}
+	if !strings.Contains(err.Error(), "update_dashboard") {
+		t.Fatalf("the refusal does not name it: %v", err)
+	}
+}
+
+// And it is producible end to end, which needs the stub to report the allowlist as well.
+func TestAnAllowlistMismatchIsProducibleAgainstTheStub(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read"}}
+
+	opts := options(t, fakeagent.ModeSuccess)
+	// The process is given more than the declaration says, the way a flag an older
+	// executable ignores would leave it.
+	opts.OnEvent = agent.CheckReceipt(decl)
+	wider := agent.Declaration{Restricted: true, Tools: []string{"Read"}, Allow: []string{"Glob"}}
+
+	outcome, err := agent.Run(t.Context(), wider, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(outcome.Aborted, agent.ErrReceiptMismatch) {
+		t.Fatalf("aborted = %v; the receipt reported %v", outcome.Aborted, outcome.Stream.Init.Tools)
+	}
+}

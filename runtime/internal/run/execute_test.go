@@ -635,3 +635,33 @@ func TestACompletedRunCanBeExplainedFromItsRecordAlone(t *testing.T) {
 		t.Fatalf("the refused actions are not in the record: %v", err)
 	}
 }
+
+// The record keeps the playbook as it actually ran so it stays readable after the file
+// changes. Rebuilding the bound from disk would let a replay run under a wider
+// declaration than the one whose inputs it reuses — silently, which is the part that
+// matters.
+func TestAReplayRefusesAPlaybookThatHasChanged(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
+	book := h.playbook(t, goodPlaybook)
+
+	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The same playbook, widened the way an edit between the run and the replay would.
+	widened := h.playbook(t, strings.Replace(goodPlaybook, "  tools: [Read]", "  tools: [Read, Grep]", 1))
+
+	if _, err := h.executor.Replay(t.Context(), first.ID, widened); !errors.Is(err, run.ErrPlaybookChanged) {
+		t.Fatalf("err = %v, want ErrPlaybookChanged", err)
+	}
+	if _, err := h.executor.Resume(t.Context(), first.ID, widened); !errors.Is(err, run.ErrPlaybookChanged) {
+		t.Fatalf("resume err = %v, want ErrPlaybookChanged", err)
+	}
+
+	// And the unchanged one still replays.
+	if _, err := h.executor.Replay(t.Context(), first.ID, book); err != nil {
+		t.Fatalf("an unchanged playbook was refused: %v", err)
+	}
+}

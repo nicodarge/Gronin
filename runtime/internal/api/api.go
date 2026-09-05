@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,7 +93,9 @@ func (s *Server) authenticated(inner http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		offered := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if offered == "" || offered != s.token {
+		// Constant time: CheckAddress exists so this can be bound off loopback, and a
+		// byte-by-byte comparison over a network is a timing oracle on the token.
+		if offered == "" || subtle.ConstantTimeCompare([]byte(offered), []byte(s.token)) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -122,10 +125,29 @@ func (s *Server) showRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputs, _ := s.reader.GatheredInputs(r.Context(), id)
-	outcomes, _ := s.reader.SinkOutcomes(r.Context(), id)
-	refused, _ := s.reader.RefusedActions(r.Context(), id)
-	calls, _ := s.reader.ToolCalls(r.Context(), id)
+	// A section that could not be read is not an empty section. Rendering it as one
+	// would tell a reader the run had no tool calls when the record simply did not
+	// answer, which is the opposite of what this surface is for.
+	inputs, err := s.reader.GatheredInputs(r.Context(), id)
+	if err != nil {
+		http.Error(w, "the record could not be read", http.StatusInternalServerError)
+		return
+	}
+	outcomes, err := s.reader.SinkOutcomes(r.Context(), id)
+	if err != nil {
+		http.Error(w, "the record could not be read", http.StatusInternalServerError)
+		return
+	}
+	refused, err := s.reader.RefusedActions(r.Context(), id)
+	if err != nil {
+		http.Error(w, "the record could not be read", http.StatusInternalServerError)
+		return
+	}
+	calls, err := s.reader.ToolCalls(r.Context(), id)
+	if err != nil {
+		http.Error(w, "the record could not be read", http.StatusInternalServerError)
+		return
+	}
 
 	writeJSON(w, map[string]any{
 		"run":             summary(one),

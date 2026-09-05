@@ -24,7 +24,11 @@ var ErrReceiptMismatch = errors.New("the agent process received a wider bound th
 // playbook asked for cannot exceed the declaration, and refusing that would turn a
 // harmless difference into an outage.
 func CheckReceipt(decl Declaration) func(Event) error {
-	declaredTools := set(decl.Tools)
+	// The allowlist counts. It is the surface the load gate spends most of its logic
+	// bounding — an individually named MCP tool is declared there, not in the tool set —
+	// and a receipt that only compared the built-in names was blind to a child that
+	// received mcp__grafana__update_dashboard where only a query tool was allowed.
+	declaredTools := set(append(append([]string{}, decl.Tools...), decl.Allow...))
 	declaredServers := set(decl.MCPServers)
 
 	return func(event Event) error {
