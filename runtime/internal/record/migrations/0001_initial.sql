@@ -62,9 +62,8 @@ CREATE TABLE sink_outcomes (
     PRIMARY KEY (run_id, sink)
 );
 
--- FR-030. It has no home in data-model.md, which describes what a run holds, and an
--- occurrence that did not execute never became one. It is not a run row with an unusual
--- status either: nothing about it has a working directory, a cost or an outcome.
+-- FR-030, and the "Missed occurrence" entity in data-model.md. Not a run row with an
+-- unusual status: nothing about it has a working directory, a cost or an outcome.
 CREATE TABLE missed_occurrences (
     playbook_name TEXT NOT NULL,
     due_at        TEXT NOT NULL,

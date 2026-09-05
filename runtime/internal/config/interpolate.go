@@ -90,6 +90,19 @@ func (c *Config) Interpolate(text string, trigger map[string]string) (string, er
 	return resolved, nil
 }
 
+// around quotes the text at an offset. A byte offset alone is a location an author can
+// use in a one-line field and has to count out by hand in a prompt body, which is where
+// these are most likely to be written.
+func around(text string, at int) string {
+	const window = 24
+	end := min(at+window, len(text))
+	snippet := text[at:end]
+	if end < len(text) {
+		snippet += "…"
+	}
+	return snippet
+}
+
 // unterminated reports a `${` with no closing brace. The regex simply does not match
 // one, so without this it passes through as literal text — the only malformed reference
 // that resolves to something rather than being refused, and the one a typo produces.
@@ -115,8 +128,8 @@ func unterminated(text string) []error {
 		}
 		if !covered {
 			problems = append(problems, fmt.Errorf(
-				"a reference opens at byte %d and never closes; accepted: ${config.x} or "+
-					"${trigger.x}", start))
+				"a reference opens and never closes, at %q; accepted: ${config.x} or "+
+					"${trigger.x}", around(text, start)))
 		}
 	}
 }
