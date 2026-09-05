@@ -61,7 +61,8 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
       through its command surface (SC-013). Its first subject is `version`; every later
       operator-surface test uses it instead of calling the packages behind it
 - [ ] T076 Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
-      it (SC-011). Not `[P]`: it configures the same CI workflow as T074 and T075. A flake found here is a bug; found later it is a reason to stop reading red
+      it (SC-011). A flake found here is a bug; found later it is a reason to stop reading
+      red. Not `[P]`: it configures the same CI workflow as T074 and T075
 - [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
       check, the binary-level test and the static-link check each block the merge (SC-012). A job
       that reports without blocking is a dashboard. It lands last in the phase because a check
