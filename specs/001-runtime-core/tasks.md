@@ -121,48 +121,48 @@ scheduled a minute out; a report arrives referencing the fixture.
 
 ### Tests for User Story 1
 
-- [ ] T016 [P] [US1] Scheduler test: a cron-triggered playbook executes once at its time, and a
+- [x] T016 [P] [US1] Scheduler test: a cron-triggered playbook executes once at its time, and a
       missed occurrence is recorded with its reason (FR-009, FR-030)
-- [ ] T017 [P] [US1] Gather test: a step exiting non-zero aborts the run before the agent stage and
+- [x] T017 [P] [US1] Gather test: a step exiting non-zero aborts the run before the agent stage and
       no tokens are spent (FR-010); output past the limit is truncated and the truncation recorded
-- [ ] T018 [P] [US1] Agent-stage test against the stub: the terminal event's cost, usage, turn count
+- [x] T018 [P] [US1] Agent-stage test against the stub: the terminal event's cost, usage, turn count
       and stop reason land in the record (FR-026)
-- [ ] T019 [P] [US1] Timeout test: a stub that never terminates is killed at the declared timeout,
+- [x] T019 [P] [US1] Timeout test: a stub that never terminates is killed at the declared timeout,
       the run is marked timed out, and the partial transcript survives (FR-015)
-- [ ] T020 [P] [US1] Output-schema test: a report that does not satisfy the declared schema marks
+- [x] T020 [P] [US1] Output-schema test: a report that does not satisfy the declared schema marks
       the run failed and sends the validation failure, not the malformed content (FR-014)
-- [ ] T021 [P] [US1] Working-directory test: after a run ends by any path — success, failure,
+- [x] T021 [P] [US1] Working-directory test: after a run ends by any path — success, failure,
       timeout, refusal — the directory is gone and the gathered inputs are still in the record
-- [ ] T068 [P] [US1] Concurrency test: a trigger firing while a run of the same playbook is in
+- [x] T068 [P] [US1] Concurrency test: a trigger firing while a run of the same playbook is in
       flight does not start a second one (FR-016, US1 acceptance scenario 4)
-- [ ] T069 [P] [US1] Manual-invocation test: a playbook invoked by hand runs immediately, is
+- [x] T069 [P] [US1] Manual-invocation test: a playbook invoked by hand runs immediately, is
       recorded as manually invoked, and is subject to the same bounds as a scheduled run (FR-022,
       US1 acceptance scenario 5)
-- [ ] T070 [P] [US1] Sinks-only test: with an agent report asking for something no sink was
+- [x] T070 [P] [US1] Sinks-only test: with an agent report asking for something no sink was
       declared to do, nothing outside the sinks is created or modified (FR-017, US1 acceptance
       scenario 7). This is Principle II's runtime property and the only test that asserts it
 
 ### Implementation for User Story 1
 
-- [ ] T022 [US1] `internal/schedule`: cron parsing, the scheduler, missed-occurrence recording
-- [ ] T023 [US1] `internal/stage/gather`: command execution into the working directory, output
+- [x] T022 [US1] `internal/schedule`: cron parsing, the scheduler, missed-occurrence recording
+- [x] T023 [US1] `internal/stage/gather`: command execution into the working directory, output
       limits, per-step exit code and stderr capture
-- [ ] T024 [US1] `internal/stage/agent`: build the argument vector from the playbook's agent
+- [x] T024 [US1] `internal/stage/agent`: build the argument vector from the playbook's agent
       declaration; spawn the child; pass credentials through the environment, never `argv`
       (FR-012)
-- [ ] T025 [US1] `internal/stage/agent`: `stream-json` decoder — ignore unknown event types and
+- [x] T025 [US1] `internal/stage/agent`: `stream-json` decoder — ignore unknown event types and
       unknown fields, so a CLI update degrades rather than breaks (research.md §2)
-- [ ] T026 [US1] `internal/stage/agent`: timeout, cancellation and child cleanup on shutdown
-- [ ] T027 [US1] Validate the agent report against the playbook's `output_schema` (FR-014)
-- [ ] T028 [P] [US1] `internal/sink`: the sink interface, the cap contract, and per-sink outcome
+- [x] T026 [US1] `internal/stage/agent`: timeout, cancellation and child cleanup on shutdown
+- [x] T027 [US1] Validate the agent report against the playbook's `output_schema` (FR-014)
+- [x] T028 [P] [US1] `internal/sink`: the sink interface, the cap contract, and per-sink outcome
       recording (FR-017, FR-025)
-- [ ] T029 [P] [US1] `internal/sink/discord` (FR-023)
-- [ ] T030 [P] [US1] `internal/sink/slack` (FR-023)
-- [ ] T031 [US1] Copy gathered inputs into the record store **before** removing the working
+- [x] T029 [P] [US1] `internal/sink/discord` (FR-023)
+- [x] T030 [P] [US1] `internal/sink/slack` (FR-023)
+- [x] T031 [US1] Copy gathered inputs into the record store **before** removing the working
       directory — the record is empty without this, and the ordering is the whole of it
-- [ ] T032 [US1] `gronin run`: manual invocation, recorded as manually invoked and subject to the
+- [x] T032 [US1] `gronin run`: manual invocation, recorded as manually invoked and subject to the
       same bounds as a scheduled run (FR-022)
-- [ ] T033 [US1] `gronin serve`: load, verify, arm, serve (FR-020)
+- [x] T033 [US1] `gronin serve`: load, verify, arm, serve (FR-020)
 
 **Checkpoint**: a playbook runs on its schedule and a report arrives. Not shippable — US2 and US3
 are the rest of this release.

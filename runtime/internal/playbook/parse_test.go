@@ -1,6 +1,7 @@
 package playbook_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +156,73 @@ func TestParseRefusesSomethingThatIsNotAPlaybook(t *testing.T) {
 		if _, err := playbook.Parse(name, []byte(document)); err == nil {
 			t.Errorf("%s was accepted as a playbook", name)
 		}
+	}
+}
+
+func TestLoadReadsADirectoryAndCollectsEveryRefusal(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	good := `
+name: %s
+trigger: {type: manual}
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {webhook: "${config.w}"}}]
+`
+	write("one.yaml", fmt.Sprintf(good, "one"))
+	write("two.yaml", fmt.Sprintf(good, "two"))
+	write("broken.yaml", "name: [unclosed\n")
+	write("no-sinks.yaml", "name: three\ntrigger: {type: manual}\nagent: {model: m, prompt_file: p.md, output_schema: {type: object}}\nsinks: []\n")
+	write("notes.md", "not a playbook, and not read")
+
+	loaded, err := playbook.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(loaded.Playbooks) != 2 {
+		t.Fatalf("accepted %v", loaded.Names())
+	}
+	if len(loaded.Refusals) != 2 {
+		t.Fatalf("%d refusals, want 2: %v", len(loaded.Refusals), loaded.Refusals)
+	}
+	if loaded.OK() {
+		t.Fatal("a set with refusals reported itself ready to arm")
+	}
+	if _, found := loaded.Find("one"); !found {
+		t.Fatal("a loaded playbook cannot be found by name")
+	}
+}
+
+// FR-042. Two playbooks with one name make every record ambiguous, and the single-flight
+// guard would treat them as one playbook.
+func TestLoadRefusesTwoPlaybooksWithOneName(t *testing.T) {
+	dir := t.TempDir()
+	body := `
+name: drift-check
+trigger: {type: manual}
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {webhook: "${config.w}"}}]
+`
+	for _, name := range []string{"a.yaml", "b.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	loaded, err := playbook.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Refusals) != 1 {
+		t.Fatalf("refusals = %v", loaded.Refusals)
+	}
+	if !strings.Contains(loaded.Refusals[0].Error(), "already declared by a.yaml") {
+		t.Fatalf("the refusal does not name the other file: %v", loaded.Refusals[0])
 	}
 }

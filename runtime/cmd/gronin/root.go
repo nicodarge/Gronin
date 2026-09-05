@@ -23,8 +23,15 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.PersistentFlags().String("state-dir", defaultStateDir(),
 		"directory holding the record, the configuration and run working directories")
 
+	root.PersistentFlags().String("playbooks", "",
+		"directory holding the playbooks (default: <state-dir>/playbooks)")
+	root.PersistentFlags().String("agent", "claude",
+		"the agent executable this deployment drives")
+
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newStateDirCommand())
+	root.AddCommand(newRunCommand())
+	root.AddCommand(newServeCommand())
 	return root
 }
 
