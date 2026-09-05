@@ -29,9 +29,9 @@
     {
       "name": "a refusal no longer names what it refused",
       "tree": "..",
-      "file": "cmd/gronin/root.go",
-      "find": "SilenceErrors: false,",
-      "replace": "SilenceErrors: true,",
+      "file": "cmd/gronin/main.go",
+      "find": "\tif !errors.As(err, &silent) {\n\t\tfmt.Fprintln(os.Stderr, \"gronin:\", err)\n\t}",
+      "replace": "\t_ = silent",
       "command": [
         "go",
         "test",
@@ -250,7 +250,7 @@
     {
       "name": "a refused report is delivered anyway",
       "tree": "..",
-      "file": "internal/run/execute.go",
+      "file": "internal/run/replay.go",
       "find": "\t\tdelivery.Failure = reportErr",
       "replace": "\t\tdelivery.Report = report",
       "command": [
@@ -356,7 +356,7 @@
     {
       "name": "a stream that failed is reported as a missing result",
       "tree": "..",
-      "file": "internal/run/execute.go",
+      "file": "internal/run/replay.go",
       "find": "\tcase stage.DecodeErr != nil && stage.Stream.Result == nil:",
       "replace": "\tcase false:",
       "command": [
@@ -376,6 +376,332 @@
         "go",
         "test",
         "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a shell in the tool set",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tcase shells[tool]:",
+      "replace": "\t\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a writing tool",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tcase writingTools[tool]:",
+      "replace": "\t\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts an allowlist entry naming a whole server",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif wholeServer {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a file scope is judged as text rather than resolved",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tresolved := filepath.Clean(filepath.Join(root, scope))\n\treturn resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))",
+      "replace": "\treturn !strings.Contains(scope, \"..\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts an MCP server this deployment does not provide",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif !contains(dep.MCPServers, name) {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a sink type this deployment does not implement",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif !contains(dep.SinkTypes, name) {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a creating sink with no cap",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tif _, declared := config[\"cap\"]; !declared {",
+      "replace": "\t\t\tif _, declared := config[\"cap\"]; false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a reference that names no source",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tfor _, match := range bareReference.FindAllStringSubmatch(text, -1) {",
+      "replace": "\tfor _, match := range [][]string{} {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts restricted off with no reason",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif !agent.IsRestricted() && strings.TrimSpace(book.Description) == \"\" {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a prompt file that is not there",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tbody, err := readPrompt(book.PromptPath())\n\t\tif err != nil {",
+      "replace": "\t\tbody, err := readPrompt(book.PromptPath())\n\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a reserved block",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif present {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a wider receipt does not abort the run",
+      "tree": "..",
+      "file": "internal/stage/agent/receipt.go",
+      "find": "\t\tif len(extraTools) == 0 && len(extraServers) == 0 {\n\t\t\treturn nil\n\t\t}",
+      "replace": "\t\treturn nil\n\t\tif false {\n\t\t\treturn nil\n\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the version floor accepts anything",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\tif below {\n\t\treturn fmt.Errorf(\"%w: %s, and the floor is %s\", ErrBelowVersionFloor, version, VersionFloor)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w: %s\", ErrBelowVersionFloor, version)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a missing credential does not refuse startup",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\tif source == \"\" || source == \"none\" {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a replay re-runs the gather steps",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tinputs, err := e.Store.GatheredInputs(ctx, parentID)",
+      "replace": "\tinputs, err := []record.GatheredInput{}, error(nil)",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a resume runs the agent again",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\toutcome.Status = record.StatusSucceeded\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
+      "replace": "\toutcome.Status = record.StatusSucceeded\n\toutcome.CostUSD = 0.01\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the API binds anywhere without a credential",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\tif token == \"\" {\n\t\treturn fmt.Errorf(\"%w; %q is not loopback\", ErrRemoteWithoutCredential, host)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w\", ErrRemoteWithoutCredential)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the API token is compared by prefix",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\t\tif offered == \"\" || subtle.ConstantTimeCompare([]byte(offered), []byte(s.token)) != 1 {",
+      "replace": "\t\tif offered == \"\" || !strings.HasPrefix(s.token, offered) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an MCP entry with no tool after the server is read as a tool",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif !toolName.MatchString(strings.Join(parts[2:], \"__\")) {",
+      "replace": "\tif len(parts) == 2 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a bare reference in the prompt body is not seen",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tproblems = append(problems,\n\t\t\t\tbareReferences(\"agent.prompt_file (\"+agent.PromptFile+\")\", string(body))...)",
+      "replace": "\t\t\t_ = body",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the receipt widens itself with the whole allowlist",
+      "tree": "..",
+      "file": "internal/stage/agent/receipt.go",
+      "find": "\tdeclaredTools := set(decl.Tools, mcpToolsIn(decl.Allow))",
+      "replace": "\tdeclaredTools := set(decl.Tools, decl.Allow)",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a replay runs under a playbook that has changed",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tif !bytes.Equal(bytes.TrimSpace(recorded), bytes.TrimSpace(now)) {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the bare-port shorthand reads as loopback",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\tif host == \"\" || host == \"0.0.0.0\" || host == \"::\" {\n\t\treturn false\n\t}",
+      "replace": "\tif host == \"\" {\n\t\treturn true\n\t}\n\tif host == \"0.0.0.0\" || host == \"::\" {\n\t\treturn false\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a playbook that only moved reads as changed",
+      "tree": "..",
+      "file": "internal/playbook/playbook.go",
+      "find": "\tPath string `yaml:\"-\" json:\"-\"`",
+      "replace": "\tPath string `yaml:\"-\"`",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the prompt is read without a bound",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif info.Size() > MaxPromptBytes {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
         "-count=1"
       ]
     }

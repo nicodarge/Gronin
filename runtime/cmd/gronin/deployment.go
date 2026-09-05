@@ -14,17 +14,19 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
+	"github.com/nicodarge/Gronin/runtime/internal/sink"
 )
 
 // deployment is everything one invocation needs: where this deployment keeps its state,
 // what it knows about itself, and the record it writes to.
 type deployment struct {
-	config   *config.Config
-	store    *record.Store
-	manager  *run.Manager
-	executor *run.Executor
-	log      *slog.Logger
-	stateDir string
+	config          *config.Config
+	store           *record.Store
+	manager         *run.Manager
+	executor        *run.Executor
+	log             *slog.Logger
+	stateDir        string
+	agentExecutable string
 }
 
 func (d *deployment) close() {
@@ -72,11 +74,12 @@ func openDeployment(cmd *cobra.Command) (*deployment, error) {
 
 	manager := run.NewManager(store, filepath.Join(stateDir, "work"))
 	return &deployment{
-		config:   cfg,
-		store:    store,
-		manager:  manager,
-		log:      log,
-		stateDir: stateDir,
+		config:          cfg,
+		store:           store,
+		manager:         manager,
+		log:             log,
+		stateDir:        stateDir,
+		agentExecutable: executable,
 		executor: &run.Executor{
 			Manager:         manager,
 			Store:           store,
@@ -102,6 +105,20 @@ func inheritedEnv(names []string) []string {
 	return env
 }
 
+// capabilities is what this deployment can do, which is half of whether a playbook is
+// safe. A name the gate cannot resolve is refused here rather than at delivery, after a
+// full agent run has been paid for.
+func capabilities() playbook.Deployment {
+	return playbook.Deployment{
+		// No MCP server is wired yet. An empty list is the honest answer and it refuses
+		// every playbook naming one, which is the right direction: a server the runtime
+		// does not pass to the child is a bound the playbook thinks it has.
+		MCPServers:    nil,
+		SinkTypes:     sink.Types(),
+		CreatingSinks: sink.CreatingTypes(),
+	}
+}
+
 // playbooksDir is where this deployment keeps its playbooks.
 func playbooksDir(cmd *cobra.Command) string {
 	if dir, err := cmd.Flags().GetString("playbooks"); err == nil && dir != "" {
@@ -115,7 +132,7 @@ func playbooksDir(cmd *cobra.Command) string {
 // the failure the design exists to prevent, so the output says nothing was armed.
 func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
-	loaded, err := playbook.Load(dir)
+	loaded, err := playbook.Load(dir, capabilities())
 	if err != nil {
 		return loaded, err
 	}
@@ -123,10 +140,18 @@ func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
 		return loaded, nil
 	}
 
+	// The shape of this output is the contract in contracts/cli.md: the playbook, the
+	// field, what was found, and what would be accepted.
 	out := cmd.ErrOrStderr()
 	for _, refusal := range loaded.Refusals {
-		_, _ = fmt.Fprintf(out, "refused: %s\n  %s\n\n",
-			filepath.Base(refusal.Path), refusal.Reason)
+		_, _ = fmt.Fprintf(out, "refused: %s\n", filepath.Base(refusal.Path))
+		if refusal.Reason != nil {
+			_, _ = fmt.Fprintf(out, "  %s\n", refusal.Reason)
+		}
+		for _, problem := range refusal.Problems {
+			_, _ = fmt.Fprintf(out, "  %s\n", problem.Error())
+		}
+		_, _ = fmt.Fprintln(out)
 	}
 	// Deliberate: a refusal that cannot be printed is still a refusal, and the exit code
 	// below carries it either way.

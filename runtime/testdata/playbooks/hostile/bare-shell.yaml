@@ -1,0 +1,12 @@
+name: bare-shell
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read, Bash]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

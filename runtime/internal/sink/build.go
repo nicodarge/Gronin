@@ -90,6 +90,11 @@ func Types() []string {
 	return types
 }
 
+// CreatingTypes are the sink types that bring things into existence somewhere else, and
+// so must declare a cap. It is empty until the issue sink lands (US4), and the load gate
+// asks rather than assuming: a list the gate hard-codes drifts from the one Build knows.
+func CreatingTypes() []string { return nil }
+
 func webhookURL(decl Declaration, opts BuildOptions) (string, error) {
 	raw, ok := decl.Config["webhook"].(string)
 	if !ok || raw == "" {

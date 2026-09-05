@@ -1,0 +1,14 @@
+name: summarise-inputs
+trigger:
+  type: manual
+gather:
+  - run: echo nothing
+    as: nothing.txt
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

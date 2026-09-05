@@ -326,3 +326,242 @@ func TestAStreamThatFailsIsReportedAsSuchRatherThanAsAMissingResult(t *testing.T
 		t.Fatal("the fixture is meant to fail before any terminal event")
 	}
 }
+
+// FR-018, SC-009. The bound is verified rather than asserted: the child reports what it
+// actually received, and a wider set aborts the run before any model output.
+func TestAWiderReceiptAbortsTheRunBeforeAnyOutput(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read"}}
+
+	opts := options(t, fakeagent.ModeMismatch)
+	opts.OnEvent = agent.CheckReceipt(decl)
+
+	outcome, err := agent.Run(t.Context(), decl, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(outcome.Aborted, agent.ErrReceiptMismatch) {
+		t.Fatalf("aborted = %v, want a receipt mismatch", outcome.Aborted)
+	}
+	if !strings.Contains(outcome.Aborted.Error(), "Bash") {
+		t.Fatalf("the refusal does not name what was received: %v", outcome.Aborted)
+	}
+	if outcome.Stream.Result != nil {
+		t.Fatal("the run reached its terminal event; it was meant to stop at the receipt")
+	}
+}
+
+func TestAMatchingReceiptDoesNotAbort(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read", "Grep"}}
+
+	opts := options(t, fakeagent.ModeSuccess)
+	opts.OnEvent = agent.CheckReceipt(decl)
+
+	outcome, err := agent.Run(t.Context(), decl, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Aborted != nil {
+		t.Fatalf("a matching receipt aborted the run: %v", outcome.Aborted)
+	}
+	if outcome.Stream.Result == nil {
+		t.Fatal("the run did not finish")
+	}
+}
+
+// Narrower is not wider. A process that ended up with fewer tools than the playbook
+// asked for cannot exceed the declaration, and refusing it would turn a harmless
+// difference into an outage.
+func TestANarrowerReceiptIsAccepted(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{Tools: []string{"Read", "Grep", "Glob"}})
+
+	if err := check(agent.Event{Type: "system", Subtype: "init", Tools: []string{"Read"}}); err != nil {
+		t.Fatalf("a narrower receipt was refused: %v", err)
+	}
+	if err := check(agent.Event{Type: "system", Subtype: "init"}); err != nil {
+		t.Fatalf("an empty receipt was refused: %v", err)
+	}
+}
+
+func TestAnUndeclaredServerInTheReceiptIsRefused(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{MCPServers: []string{"grafana"}})
+
+	err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		MCPServers: []agent.MCPServer{{Name: "grafana"}, {Name: "filesystem"}},
+	})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "filesystem") {
+		t.Fatalf("the refusal does not name the server: %v", err)
+	}
+}
+
+// FR-019. A flag an older executable does not recognise is ignored rather than refused,
+// so a bound expressed as a flag fails open — which is why the floor exists at all.
+func TestTheVersionFloorIsComparedNumerically(t *testing.T) {
+	version, err := agent.CheckVersion(t.Context(), fakeagent.Build(t))
+	if err != nil {
+		t.Fatalf("the stub reports %q and was refused: %v", version, err)
+	}
+	if version == "" {
+		t.Fatal("no version was read")
+	}
+}
+
+func TestVersionComparisonIsNotLexical(t *testing.T) {
+	// The trap: "2.1.9" sorts after "2.1.10" as a string, and is older as a version.
+	for _, probe := range []struct {
+		version string
+		refused bool
+	}{
+		{"2.1.261", false},
+		{"2.1.262", false},
+		{"2.2.0", false},
+		{"3.0.0", false},
+		{"2.1.260", true},
+		{"2.1.9", true},
+		{"2.0.999", true},
+		{"1.9.9", true},
+	} {
+		err := agent.RefuseBelowFloor(probe.version)
+		if probe.refused && err == nil {
+			t.Errorf("%s was accepted, and the floor is %s", probe.version, agent.VersionFloor)
+		}
+		if !probe.refused && err != nil {
+			t.Errorf("%s was refused: %v", probe.version, err)
+		}
+	}
+}
+
+// FR-032, FR-033: the source is read off the process's own report rather than asserted,
+// and a process that found none refuses to start with the places it looked.
+func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
+	t.Run("a configured source is reported", func(t *testing.T) {
+		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=not-a-real-key"}, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source != "ANTHROPIC_API_KEY" {
+			t.Fatalf("source = %q", source)
+		}
+	})
+
+	t.Run("another configured source is reported as itself", func(t *testing.T) {
+		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin", fakeagent.KeySourceVar + "=keychain"}, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source != "keychain" {
+			t.Fatalf("source = %q", source)
+		}
+	})
+
+	t.Run("none configured refuses and names where it looked", func(t *testing.T) {
+		_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin"}, t.TempDir())
+		if !errors.Is(err, agent.ErrNoCredential) {
+			t.Fatalf("err = %v, want ErrNoCredential", err)
+		}
+		for _, where := range []string{"ANTHROPIC_API_KEY", "apiKeyHelper", "keychain"} {
+			if !strings.Contains(err.Error(), where) {
+				t.Errorf("the refusal does not mention %s: %v", where, err)
+			}
+		}
+	})
+}
+
+// The receipt covers the allowlist, which is where an individually named MCP tool is
+// declared. A check that read only the built-in names was blind to a child that received
+// a different tool inside a server the playbook did allow.
+func TestTheReceiptCoversTheAllowlist(t *testing.T) {
+	decl := agent.Declaration{
+		Restricted: true,
+		Tools:      []string{"Read"},
+		MCPServers: []string{"grafana"},
+		Allow:      []string{"mcp__grafana__query_prometheus", "Read(./**)"},
+	}
+	check := agent.CheckReceipt(decl)
+
+	if err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__query_prometheus"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	}); err != nil {
+		t.Fatalf("a receipt matching the allowlist was refused: %v", err)
+	}
+
+	err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__update_dashboard"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("a tool nobody allowed, on a server that was allowed, passed: %v", err)
+	}
+	if !strings.Contains(err.Error(), "update_dashboard") {
+		t.Fatalf("the refusal does not name it: %v", err)
+	}
+}
+
+// And it is producible end to end, which needs the stub to report the allowlist as well.
+func TestAnAllowlistMismatchIsProducibleAgainstTheStub(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read"}}
+
+	opts := options(t, fakeagent.ModeSuccess)
+	// The process is given more than the declaration says, the way a bounding flag an
+	// older executable silently ignores would leave it.
+	opts.OnEvent = agent.CheckReceipt(decl)
+	wider := agent.Declaration{Restricted: true, Tools: []string{"Read", "Glob"}}
+
+	outcome, err := agent.Run(t.Context(), wider, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(outcome.Aborted, agent.ErrReceiptMismatch) {
+		t.Fatalf("aborted = %v; the receipt reported %v", outcome.Aborted, outcome.Stream.Init.Tools)
+	}
+}
+
+// A scoped file form is a permission on a tool, not a tool, and it never appears in a
+// receipt. Folding the whole allowlist in widened what the check accepts — which is the
+// direction that hides a mismatch rather than catching one.
+func TestAScopedAllowEntryDoesNotWidenWhatTheReceiptAccepts(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{
+		Tools: []string{"Read"},
+		Allow: []string{"Read(./**)", "Glob(./**)"},
+	})
+
+	// A child reporting a tool the allowlist merely scoped is still reporting a tool the
+	// declaration did not name.
+	err := check(agent.Event{Type: "system", Subtype: "init", Tools: []string{"Read", "Glob"}})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("a tool outside the declared set passed because the allowlist mentioned it: %v", err)
+	}
+
+	// The case that separates "fold in the whole allowlist" from "fold in what a receipt
+	// can report": a bare tool name in the allowlist, which the gate permits, is not a
+	// grant of that tool. The tool set is, and this one does not name it.
+	bare := agent.CheckReceipt(agent.Declaration{Tools: []string{"Read"}, Allow: []string{"Glob"}})
+	if err := bare(agent.Event{
+		Type: "system", Subtype: "init", Tools: []string{"Read", "Glob"},
+	}); !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("an allowlist entry stood in for the tool set: %v", err)
+	}
+
+	// And an MCP tool in the allowlist IS foldable, because a connected server's tools
+	// do appear in a receipt.
+	mcp := agent.CheckReceipt(agent.Declaration{
+		Tools: []string{"Read"}, MCPServers: []string{"grafana"},
+		Allow: []string{"mcp__grafana__query_prometheus"},
+	})
+	if err := mcp(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__query_prometheus"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	}); err != nil {
+		t.Fatalf("an allowed MCP tool was refused: %v", err)
+	}
+}

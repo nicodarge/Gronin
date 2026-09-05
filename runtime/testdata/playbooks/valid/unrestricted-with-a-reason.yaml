@@ -1,0 +1,16 @@
+name: package-audit
+description: >-
+  Restricted execution is off because the audit shells out to the package manager,
+  which no file tool can stand in for.
+trigger:
+  type: cron
+  schedule: "30 2 * * 1"
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  restricted: false
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

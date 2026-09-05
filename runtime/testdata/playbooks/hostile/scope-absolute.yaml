@@ -1,0 +1,13 @@
+name: scope-absolute
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  allow: ["Read(/etc/**)"]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

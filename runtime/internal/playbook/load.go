@@ -6,15 +6,31 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Refusal is one playbook the loader would not accept, and why.
+//
+// A shape-layer failure carries a Reason; the semantic gate carries Problems, one per
+// rule it broke, because a playbook usually breaks more than one and an author should
+// see them together.
 type Refusal struct {
-	Path   string
-	Reason error
+	Path     string
+	Reason   error
+	Problems []Problem
 }
 
-func (r Refusal) Error() string { return r.Path + ": " + r.Reason.Error() }
+func (r Refusal) Error() string {
+	var out strings.Builder
+	out.WriteString(r.Path)
+	if r.Reason != nil {
+		out.WriteString(": " + r.Reason.Error())
+	}
+	for _, problem := range r.Problems {
+		out.WriteString("\n  " + problem.Error())
+	}
+	return out.String()
+}
 
 // Loaded is the result of reading a directory: what was accepted, and what was not.
 //
@@ -47,7 +63,7 @@ func (l Loaded) Err() error {
 // It reads the whole directory before deciding anything: every refusal is collected, so
 // an author fixes them in one pass rather than one round trip at a time, which is how a
 // gate gets switched off.
-func Load(dir string) (Loaded, error) {
+func Load(dir string, dep Deployment) (Loaded, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return Loaded{}, fmt.Errorf("reading the playbook directory: %w", err)
@@ -83,6 +99,13 @@ func Load(dir string) (Loaded, error) {
 			})
 			continue
 		}
+		// The semantic gate. The schema is the shape layer and is not the gate: a
+		// document it accepts may still be refused here, by design.
+		if problems := Validate(book, dep); len(problems) > 0 {
+			loaded.Refusals = append(loaded.Refusals, Refusal{Path: path, Problems: problems})
+			continue
+		}
+
 		seen[book.Name] = filepath.Base(path)
 		loaded.Playbooks = append(loaded.Playbooks, book)
 	}

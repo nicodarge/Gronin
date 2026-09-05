@@ -138,8 +138,12 @@ func Run(ctx context.Context, decl Declaration, opts Options) (*Outcome, error) 
 		outcome.ExitCode = 0
 	case errors.As(waitErr, &exit):
 		outcome.ExitCode = exit.ExitCode()
-	case outcome.Aborted != nil:
-		// Killed on purpose. The wait error describes the signal, not a failure.
+	case outcome.Aborted != nil || outcome.DecodeErr != nil:
+		// Killed on purpose, and the wait error describes how it died rather than a
+		// failure of the runtime. It is not always an ExitError: a child killed while
+		// writing can leave Wait returning exec.ErrWaitDelay instead, which made this
+		// return an error and turned a deliberate kill into a flaky failure — once, out
+		// of many runs, which is how it was found rather than reasoned about.
 		outcome.ExitCode = -1
 	default:
 		return outcome, fmt.Errorf("the agent process: %w", waitErr)

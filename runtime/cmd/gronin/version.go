@@ -4,6 +4,8 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+
+	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
 )
 
 // version is set at link time for a release build. An ordinary `go build` leaves it
@@ -17,6 +19,24 @@ func newVersionCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.Println(resolveVersion())
+
+			// And the agent it found, because the runtime's own version says nothing
+			// about whether the bounding flags will be applied.
+			executable, _ := cmd.Flags().GetString("agent")
+			if executable == "" {
+				executable = "claude"
+			}
+			found, err := agent.CheckVersion(cmd.Context(), executable)
+			switch {
+			case found == "":
+				cmd.Printf("agent %s: not found\n", executable)
+				return errSilent{err}
+			case err != nil:
+				cmd.Printf("agent %s: %s\n", executable, found)
+				return errSilent{err}
+			default:
+				cmd.Printf("agent %s: %s (floor %s)\n", executable, found, agent.VersionFloor)
+			}
 			return nil
 		},
 	}

@@ -11,7 +11,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		Use:           "gronin",
 		Short:         "Run bounded agents from declarative playbooks",
 		SilenceUsage:  true,
-		SilenceErrors: false,
+		SilenceErrors: true,
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -28,11 +28,19 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.PersistentFlags().String("agent", "claude",
 		"the agent executable this deployment drives")
 	root.PersistentFlags().Bool("verbose", false, "log what each stage is doing")
+	root.PersistentFlags().String("api-address", "127.0.0.1:8787",
+		"where serve binds its API; anywhere but loopback requires a configured api_token")
 
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newStateDirCommand())
+	root.AddCommand(newConfigCommand())
+	root.AddCommand(newValidateCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newServeCommand())
+	root.AddCommand(newRunsCommand())
+	root.AddCommand(newShowCommand())
+	root.AddCommand(newReplayCommand())
+	root.AddCommand(newResumeCommand())
 	return root
 }
 

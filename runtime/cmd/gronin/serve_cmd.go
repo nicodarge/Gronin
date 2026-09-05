@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/nicodarge/Gronin/runtime/internal/api"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/schedule"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
 )
 
 // newServeCommand is FR-020's daemon half: load, refuse, arm, run.
@@ -35,6 +39,21 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 			defer deployment.close()
+
+			// FR-019 then FR-033, before anything is armed. A bounding flag an older
+			// executable does not recognise is ignored rather than refused, and a
+			// deployment that cannot authenticate arms schedules that will fail one by
+			// one, each after a working directory and a record row.
+			version, err := agent.CheckVersion(cmd.Context(), deployment.agentExecutable)
+			if err != nil {
+				return err
+			}
+			source, err := agent.VerifyCredential(cmd.Context(), deployment.agentExecutable,
+				deployment.executor.AgentEnv, deployment.stateDir)
+			if err != nil {
+				return err
+			}
+			cmd.Printf("agent %s, credential from %s\n", version, source)
 
 			// FR-031: a run the record still calls running cannot be, because this
 			// process has just started. It is marked interrupted and left alone —
@@ -85,6 +104,35 @@ func newServeCommand() *cobra.Command {
 
 			cmd.Printf("armed %d schedule(s) of %d playbook(s) from %s\n",
 				armed, len(loaded.Playbooks), playbooksDir(cmd))
+
+			// FR-036, checked before anything listens: a deployment must not be one
+			// restart away from an unauthenticated listener that can invoke playbooks.
+			address, _ := cmd.Flags().GetString("api-address")
+			token := ""
+			if value, configured := deployment.config.Get("api_token"); configured {
+				token = value.Value
+			}
+			if err := api.CheckAddress(address, token); err != nil {
+				return err
+			}
+			// Through a ListenConfig so the bind itself is bounded by the command's
+			// context: a serve that is cancelled while binding should stop, not hang.
+			var listenConfig net.ListenConfig
+			listener, err := listenConfig.Listen(cmd.Context(), "tcp", address)
+			if err != nil {
+				return fmt.Errorf("binding the API: %w", err)
+			}
+			server := &http.Server{
+				Handler:           api.New(deployment.store, token).Handler(),
+				ReadHeaderTimeout: 10 * time.Second,
+			}
+			go func() {
+				if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					deployment.log.Error("the API stopped", "err", err)
+				}
+			}()
+			defer func() { _ = server.Close() }()
+			cmd.Printf("API on %s\n", listener.Addr())
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()

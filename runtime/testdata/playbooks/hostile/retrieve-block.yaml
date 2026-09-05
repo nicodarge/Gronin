@@ -1,0 +1,13 @@
+name: retrieve-block
+trigger:
+  type: manual
+retrieve:
+  collection: incidents
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

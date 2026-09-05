@@ -122,3 +122,86 @@ func TestServeRefusesToArmWhenAPlaybookIsRefused(t *testing.T) {
 		t.Fatalf("it reported arming something: %q", got.Stdout)
 	}
 }
+
+// FR-040. A playbook holds the reference and the deployment holds the value, which is
+// what lets a playbook be committed and shared at all.
+func TestConfigSetsAValueAndRedactsASecretWhenListing(t *testing.T) {
+	stateDir := t.TempDir()
+
+	if got := bintest.Run(t, "config", "set", "ops_channel", "#ops",
+		"--state-dir", stateDir); got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+	if got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+		"--secret", "--state-dir", stateDir); got.ExitCode != 0 {
+		t.Fatalf("set --secret failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	got := bintest.Run(t, "config", "list", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("list failed: %q", got.Stderr)
+	}
+	if !strings.Contains(got.Stdout, "#ops") {
+		t.Fatalf("a value that is not a secret was not shown: %q", got.Stdout)
+	}
+	if strings.Contains(got.Stdout, "t0ken") {
+		t.Fatalf("a secret was printed: %q", got.Stdout)
+	}
+	if !strings.Contains(got.Stdout, "[redacted]") {
+		t.Fatalf("the secret is not shown as redacted: %q", got.Stdout)
+	}
+}
+
+// Setting a secret must not echo it: this runs in a shell whose history keeps what it
+// is told, and the value has just been marked as one worth hiding.
+func TestSettingASecretDoesNotEchoIt(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+		"--secret", "--state-dir", stateDir)
+
+	if strings.Contains(got.Stdout, "t0ken") || strings.Contains(got.Stderr, "t0ken") {
+		t.Fatalf("the value was echoed: %q %q", got.Stdout, got.Stderr)
+	}
+	if !strings.Contains(got.Stdout, "ops_webhook") {
+		t.Fatalf("it does not say what was set: %q", got.Stdout)
+	}
+}
+
+// FR-021 through the operator's own surface: run it, list it, read it back, and act on
+// the record without stopping anything.
+func TestARunCanBeListedAndReadBack(t *testing.T) {
+	stateDir, _ := deploymentOnDisk(t, cliPlaybook)
+	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
+	agentPath := fakeagent.Build(t)
+
+	invoked := bintest.Run(t, "run", "drift-check", "--state-dir", stateDir, "--agent", agentPath)
+	if !strings.Contains(invoked.Stdout, "Z-") {
+		t.Fatalf("the run printed no identifier: %q %q", invoked.Stdout, invoked.Stderr)
+	}
+	id := strings.Fields(invoked.Stdout)[0]
+
+	listed := bintest.Run(t, "runs", "--state-dir", stateDir, "--agent", agentPath)
+	if listed.ExitCode != 0 || !strings.Contains(listed.Stdout, id) {
+		t.Fatalf("the run is not in the list: %q", listed.Stdout)
+	}
+	if !strings.Contains(listed.Stdout, "drift-check") {
+		t.Fatalf("the list does not name the playbook: %q", listed.Stdout)
+	}
+
+	shown := bintest.Run(t, "show", id, "--state-dir", stateDir, "--agent", agentPath)
+	if shown.ExitCode != 0 {
+		t.Fatalf("show failed: %q", shown.Stderr)
+	}
+	// SC-003: what it was asked, what each sink did, and what its bounds refused.
+	for _, want := range []string{"playbook", "status", "gathered", "sink", "refused", "prompt"} {
+		if !strings.Contains(shown.Stdout, want) {
+			t.Errorf("the record does not show %q: %q", want, shown.Stdout)
+		}
+	}
+
+	unknown := bintest.Run(t, "show", "no-such-run", "--state-dir", stateDir, "--agent", agentPath)
+	if unknown.ExitCode == 0 {
+		t.Fatal("show exited 0 for a run that does not exist")
+	}
+}

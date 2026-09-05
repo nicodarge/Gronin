@@ -210,6 +210,35 @@ func (s *Store) AddToolCall(ctx context.Context, runID string, call ToolCall) er
 	return err
 }
 
+// ToolCalls reads a run's tool calls back, in order. FR-026 asks for every one with its
+// input and output, and a record nobody can read back is not a record.
+func (s *Store) ToolCalls(ctx context.Context, runID string) ([]ToolCall, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT sequence, name, input_ref, output_ref, started_at, duration_ms, outcome
+		  FROM tool_calls WHERE run_id = ? ORDER BY sequence`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var calls []ToolCall
+	for rows.Next() {
+		var (
+			call          ToolCall
+			input, output sql.NullString
+			started       sql.NullString
+		)
+		if err := rows.Scan(&call.Sequence, &call.Name, &input, &output, &started,
+			&call.DurationMS, &call.Outcome); err != nil {
+			return nil, err
+		}
+		call.InputRef, call.OutputRef = input.String, output.String
+		call.StartedAt = parseTime(started)
+		calls = append(calls, call)
+	}
+	return calls, rows.Err()
+}
+
 // RefusedAction is one action the agent attempted that its bounds refused.
 type RefusedAction struct {
 	Sequence int

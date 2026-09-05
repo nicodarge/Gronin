@@ -1,0 +1,12 @@
+name: writing-tool
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read, Write]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

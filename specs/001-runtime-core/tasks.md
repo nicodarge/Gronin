@@ -181,47 +181,47 @@ builds on the agent stage from T024, so it lands after it. Stated rather than hi
 
 ### Tests for User Story 2
 
-- [ ] T034 [P] [US2] `testdata/playbooks/hostile/`: one playbook per refusal rule — bare shell in
+- [x] T034 [P] [US2] `testdata/playbooks/hostile/`: one playbook per refusal rule — bare shell in
       the tool set, a writing tool, an allowlist naming a whole MCP server, a file scope escaping
       the working directory (absolute and relative forms), an unknown MCP server, a creating sink
       with no cap, a `guard` block, a `retrieve` block, an unknown sink type, a bare interpolation
       missing its namespace, restricted execution turned off with no stated reason, a duplicate
       name, and an interpolation naming something only the environment has (FR-041, FR-042)
-- [ ] T035 [P] [US2] `testdata/playbooks/valid/`: the accepting corpus. A denylist probed only on
+- [x] T035 [P] [US2] `testdata/playbooks/valid/`: the accepting corpus. A denylist probed only on
       its refusals is an allowlist in disguise
-- [ ] T071 [P] [US2] Credential test: with no source configured the runtime refuses to start and
+- [x] T071 [P] [US2] Credential test: with no source configured the runtime refuses to start and
       names the sources it consulted; with either of two sources configured it starts and reports
       which one the agent process named (FR-032, FR-033, SC-008)
 
 ### Implementation for User Story 2
 
-- [ ] T037 [US2] `internal/playbook/validate`: the gate skeleton — collect every refusal, never stop
+- [x] T037 [US2] `internal/playbook/validate`: the gate skeleton — collect every refusal, never stop
       at the first, and refuse the whole set rather than arming the valid remainder (FR-001)
-- [ ] T038 [US2] Refuse a shell or a writing tool in the declared tool set (FR-003)
-- [ ] T039 [US2] Refuse an allowlist entry naming a whole MCP server (FR-004)
-- [ ] T040 [US2] Refuse a file scope resolving outside the working directory — resolve the path
+- [x] T038 [US2] Refuse a shell or a writing tool in the declared tool set (FR-003)
+- [x] T039 [US2] Refuse an allowlist entry naming a whole MCP server (FR-004)
+- [x] T040 [US2] Refuse a file scope resolving outside the working directory — resolve the path
       before deciding, so a relative traversal is caught (FR-005)
-- [ ] T041 [US2] Refuse a creating sink without a cap (FR-006), and an MCP server this
+- [x] T041 [US2] Refuse a creating sink without a cap (FR-006), and an MCP server this
       deployment does not provide (FR-007)
-- [ ] T042 [US2] Refuse a `guard` or `retrieve` block (FR-034): a declared bound the runtime
+- [x] T042 [US2] Refuse a `guard` or `retrieve` block (FR-034): a declared bound the runtime
       does not apply is worse than an absent one
-- [ ] T043 [US2] Refusal output per `contracts/cli.md`: playbook, field, what was found, what would
+- [x] T043 [US2] Refusal output per `contracts/cli.md`: playbook, field, what was found, what would
       be accepted, and the closing line stating that nothing was armed (FR-002)
-- [ ] T044 [US2] `gronin validate`: the same code path as `serve`, with no credential required so
+- [x] T044 [US2] `gronin validate`: the same code path as `serve`, with no credential required so
       it can run in CI (FR-035). A validator that can disagree with the runtime is worse than none
-- [ ] T045 [US2] Restricted execution as the default, overridable only with a stated reason
+- [x] T045 [US2] Restricted execution as the default, overridable only with a stated reason
       (FR-013, FR-041)
-- [ ] T046 [US2] The receipt check: compare the tool set and MCP servers the child reports in its
+- [x] T046 [US2] The receipt check: compare the tool set and MCP servers the child reports in its
       first event against what the playbook declared, and abort before any model output when they
       differ (FR-018). Test it with the stub reporting a wider set than it was given (SC-009)
-- [ ] T047 [US2] Agent version floor, checked at startup and reported by `gronin version` (FR-019)
-- [ ] T048 [US2] Credential verification at startup, reporting the source the agent process names
+- [x] T047 [US2] Agent version floor, checked at startup and reported by `gronin version` (FR-019)
+- [x] T048 [US2] Credential verification at startup, reporting the source the agent process names
       rather than asserting one (FR-032, FR-033)
-- [ ] T072 [US2] Refuse a sink type this deployment does not implement (FR-038), an interpolation
+- [x] T072 [US2] Refuse a sink type this deployment does not implement (FR-038), an interpolation
       that omits its namespace (FR-039), and two playbooks declaring the same name (FR-042)
-- [ ] T073 [US2] `gronin config set` and `gronin config list`, with secret values redacted on
+- [x] T073 [US2] `gronin config set` and `gronin config list`, with secret values redacted on
       display (FR-040)
-- [ ] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
+- [x] T036 [US2] The mutation check SC-002 demands: for each refusal rule, remove its check from a
       copy of the validator and assert the suite fails, through the harness from T077. A refusal
       case that passes with its check deleted is not testing anything, and nothing else would ever
       tell you
@@ -241,27 +241,27 @@ nobody can read fails Principle III, which US3 closes.
 
 ### Tests for User Story 3
 
-- [ ] T049 [P] [US3] Record-completeness test: for a completed run, every field FR-026 lists is
+- [x] T049 [P] [US3] Record-completeness test: for a completed run, every field FR-026 lists is
       present and readable, and its terminal status distinguishes refused from failed (FR-037,
       SC-003)
-- [ ] T050 [P] [US3] Replay test: recorded inputs are reused, gather does not re-execute, no trigger
+- [x] T050 [P] [US3] Replay test: recorded inputs are reused, gather does not re-execute, no trigger
       fires, and the replay is a distinct run linked to its parent (FR-027)
-- [ ] T051 [P] [US3] Resume test: the recorded report is reused, the agent does not re-execute, and
+- [x] T051 [P] [US3] Resume test: the recorded report is reused, the agent does not re-execute, and
       the resumed run reports zero additional token cost (FR-028, SC-004)
-- [ ] T052 [P] [US3] Interruption test: a runtime killed mid-run marks that run interrupted on
+- [x] T052 [P] [US3] Interruption test: a runtime killed mid-run marks that run interrupted on
       restart, keeps its partial record, and does not resume it (FR-031)
 
 ### Implementation for User Story 3
 
-- [ ] T053 [US3] Record every action the agent attempted that its bounds refused (FR-026). Small
+- [x] T053 [US3] Record every action the agent attempted that its bounds refused (FR-026). Small
       table, and the only thing in the record that says a playbook's tool set is wrong (FR-037)
-- [ ] T054 [US3] `internal/api`: the local HTTP API — list runs, read one, invoke, replay, resume.
+- [x] T054 [US3] `internal/api`: the local HTTP API — list runs, read one, invoke, replay, resume.
       Loopback by default; binding elsewhere requires a configured credential first (FR-021,
       FR-036)
-- [ ] T055 [P] [US3] `gronin runs` and `gronin show` (FR-021)
-- [ ] T056 [P] [US3] `gronin replay` — re-run the agent against recorded inputs
-- [ ] T057 [P] [US3] `gronin resume` — re-run only the sinks against the recorded report
-- [ ] T058 [US3] Interrupted-run reconciliation on startup
+- [x] T055 [P] [US3] `gronin runs` and `gronin show` (FR-021)
+- [x] T056 [P] [US3] `gronin replay` — re-run the agent against recorded inputs
+- [x] T057 [P] [US3] `gronin resume` — re-run only the sinks against the recorded report
+- [x] T058 [US3] Interrupted-run reconciliation on startup
 
 **Checkpoint**: a surprising run can be understood and acted on without paying twice. **This is the
 first tag**: US1, US2 and US3 together are the smallest thing that satisfies the constitution.

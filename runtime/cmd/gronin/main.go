@@ -4,10 +4,23 @@
 // This is the Phase 1 skeleton: it reports its own version and nothing else.
 package main
 
-import "os"
+import (
+	"errors"
+	"fmt"
+	"os"
+)
 
 func main() {
-	if err := newRootCommand(os.Stdout, os.Stderr).Execute(); err != nil {
-		os.Exit(1)
+	err := newRootCommand(os.Stdout, os.Stderr).Execute()
+	if err == nil {
+		return
 	}
+	// A refusal has already said everything it has to say, in the shape the contract
+	// specifies. Repeating cobra's one-line summary underneath it buries the field the
+	// author needs.
+	var silent errSilent
+	if !errors.As(err, &silent) {
+		fmt.Fprintln(os.Stderr, "gronin:", err)
+	}
+	os.Exit(1)
 }

@@ -1,0 +1,19 @@
+name: metrics-review
+trigger:
+  type: manual
+gather:
+  - run: date -u +%Y-%m-%dT%H:%M:%SZ
+    as: now.txt
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read, mcp__grafana__query_prometheus]
+  mcp: [grafana]
+  allow: [mcp__grafana__query_prometheus, "Read(./inputs/**)"]
+  timeout: 45m
+  output_schema:
+    type: object
+sinks:
+  - slack:
+      webhook: ${config.ops_webhook}
+      thread: ${trigger.thread_id}
