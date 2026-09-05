@@ -84,9 +84,11 @@ jobs:
               "$binary"
           done
 
+      # The binaries only. `gronin-*` also matches the signatures and certificates just
+      # written beside them, and a checksum of a signature answers a question nobody asked.
       - name: Checksums
         working-directory: artifacts
-        run: sha256sum gronin-* > SHA256SUMS
+        run: sha256sum gronin-linux-* gronin-darwin-* > SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
         with:
