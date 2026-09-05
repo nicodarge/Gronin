@@ -129,6 +129,19 @@
         "./internal/fakeagent",
         "-count=1"
       ]
+    },
+    {
+      "name": "finishing a run twice erases what the first recorded",
+      "tree": "..",
+      "file": "internal/record/runs.go",
+      "find": "\t\t       cost_usd          = coalesce(?, cost_usd),",
+      "replace": "\t\t       cost_usd          = ?,",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1"
+      ]
     }
   ]
 }

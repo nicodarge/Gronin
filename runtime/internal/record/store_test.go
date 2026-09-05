@@ -289,3 +289,57 @@ func TestBlobsDoNotCollideOnUnsafeNames(t *testing.T) {
 		t.Fatalf("first blob read back as %q, err %v", data, err)
 	}
 }
+
+// The guard nobody had probed. Resume calls FinishRun a second time on a run that has
+// already recorded its cost and its credential source, and the first version wrote every
+// column unconditionally — so the second call zeroed all of it, silently.
+func TestASecondFinishKeepsWhatTheFirstRecorded(t *testing.T) {
+	ctx := t.Context()
+	store := openStore(t)
+
+	if err := store.CreateRun(ctx, record.Run{
+		ID: "run-1", PlaybookName: "p", TriggerKind: record.TriggerSchedule,
+		Status: record.StatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishRun(ctx, record.Run{
+		ID: "run-1", Status: record.StatusFailed, EndedAt: time.Now(),
+		CostUSD: 0.42, Tokens: 1234, AgentSessionID: "sess-1",
+		CredentialSource: "ANTHROPIC_API_KEY", ReportRef: "run-1/report.json",
+		Error: "a sink failed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// What a resume writes: a new status, and nothing else it knows about.
+	if err := store.FinishRun(ctx, record.Run{
+		ID: "run-1", Status: record.StatusSucceeded, EndedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.GetRun(ctx, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != record.StatusSucceeded {
+		t.Fatalf("status = %q; the second call is meant to set it", got.Status)
+	}
+	for _, kept := range []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"cost", got.CostUSD, 0.42},
+		{"tokens", got.Tokens, int64(1234)},
+		{"session id", got.AgentSessionID, "sess-1"},
+		{"credential source", got.CredentialSource, "ANTHROPIC_API_KEY"},
+		{"report ref", got.ReportRef, "run-1/report.json"},
+		{"error", got.Error, "a sink failed"},
+	} {
+		if kept.got != kept.want {
+			t.Errorf("%s = %v after a second finish, want %v kept", kept.name, kept.got, kept.want)
+		}
+	}
+}

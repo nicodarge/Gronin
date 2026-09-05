@@ -33,14 +33,26 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 // FinishRun writes a run's terminal state. Every text field it carries goes through the
 // redactor on the way in — an error message is one of the likeliest places for a
 // credential to surface, because it is usually the thing that failed to authenticate.
+//
+// Status and the end time are written; everything else is coalesced, so a field this
+// call says nothing about keeps what it already held. The asymmetry was the other way
+// round first, and a second call — which resume will make — would have zeroed the cost,
+// the token count and the credential source of the run it was updating, silently.
 func (s *Store) FinishRun(ctx context.Context, run Run) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE runs
-		   SET status = ?, ended_at = ?, cost_usd = ?, tokens = ?, agent_session_id = ?,
-		       credential_source = ?, error = ?, report_ref = coalesce(?, report_ref),
-		       prompt_ref = coalesce(?, prompt_ref)
+		   SET status            = ?,
+		       ended_at          = ?,
+		       cost_usd          = coalesce(?, cost_usd),
+		       tokens            = coalesce(?, tokens),
+		       agent_session_id  = coalesce(?, agent_session_id),
+		       credential_source = coalesce(?, credential_source),
+		       error             = coalesce(?, error),
+		       report_ref        = coalesce(?, report_ref),
+		       prompt_ref        = coalesce(?, prompt_ref)
 		 WHERE id = ?`,
-		string(run.Status), formatTime(run.EndedAt), run.CostUSD, run.Tokens,
+		string(run.Status), formatTime(run.EndedAt),
+		nullableFloat(run.CostUSD), nullableInt(run.Tokens),
 		nullable(run.AgentSessionID), nullable(run.CredentialSource),
 		nullable(s.redactor.Redact(run.Error)), nullable(run.ReportRef), nullable(run.PromptRef),
 		run.ID)
@@ -50,29 +62,26 @@ func (s *Store) FinishRun(ctx context.Context, run Run) error {
 	return oneRowChanged(result, run.ID)
 }
 
-// GetRun reads one run back.
-func (s *Store) GetRun(ctx context.Context, id string) (Run, error) {
+const runColumns = `
+		SELECT id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref, trigger_kind,
+		       parent_run_id, status, started_at, ended_at, cost_usd, tokens, agent_session_id,
+		       credential_source, error`
+
+// scanner is what sql.Row and sql.Rows have in common, so one scan serves both.
+type scanner interface{ Scan(dest ...any) error }
+
+func scanRun(from scanner) (Run, error) {
 	var (
 		run                                       Run
 		resolved, report, prompt, parent, session sql.NullString
-		credential, failure                       sql.NullString
-		ended                                     sql.NullString
+		credential, failure, started, ended       sql.NullString
 		cost                                      sql.NullFloat64
 		tokens                                    sql.NullInt64
-		started                                   sql.NullString
 		trigger, status                           string
 	)
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref, trigger_kind,
-		       parent_run_id, status, started_at, ended_at, cost_usd, tokens, agent_session_id,
-		       credential_source, error
-		  FROM runs WHERE id = ?`, id).
-		Scan(&run.ID, &run.PlaybookName, &resolved, &report, &prompt, &trigger, &parent,
-			&status, &started, &ended, &cost, &tokens, &session, &credential, &failure)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Run{}, fmt.Errorf("%w: %s", ErrNotFound, id)
-	}
-	if err != nil {
+	if err := from.Scan(&run.ID, &run.PlaybookName, &resolved, &report, &prompt, &trigger,
+		&parent, &status, &started, &ended, &cost, &tokens, &session, &credential,
+		&failure); err != nil {
 		return Run{}, err
 	}
 
@@ -85,38 +94,41 @@ func (s *Store) GetRun(ctx context.Context, id string) (Run, error) {
 	return run, nil
 }
 
-// ListRuns returns runs most recent first.
+// GetRun reads one run back.
+func (s *Store) GetRun(ctx context.Context, id string) (Run, error) {
+	run, err := scanRun(s.db.QueryRowContext(ctx, runColumns+` FROM runs WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Run{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
+// ListRuns returns runs most recent first, in one query. It read the identifiers and
+// then fetched each row separately at first, which is fifty-one round trips for the
+// default page of the command an operator runs most.
 func (s *Store) ListRuns(ctx context.Context, limit int) ([]Run, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM runs ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
+	rows, err := s.db.QueryContext(ctx, runColumns+`
+		  FROM runs ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 
-	var ids []string
+	var runs []Run
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	runs := make([]Run, 0, len(ids))
-	for _, id := range ids {
-		run, err := s.GetRun(ctx, id)
+		run, err := scanRun(rows)
 		if err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
 	}
-	return runs, nil
+	return runs, rows.Err()
 }
 
 // GatheredInput is one artifact a gather step produced.
@@ -297,6 +309,20 @@ func (s *Store) MarkRunningAsInterrupted(ctx context.Context) (int64, error) {
 
 func nullable(value string) any {
 	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableFloat(value float64) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+func nullableInt(value int64) any {
+	if value == 0 {
 		return nil
 	}
 	return value

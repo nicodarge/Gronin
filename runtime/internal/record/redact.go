@@ -42,7 +42,7 @@ func NewRedactor(secrets []string) *Redactor {
 
 // Redact returns text with every configured secret value replaced.
 func (r *Redactor) Redact(text string) string {
-	if r == nil {
+	if r == nil || len(r.secrets) == 0 {
 		return text
 	}
 	for _, secret := range r.secrets {

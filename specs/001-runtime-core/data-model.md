@@ -127,6 +127,19 @@ deployment knows about itself; it does not catch a secret that appears for the f
 gathered input. That limit is real and is stated here rather than papered over: `gather` steps must
 not print secrets, the same rule the constitution already states for command lines.
 
+### Missed occurrence
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `playbook_name` | string | |
+| `due_at` | timestamp | When it should have run |
+| `noticed_at` | timestamp | When the runtime saw that it had not |
+| `reason` | text | Why, e.g. the previous occurrence was still running |
+
+Not a run with an unusual status: nothing about it has a working directory, a cost or an outcome.
+It is here because FR-030 needs somewhere to put it, and because silence about a schedule that did
+not fire is indistinguishable from one that fired and found nothing to say.
+
 ## What is deliberately absent
 
 No table for guard state, retrieval results, or webhook deliveries. Those belong to features that
