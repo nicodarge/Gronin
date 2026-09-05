@@ -202,7 +202,13 @@ var ErrTooManyOpen = errors.New("more open issues than this sink will count")
 func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
 	open := openSet{titles: map[string]bool{}}
 
-	for page := 1; page <= maxPages; page++ {
+	// maxPages+1 fetches, not maxPages. A full page is ambiguous — it means either "more
+	// follow" or "that was the last one, exactly" — so the walk asks once more rather
+	// than deciding on faith. At exactly maxPages*perPage open issues the extra fetch
+	// comes back empty and the count is exact; without it the boundary refused a count
+	// it actually had, which is the same hole-moved-not-closed shape as the two rounds
+	// before it, mirrored.
+	for page := 1; page <= maxPages+1; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/issues?state=open&labels=%s&per_page=%d&page=%d",
 			g.api, g.repo, url.QueryEscape(Marker), perPage, page)
 
@@ -224,8 +230,8 @@ func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
 			return open, nil
 		}
 	}
-	// Fell out of the loop with every page full: there are more than the walk covers, so
-	// the count is a floor rather than a total. Creating against it is what FR-024
+	// Every page full, the confirming one included: there are more than the walk covers,
+	// so the count is a floor rather than a total. Creating against it is what FR-024
 	// forbids, so this fails closed, the same way an unreadable repository does.
 	return openSet{}, fmt.Errorf("%w: more than %d are open, so the cap cannot be checked",
 		ErrTooManyOpen, maxPages*perPage)

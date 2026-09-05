@@ -860,6 +860,19 @@
         "./internal/sink",
         "-count=1"
       ]
+    },
+    {
+      "name": "the walk decides on a full last page without confirming",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\tfor page := 1; page <= maxPages+1; page++ {",
+      "replace": "\tfor page := 1; page <= maxPages; page++ {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

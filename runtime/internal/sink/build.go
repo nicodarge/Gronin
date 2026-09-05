@@ -93,9 +93,11 @@ func Types() []string {
 	return types
 }
 
-// repoName is what a repository may be called: GitHub's own shape, and nothing that
-// could carry a query, a fragment or a path segment into the endpoint.
-var repoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// repoName is a safe superset of what GitHub allows — not its naming rules, which this
+// does not try to reproduce. What it does guarantee is that nothing here can carry a
+// query, a fragment or an extra path segment into the endpoint it is interpolated into.
+var repoName = regexp.MustCompile(
+	`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?/[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)
 
 // CreatingTypes are the sink types that bring things into existence somewhere else, and
 // so must declare a cap. The load gate asks rather than assuming: a list the gate

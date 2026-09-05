@@ -504,3 +504,29 @@ func TestARepositoryNameIsCheckedAgainstItsShape(t *testing.T) {
 		}
 	}
 }
+
+// The boundary the last fix moved rather than covered: at exactly what the walk can
+// count, the final page is full and means "that was all", not "more follow". Refusing
+// there fails closed, but it refuses a count it actually has.
+func TestExactlyAsManyOpenAsTheWalkCoversIsStillCounted(t *testing.T) {
+	const exactly = 2000 // maxPages * perPage
+
+	existing := make([]string, 0, exactly)
+	for at := range exactly {
+		existing = append(existing, fmt.Sprintf("an older finding %d", at+1))
+	}
+	got, one := issueSink(t, 2200, func(f *forge) { f.open = existing })
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if err != nil {
+		t.Fatalf("a count the walk could complete was refused: %v", err)
+	}
+	if outcome.ItemsCreated != 5 {
+		t.Fatalf("created %d of 5 with 200 of the cap unused", outcome.ItemsCreated)
+	}
+	if len(got.createdTitles()) != 5 {
+		t.Fatalf("the forge saw %d", len(got.createdTitles()))
+	}
+}
