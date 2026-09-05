@@ -70,25 +70,31 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      # Before signing, not after, which is the only version of this that works. Narrowing
+      # the glob was the first attempt and it changed nothing: `gronin-linux-*` matches
+      # `gronin-linux-amd64.sig` too. Ordering makes the question disappear rather than
+      # answering it with a cleverer pattern — at this point the directory holds binaries
+      # and nothing else.
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum gronin-* > SHA256SUMS
+
       - uses: sigstore/cosign-installer@v3
 
       # Keyless, against the workflow's own identity. A signing key in a repository
       # secret is a long-lived credential every job can reach, which is the thing being
       # avoided rather than a detail of how it is stored.
-      - name: Sign each binary
+      #
+      # SHA256SUMS is signed too: a checksum file nobody signed is a list an attacker can
+      # rewrite alongside what it describes.
+      - name: Sign each binary and the checksums
         run: |
-          for binary in artifacts/gronin-*; do
+          for artifact in artifacts/gronin-* artifacts/SHA256SUMS; do
             cosign sign-blob --yes \
-              --output-signature "${binary}.sig" \
-              --output-certificate "${binary}.pem" \
-              "$binary"
+              --output-signature "${artifact}.sig" \
+              --output-certificate "${artifact}.pem" \
+              "$artifact"
           done
-
-      # The binaries only. `gronin-*` also matches the signatures and certificates just
-      # written beside them, and a checksum of a signature answers a question nobody asked.
-      - name: Checksums
-        working-directory: artifacts
-        run: sha256sum gronin-linux-* gronin-darwin-* > SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
         with:

@@ -14,6 +14,9 @@ The published image carries the runtime and nothing else — not the agent, whic
 separate executable with its own release cadence and its own credentials. Mount it, or
 build on top of the image, and name it with `--agent`.
 
+It is built for `linux/amd64`. The release also publishes `linux/arm64` and `darwin/arm64`
+binaries; on those, run the binary rather than the image.
+
 The state directory is `/data`, owned by the unprivileged user the image runs as. A named
 volume inherits that ownership; a bind mount does not — it takes the host directory's,
 which is usually root, and there is no shell in the image to fix it at runtime. Use a
