@@ -10,8 +10,10 @@
 # address failed while `getent hosts` still answered, because glibc's NSS asks
 # systemd-resolved over a Unix socket and that daemon does the lookup from the host's
 # namespace. Unix sockets are not what a network namespace separates. So the mount
-# namespace goes with it, and the resolver configuration is replaced by one that can
-# only read /etc/hosts.
+# namespace goes with it, and the resolver configuration is replaced — including the
+# hosts file itself, which `files` would otherwise still read from the host. What is
+# left resolves loopback and nothing else: dropping `files` altogether would close the
+# same gap and take `localhost` with it.
 #
 # It refuses rather than degrades. If no namespace can be created the command does not
 # run — a fallback that quietly restores the network is a check that reports success for
@@ -29,6 +31,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 printf 'hosts: files myhostname\n' > "$tmp/nsswitch.conf"
 : > "$tmp/resolv.conf"
+printf '127.0.0.1 localhost\n::1 localhost\n' > "$tmp/hosts"
 
 # Loopback comes up DOWN in a fresh namespace and a suite that binds 127.0.0.1 needs it;
 # `ip` is not required, and without it a test needing loopback fails loudly rather than
@@ -38,6 +41,7 @@ inner='
     ip link set lo up 2>/dev/null || true
     mount --bind "$1/nsswitch.conf" /etc/nsswitch.conf || exit 1
     mount --bind "$1/resolv.conf" /etc/resolv.conf || exit 1
+    mount --bind "$1/hosts" /etc/hosts || exit 1
     shift
     exec "$@"
 '
@@ -53,7 +57,7 @@ elif sudo -n unshare --net --mount true 2>/dev/null; then
     # phase that reaches for an environment variable under this path extends it here
     # rather than working around it.
     sudo -n unshare --net --mount -- \
-        "${BASH:-/bin/bash}" -c "$inner"' ' no-network "$tmp" \
+        "${BASH:-/bin/bash}" -c "$inner" no-network "$tmp" \
         sudo -n -u "$(id -un)" \
             --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOPROXY,GOFLAGS,GRONIN_SUITE_ISOLATED,GRONIN_SUITE_TIMEOUT \
             -- "$@" || rc=$?
