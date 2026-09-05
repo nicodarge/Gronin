@@ -31,7 +31,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 printf 'hosts: files myhostname\n' > "$tmp/nsswitch.conf"
 : > "$tmp/resolv.conf"
-printf '127.0.0.1 localhost\n::1 localhost\n' > "$tmp/hosts"
+# The machine's own name goes in too: without it sudo answers "unable to resolve host"
+# on every invocation under the fallback below, which was noise on a CI runner and would
+# be a failure for anything that needs its own hostname.
+printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 %s\n' "$(hostname)" > "$tmp/hosts"
 
 # Loopback comes up DOWN in a fresh namespace and a suite that binds 127.0.0.1 needs it;
 # `ip` is not required, and without it a test needing loopback fails loudly rather than
@@ -53,14 +56,21 @@ if unshare --user --map-root-user --net --mount true 2>/dev/null; then
         "${BASH:-/bin/bash}" -c "$inner" no-network "$tmp" "$@" || rc=$?
 elif sudo -n unshare --net --mount true 2>/dev/null; then
     echo "no-network: isolated with sudo unshare, dropping back to $(id -un)" >&2
-    # The preserved list is what the suite needs today, not a complete one. A later
-    # phase that reaches for an environment variable under this path extends it here
-    # rather than working around it.
+    # The values are captured here and passed explicitly, not preserved. --preserve-env
+    # keeps what the environment holds at the moment the inner sudo runs, and by then
+    # the outer sudo has already replaced HOME with root's — which sent the Go module
+    # cache to /root/go/pkg/mod and failed on a runner with exactly that error.
+    #
+    # The list is what the suite needs today, not a complete one. A later phase reaching
+    # for another variable under this path extends it here rather than working around it.
+    keep=("HOME=$HOME" "PATH=$PATH")
+    for name in GOPATH GOMODCACHE GOCACHE GOPROXY GOFLAGS GOTOOLCHAIN \
+                GRONIN_SUITE_ISOLATED GRONIN_SUITE_TIMEOUT; do
+        [ -n "${!name:-}" ] && keep+=("$name=${!name}")
+    done
     sudo -n unshare --net --mount -- \
         "${BASH:-/bin/bash}" -c "$inner" no-network "$tmp" \
-        sudo -n -u "$(id -un)" \
-            --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOPROXY,GOFLAGS,GRONIN_SUITE_ISOLATED,GRONIN_SUITE_TIMEOUT \
-            -- "$@" || rc=$?
+        sudo -n -u "$(id -un)" -- env "${keep[@]}" "$@" || rc=$?
 else
     echo "no-network: no way to create a network namespace on this machine." >&2
     echo "no-network: refusing to run '$1' with the network still reachable." >&2
