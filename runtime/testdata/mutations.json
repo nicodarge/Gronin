@@ -704,6 +704,188 @@
         "./internal/playbook",
         "-count=1"
       ]
+    },
+    {
+      "name": "the issue sink creates past its cap",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif outcome.ItemsCreated >= room {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap ignores what is already open",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\troom := g.cap - open.count",
+      "replace": "\troom := g.cap",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a finding already open is opened again",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif open.titles[title] {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a saturated repository reads as failed rather than capped",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\tStatus:       StatusCapped,",
+      "replace": "\t\t\tStatus:       StatusFailed,",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a partial failure loses count of what it created",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\toutcome.ItemsSkipped = len(decoded.Findings) - outcome.ItemsCreated",
+      "replace": "\t\t\toutcome.ItemsCreated = 0",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a cap that came through JSON reads as absent",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\tcase float64:\n\t\treturn int(typed), true",
+      "replace": "\tcase float64:\n\t\treturn 0, false",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the open count stops at the first page",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif len(issues) < perPage {\n\t\t\treturn open, nil\n\t\t}",
+      "replace": "\t\treturn open, nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap counts distinct titles rather than open issues",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\topen.count++",
+      "replace": "\t\t\topen.count = len(open.titles) + 1",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap is blamed for a skip it did not cause",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\tif cappedOut {",
+      "replace": "\tif outcome.ItemsSkipped > 0 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a token that resolves to nothing is accepted",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif token == \"\" {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a count that could not be completed is used anyway",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\treturn openSet{}, fmt.Errorf(\"%w: more than %d are open, so the cap cannot be checked\",\n\t\tErrTooManyOpen, (maxPages+1)*perPage)",
+      "replace": "\treturn open, nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a repository name is checked only for a slash",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\tif !repoName.MatchString(repo) {",
+      "replace": "\tif !strings.Contains(repo, \"/\") {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the walk decides on a full last page without confirming",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\tfor page := 1; page <= maxPages+1; page++ {",
+      "replace": "\tfor page := 1; page <= maxPages; page++ {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a repository name may end in a dot or a hyphen",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?/[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)",
+      "replace": "\t`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

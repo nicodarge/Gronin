@@ -272,16 +272,16 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
 
 ### Tests for User Story 4
 
-- [ ] T059 [P] [US4] Cap test: seven findings against a cap of three creates three and records four
+- [x] T059 [P] [US4] Cap test: seven findings against a cap of three creates three and records four
       skipped
-- [ ] T060 [P] [US4] Saturation test: with open issues already at the cap, nothing is created and
+- [x] T060 [P] [US4] Saturation test: with open issues already at the cap, nothing is created and
       the run is recorded capped, not failed
-- [ ] T061 [P] [US4] Partial-failure test: a sink failing midway records which items were created
+- [x] T061 [P] [US4] Partial-failure test: a sink failing midway records which items were created
       and which were not
 
 ### Implementation for User Story 4
 
-- [ ] T062 [US4] `internal/sink/github`: create issues, count open ones against the cap, and avoid
+- [x] T062 [US4] `internal/sink/github`: create issues, count open ones against the cap, and avoid
       re-opening a match (FR-023, FR-024)
 
 ---
