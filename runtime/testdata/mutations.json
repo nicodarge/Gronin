@@ -155,6 +155,84 @@
         "./internal/config",
         "-count=1"
       ]
+    },
+    {
+      "name": "a failing gather step does not stop the run",
+      "tree": "..",
+      "file": "internal/stage/gather/gather.go",
+      "find": "\t\tresults = append(results, result)\n\t\tif err != nil {\n\t\t\treturn results, err\n\t\t}",
+      "replace": "\t\tresults = append(results, result)\n\t\t_ = err",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/gather",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "output past the limit is written whole and called complete",
+      "tree": "..",
+      "file": "internal/stage/gather/gather.go",
+      "find": "\t\tchunk = chunk[:max(w.remaining, 0)]\n\t\tw.truncated = true",
+      "replace": "\t\tw.truncated = false",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/gather",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the tool set flag is omitted when a playbook declares none",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\tflagTools, strings.Join(decl.Tools, \",\"),",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the MCP configuration is not made strict",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\tflagStrictMCP,\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a timed-out stage is not reported as timed out",
+      "tree": "..",
+      "file": "internal/stage/agent/agent.go",
+      "find": "\t\toutcome.TimedOut = true",
+      "replace": "\t\toutcome.TimedOut = false",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a report is accepted whatever the declared schema says",
+      "tree": "..",
+      "file": "internal/stage/agent/validate.go",
+      "find": "\tif err := compiled.Validate(document); err != nil {",
+      "replace": "\tif err := error(nil); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
     }
   ]
 }
