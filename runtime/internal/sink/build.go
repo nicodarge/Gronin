@@ -42,6 +42,13 @@ func Build(declared []Declaration, opts BuildOptions) ([]Sink, []error) {
 				at, Types()[0]))
 			continue
 		}
+		if decl.Config == nil {
+			problems = append(problems, fmt.Errorf(
+				"sinks[%d].%s: its value is not a mapping; accepted: the settings for "+
+					"that sink, e.g. webhook: ${config.%s_webhook}",
+				at, decl.Type, decl.Type))
+			continue
+		}
 		built, err := buildOne(decl, opts)
 		if err != nil {
 			problems = append(problems, fmt.Errorf("sinks[%d].%s: %w", at, decl.Type, err))

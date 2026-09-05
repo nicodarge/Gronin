@@ -22,6 +22,24 @@ func mustBuild(t *testing.T, decl agent.Declaration, mcpConfigPath string) []str
 	return args
 }
 
+// valuesAfter returns every argument a variadic flag consumed, which is up to the next
+// flag. The entries are separate arguments precisely so nothing can rejoin them.
+func valuesAfter(t *testing.T, args []string, flag string) []string {
+	t.Helper()
+	at := argIndex(args, flag)
+	if at < 0 {
+		t.Fatalf("%s is not in the argument vector: %v", flag, args)
+	}
+	var values []string
+	for _, arg := range args[at+1:] {
+		if strings.HasPrefix(arg, "--") {
+			break
+		}
+		values = append(values, arg)
+	}
+	return values
+}
+
 func valueAfter(t *testing.T, args []string, flag string) string {
 	t.Helper()
 	at := argIndex(args, flag)
@@ -39,8 +57,13 @@ func valueAfter(t *testing.T, args []string, flag string) string {
 func TestAPlaybookThatDeclaresNothingStillGetsEveryBound(t *testing.T) {
 	args := mustBuild(t, agent.Declaration{Restricted: true}, "/run/mcp.json")
 
-	if got := valueAfter(t, args, "--tools"); got != "" {
-		t.Errorf(`--tools = %q, want "" — omitting it leaves the built-in set`, got)
+	if got := valuesAfter(t, args, "--tools"); !slices.Equal(got, []string{""}) {
+		t.Errorf(`--tools = %v, want [""] — omitting it leaves the built-in set`, got)
+	}
+	// The executable refuses stream-json under --print without it, so it is a bound on
+	// whether the stage runs at all rather than a preference.
+	if argIndex(args, "--verbose") < 0 {
+		t.Error("--verbose is absent; the executable refuses stream-json under --print without it")
 	}
 	if argIndex(args, "--strict-mcp-config") < 0 {
 		t.Error("--strict-mcp-config is absent; the machine's MCP configuration is then inherited")
@@ -82,11 +105,12 @@ func TestTheDeclaredToolSetAndAllowlistReachTheVector(t *testing.T) {
 		Model:      "claude-sonnet-5",
 	}, "/run/mcp.json")
 
-	if got := valueAfter(t, args, "--tools"); got != "Read,Grep" {
-		t.Errorf("--tools = %q", got)
+	if got := valuesAfter(t, args, "--tools"); !slices.Equal(got, []string{"Read", "Grep"}) {
+		t.Errorf("--tools = %v", got)
 	}
-	if got := valueAfter(t, args, "--allowedTools"); got != "Read(./**),mcp__grafana__query_prometheus" {
-		t.Errorf("--allowedTools = %q", got)
+	if got := valuesAfter(t, args, "--allowedTools"); !slices.Equal(got,
+		[]string{"Read(./**)", "mcp__grafana__query_prometheus"}) {
+		t.Errorf("--allowedTools = %v", got)
 	}
 	if got := valueAfter(t, args, "--model"); got != "claude-sonnet-5" {
 		t.Errorf("--model = %q", got)
@@ -178,5 +202,18 @@ func TestAnEntryWithoutTheSeparatorIsFine(t *testing.T) {
 		Allow: []string{"Read(./**)", "mcp__grafana__query_prometheus"},
 	}, "/run/mcp.json"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A space is a legitimate part of one entry — `Bash(git *)` is the executable's own
+// example — and each entry is its own argument, so nothing rejoins them.
+func TestAnEntryMayHoldASpace(t *testing.T) {
+	args := mustBuild(t, agent.Declaration{
+		Restricted: true, Allow: []string{"Bash(git *)", "Read(./**)"},
+	}, "/run/mcp.json")
+
+	got := valuesAfter(t, args, "--allowedTools")
+	if !slices.Equal(got, []string{"Bash(git *)", "Read(./**)"}) {
+		t.Fatalf("--allowedTools = %v", got)
 	}
 }

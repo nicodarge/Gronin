@@ -286,3 +286,18 @@ func TestASinkThatNamesNoTypeIsRefusedByName(t *testing.T) {
 		t.Fatalf("problems = %v", problems)
 	}
 }
+
+func TestASinkWhoseValueIsNotAMappingIsRefusedByShapeNotByField(t *testing.T) {
+	_, problems := sink.Build([]sink.Declaration{{Type: "discord", Config: nil}},
+		sink.BuildOptions{})
+
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v", problems)
+	}
+	if !strings.Contains(problems[0].Error(), "not a mapping") {
+		t.Fatalf("the refusal blames a missing field rather than the shape: %v", problems[0])
+	}
+	if !strings.Contains(problems[0].Error(), "discord") {
+		t.Fatalf("the refusal does not name which sink: %v", problems[0])
+	}
+}

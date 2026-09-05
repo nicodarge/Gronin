@@ -226,3 +226,36 @@ sinks: [{discord: {webhook: "${config.w}"}}]
 		t.Fatalf("the refusal does not name the other file: %v", loaded.Refusals[0])
 	}
 }
+
+// A sink's value has to be a mapping. Reporting a scalar as "a sink that configured
+// nothing" sends the author looking for a missing field rather than at the shape.
+func TestASinkValueThatIsNotAMappingIsMalformedRatherThanEmpty(t *testing.T) {
+	book, err := playbook.Parse("x.yaml", []byte(
+		"name: n\ntrigger: {type: manual}\n"+
+			"agent: {model: m, prompt_file: p.md, output_schema: {type: object}}\n"+
+			"sinks:\n  - discord: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name, config, ok := book.Sinks[0].Type()
+	if ok {
+		t.Fatalf("a scalar under a sink key read as a configuration: %v", config)
+	}
+	if name != "discord" {
+		t.Fatalf("the type name was lost: %q", name)
+	}
+
+	// And a mapping still reads as one.
+	book, err = playbook.Parse("y.yaml", []byte(
+		"name: n\ntrigger: {type: manual}\n"+
+			"agent: {model: m, prompt_file: p.md, output_schema: {type: object}}\n"+
+			"sinks:\n  - discord:\n      webhook: \"${config.w}\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, config, ok = book.Sinks[0].Type()
+	if !ok || name != "discord" || config["webhook"] != "${config.w}" {
+		t.Fatalf("a well-formed sink read as %q %v %v", name, config, ok)
+	}
+}

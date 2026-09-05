@@ -55,15 +55,9 @@ func newServeCommand() *cobra.Command {
 					}
 					finished, err := deployment.executor.Execute(
 						ctx, book, record.TriggerSchedule, nil)
-					if err != nil {
-						// The occurrence never became a run — already in flight, or the
-						// working directory could not be made. That is what the
-						// scheduler records as missed.
-						return err
+					if outcome := scheduledOutcome(finished, err); outcome != nil {
+						return outcome
 					}
-					// It ran. Whatever its status, it is a run record and not a missed
-					// occurrence: telling an operator that something did not happen when
-					// it did is worse than saying nothing.
 					if finished.Status != record.StatusSucceeded {
 						deployment.log.Warn("a scheduled run did not succeed",
 							"playbook", name, "run", finished.ID,
@@ -103,4 +97,26 @@ func newServeCommand() *cobra.Command {
 			return err
 		},
 	}
+}
+
+// scheduledOutcome decides what the scheduler is told about an occurrence.
+//
+// It is a function of its own because the distinction it makes is the one this branch
+// got wrong: the scheduler records a fire's error as a MISSED occurrence, and a run that
+// happened and failed is not one. Telling an operator that something did not happen when
+// it did is worse than saying nothing, and it costs them the run record they would
+// otherwise go looking for.
+//
+// An error means no run exists: the playbook was already in flight, or its working
+// directory could not be made. Any status at all means one does.
+func scheduledOutcome(finished record.Run, err error) error {
+	if err != nil {
+		return err
+	}
+	if finished.ID == "" {
+		// No error and no run either. Nothing else should produce this, and reporting it
+		// as missed is the truthful reading rather than silence.
+		return errors.New("the occurrence produced no run and no error")
+	}
+	return nil
 }

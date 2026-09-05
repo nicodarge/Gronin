@@ -161,8 +161,14 @@ func (e *Executor) Execute(
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 
+	// A stream that failed is not a report that failed the schema, and it is not "no
+	// terminal event" either. Reporting the generic message would lose the only
+	// description of what actually went wrong.
 	report, reportErr := stage.Report()
-	if reportErr == nil {
+	switch {
+	case stage.DecodeErr != nil:
+		reportErr = fmt.Errorf("the agent's output could not be read: %w", stage.DecodeErr)
+	case reportErr == nil:
 		reportErr = agent.ValidateReport(report, book.Agent.OutputSchema)
 	}
 
@@ -352,9 +358,11 @@ func declarationsOf(book *playbook.Playbook) []sink.Declaration {
 	for _, one := range book.Sinks {
 		name, value, ok := one.Type()
 		if !ok {
-			// Malformed: no key, more than one, or something that is not a mapping under
-			// it. Named as empty so the sink builder refuses it and says which entry.
-			declared = append(declared, sink.Declaration{Type: "", Config: map[string]any{}})
+			// Malformed. The type name survives when there was one — a sink whose value
+			// is a scalar refuses as "discord: ..." rather than as an anonymous entry,
+			// which is the difference between a refusal an author can act on and one
+			// they have to go hunting for.
+			declared = append(declared, sink.Declaration{Type: name, Config: nil})
 			continue
 		}
 		declared = append(declared, sink.Declaration{Type: name, Config: value})

@@ -27,6 +27,7 @@ type Declaration struct {
 // version floor exists: a bound expressed as a flag fails open.
 const (
 	flagPrint          = "--print"
+	flagVerbose        = "--verbose"
 	flagOutputFormat   = "--output-format"
 	flagRestricted     = "--restricted"
 	flagTools          = "--tools"
@@ -38,13 +39,19 @@ const (
 	flagModel          = "--model"
 )
 
-// ErrSeparatorInEntry is returned for a declared tool or allowlist entry that contains
-// the separator the flag is joined with. One entry holding "Read,Bash" becomes two on the
-// command line, so a validator checking entries one at a time would pass it while the
-// process received a tool nobody declared — the same smuggling an approved command prefix
-// allows elsewhere. It is refused here, at the join, rather than left for a checker to
-// remember.
-var ErrSeparatorInEntry = errors.New("a declared entry contains a comma, which would split it into two")
+// ErrSeparatorInEntry is returned for a declared entry holding a comma.
+//
+// The entries are not joined any more — each one is its own argument, which is what these
+// flags accept and what removes the smuggling at its source. The comma is still refused
+// because the flag's own parser takes "a comma or space separated list", so one argument
+// holding "Read,Bash" can still become two inside the process, and a per-entry validator
+// would have passed it.
+//
+// A space is NOT refused: `Bash(git *)` is the CLI's own documented example of a single
+// entry, and refusing it would refuse a legitimate declaration. Passing each entry as its
+// own argument is the strongest form available; whether the process then splits a single
+// argument on its internal spaces was not established, and is not claimed here.
+var ErrSeparatorInEntry = errors.New("a declared entry contains a comma, which the flag's parser may split")
 
 // BuildArgs constructs the argument vector.
 //
@@ -70,20 +77,35 @@ func BuildArgs(decl Declaration, mcpConfigPath string) ([]string, error) {
 
 	args := []string{
 		flagPrint,
+		// Required: the executable refuses --output-format=stream-json under --print
+		// without it. Found by running it, after a first probe stopped on the missing
+		// prompt before reaching this validation.
+		flagVerbose,
 		flagOutputFormat, "stream-json",
 		// No user, project or local settings. `--restricted` says it ignores them too,
 		// but only while it is on, and this holds when a playbook has turned it off.
 		flagSettingSources, "",
 		flagStrictMCP,
 		flagMCPConfig, mcpConfigPath,
-		// "" disables the built-in set. A playbook naming nothing gets nothing.
-		flagTools, strings.Join(decl.Tools, ","),
+	}
+
+	// One argument per entry rather than one joined argument: both flags are variadic,
+	// and a list that is never joined cannot be split back apart into something nobody
+	// declared. "" disables the built-in set, so a playbook naming nothing gets nothing —
+	// and that empty argument has to be there, because an absent --tools leaves the
+	// built-in set intact.
+	args = append(args, flagTools)
+	if len(decl.Tools) == 0 {
+		args = append(args, "")
+	} else {
+		args = append(args, decl.Tools...)
 	}
 	if decl.Restricted {
 		args = append(args, flagRestricted)
 	}
 	if len(decl.Allow) > 0 {
-		args = append(args, flagAllowedTools, strings.Join(decl.Allow, ","))
+		args = append(args, flagAllowedTools)
+		args = append(args, decl.Allow...)
 	}
 	if decl.Model != "" {
 		args = append(args, flagModel, decl.Model)

@@ -186,7 +186,7 @@
       "name": "the tool set flag is omitted when a playbook declares none",
       "tree": "..",
       "file": "internal/stage/agent/argv.go",
-      "find": "\t\tflagTools, strings.Join(decl.Tools, \",\"),",
+      "find": "\targs = append(args, flagTools)\n",
       "replace": "",
       "command": [
         "go",
@@ -322,6 +322,34 @@
         "go",
         "test",
         "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a failed run is reported as a missed occurrence",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\tif finished.ID == \"\" {",
+      "replace": "\tif finished.Status != record.StatusSucceeded {",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestOnlyAnOccurrence"
+      ]
+    },
+    {
+      "name": "the tool set flag loses its empty argument",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\tif len(decl.Tools) == 0 {\n\t\targs = append(args, \"\")\n\t} else {",
+      "replace": "\tif false {\n\t\targs = append(args, \"\")\n\t} else {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
         "-count=1"
       ]
     }
