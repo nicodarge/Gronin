@@ -665,3 +665,36 @@ func TestAReplayRefusesAPlaybookThatHasChanged(t *testing.T) {
 		t.Fatalf("an unchanged playbook was refused: %v", err)
 	}
 }
+
+// The record keeps the playbook's content, not where it was read from. Moving the
+// directory, or replaying with a differently-spelled --playbooks flag than the cron job
+// used, must not read as a playbook that changed.
+func TestAReplayIsNotRefusedBecauseThePlaybookMoved(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
+	book := h.playbook(t, goodPlaybook)
+
+	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The same content, read from somewhere else entirely.
+	elsewhere := t.TempDir()
+	for name, body := range map[string]string{"book.yaml": goodPlaybook, "prompt.md": "x"} {
+		if err := os.WriteFile(filepath.Join(elsewhere, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	moved, err := playbook.ParseFile(filepath.Join(elsewhere, "book.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Path == book.Path {
+		t.Fatal("the fixture did not actually move the playbook")
+	}
+
+	if _, err := h.executor.Replay(t.Context(), first.ID, moved); err != nil {
+		t.Fatalf("a playbook that only moved was refused: %v", err)
+	}
+}

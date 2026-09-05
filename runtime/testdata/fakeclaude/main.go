@@ -52,9 +52,13 @@ func main() {
 	// to be built from every argument the flag consumed. A stub that read only the first
 	// one reported a narrower tool set than the process was given, which is the wrong
 	// direction for a receipt to be wrong in.
-	// The receipt reports everything the process was granted, the allowlist included.
-	// A stub that echoed only --tools made a whole half of the bound untestable.
-	tools := append(entries(flags["tools"]), entries(flags["allowedTools"])...)
+	// The receipt reports the tool set, as the real executable does: measured with
+	// `--tools "" --allowedTools "Read(./**)"`, it answers `tools: []`. A stub that
+	// echoed the allowlist back made the receipt check pass by construction.
+	//
+	// An individually named MCP tool is the exception, because a connected server's
+	// tools do appear — so those are reported, and nothing else from the allowlist is.
+	tools := append(entries(flags["tools"]), mcpToolsIn(entries(flags["allowedTools"]))...)
 	servers := serversFrom(first(flags["mcp-config"]))
 
 	mode := os.Getenv(modeVar)
@@ -221,6 +225,17 @@ func parseFlags(args []string) map[string][]string {
 		}
 	}
 	return flags
+}
+
+// mcpToolsIn is the part of an allowlist that a receipt can report.
+func mcpToolsIn(allow []string) []string {
+	var tools []string
+	for _, entry := range allow {
+		if strings.HasPrefix(entry, "mcp__") && strings.Count(entry, "__") >= 2 {
+			tools = append(tools, entry)
+		}
+	}
+	return tools
 }
 
 func first(values []string) string {

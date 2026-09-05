@@ -24,11 +24,19 @@ var ErrReceiptMismatch = errors.New("the agent process received a wider bound th
 // playbook asked for cannot exceed the declaration, and refusing that would turn a
 // harmless difference into an outage.
 func CheckReceipt(decl Declaration) func(Event) error {
-	// The allowlist counts. It is the surface the load gate spends most of its logic
-	// bounding — an individually named MCP tool is declared there, not in the tool set —
-	// and a receipt that only compared the built-in names was blind to a child that
-	// received mcp__grafana__update_dashboard where only a query tool was allowed.
-	declaredTools := set(append(append([]string{}, decl.Tools...), decl.Allow...))
+	// The allowlist counts, but only the part of it that can appear in a receipt.
+	//
+	// Measured against the shipped executable rather than assumed: run with
+	// `--tools "" --allowedTools "Read(./**)"`, the receipt reports `tools: []`. The
+	// allowlist governs permission, not existence, so it does not add to the reported
+	// set — and folding the whole of it in, which is what the first version of this fix
+	// did, WIDENED what the check accepts and would have hidden a mismatch rather than
+	// caught one.
+	//
+	// What can legitimately appear is an individually named MCP tool, because a
+	// connected server's tools do show up. Those are folded in; a scoped file form like
+	// `Read(./**)` is not a tool name and is not.
+	declaredTools := set(decl.Tools, mcpToolsIn(decl.Allow))
 	declaredServers := set(decl.MCPServers)
 
 	return func(event Event) error {
@@ -65,10 +73,25 @@ func CheckReceipt(decl Declaration) func(Event) error {
 	}
 }
 
-func set(values []string) map[string]bool {
-	out := make(map[string]bool, len(values))
-	for _, value := range values {
-		out[value] = true
+func set(groups ...[]string) map[string]bool {
+	out := map[string]bool{}
+	for _, group := range groups {
+		for _, value := range group {
+			out[value] = true
+		}
 	}
 	return out
+}
+
+// mcpToolsIn keeps the allowlist entries that name a tool a receipt could report: a
+// fully-qualified MCP tool. Everything else in an allowlist is a scoped file form, which
+// is a permission on a tool rather than a tool.
+func mcpToolsIn(allow []string) []string {
+	var tools []string
+	for _, entry := range allow {
+		if strings.HasPrefix(entry, "mcp__") && strings.Count(entry, "__") >= 2 {
+			tools = append(tools, entry)
+		}
+	}
+	return tools
 }

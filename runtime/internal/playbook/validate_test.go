@@ -52,7 +52,7 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		"creating-sink-without-a-cap.yaml":   {"sinks[0].github.cap", "missing"},
 		"bare-interpolation.yaml":            {"sinks[0].discord.webhook", "does not name its source"},
 		"unrestricted-without-a-reason.yaml": {"agent.restricted", "no description saying why"},
-		"missing-prompt-file.yaml":           {"agent.prompt_file", "not readable"},
+		"missing-prompt-file.yaml":           {"agent.prompt_file", "is not there"},
 		// Refused by the published schema before the semantic gate sees them, which is
 		// the same rule at an earlier layer. The gate's own version is tested below,
 		// against a document the schema never reads.
@@ -358,5 +358,52 @@ func TestABareReferenceInThePromptIsRefusedAtTheGate(t *testing.T) {
 
 	if problems := write(t, "Report on ${trigger.alert_name} and ${config.fleet}."); len(problems) != 0 {
 		t.Fatalf("a namespaced reference was refused: %s", problems[0].Error())
+	}
+}
+
+// A prompt that is too large, or is not a file at all, is a different mistake from one
+// that is not there — and a refusal saying only "not readable" hides which.
+func TestAPromptIsBoundedAndTheRefusalSaysWhy(t *testing.T) {
+	dir := t.TempDir()
+	write := func(t *testing.T, prepare func(path string)) []playbook.Problem {
+		t.Helper()
+		prepare(filepath.Join(dir, "prompt.md"))
+		path := filepath.Join(dir, "p.yaml")
+		document := "name: p\ntrigger: {type: manual}\nagent:\n  model: m\n  prompt_file: prompt.md\n" +
+			"  tools: [Read]\n  output_schema: {type: object}\n" +
+			"sinks: [{discord: {webhook: \"${config.w}\"}}]\n"
+		if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		book, err := playbook.ParseFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return playbook.Validate(book, deployment())
+	}
+
+	problems := write(t, func(path string) {
+		big := make([]byte, playbook.MaxPromptBytes+1)
+		for at := range big {
+			big[at] = 'x'
+		}
+		if err := os.WriteFile(path, big, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if len(problems) == 0 {
+		t.Fatal("a prompt past the bound was accepted")
+	}
+	if !strings.Contains(problems[0].Found, "at most") {
+		t.Fatalf("the refusal does not say it is too large: %s", problems[0].Error())
+	}
+
+	if problems := write(t, func(path string) {
+		_ = os.Remove(path)
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}); len(problems) == 0 || !strings.Contains(problems[0].Found, "regular file") {
+		t.Fatalf("a directory as a prompt was accepted or misdescribed: %v", problems)
 	}
 }

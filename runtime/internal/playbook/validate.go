@@ -1,7 +1,9 @@
 package playbook
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -180,12 +182,12 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 	// A prompt that is not there arms a playbook that cannot run. The gate is where that
 	// is cheap to find.
 	if agent.PromptFile != "" && book.Path != "" {
-		body, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names
+		body, err := readPrompt(book.PromptPath())
 		if err != nil {
 			problems = append(problems, Problem{
 				Field:    "agent.prompt_file",
-				Found:    fmt.Sprintf("%q is not readable from the playbook's directory", agent.PromptFile),
-				Accepted: "a path to a file beside the playbook",
+				Found:    fmt.Sprintf("%q %s", agent.PromptFile, promptReason(err)),
+				Accepted: "a readable file beside the playbook, under 1 MiB",
 			})
 		} else {
 			// The prompt body is the string the runtime actually interpolates against the
@@ -211,6 +213,42 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 func isMCPEntry(entry string) bool {
 	_, _, isMCP := mcpShape(entry)
 	return isMCP
+}
+
+// promptReason renders why a prompt could not be used, so a refusal distinguishes "not
+// there" from "too large" — which are different mistakes with different fixes.
+func promptReason(err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return "is not there"
+	}
+	return err.Error()
+}
+
+// MaxPromptBytes bounds the prompt a playbook may carry. Every other read in this
+// runtime is bounded — gather output, a sink's response — and this one was not: a
+// prompt_file pointing at something unexpectedly large, or at a file that never ends,
+// was read whole before any other check ran.
+const MaxPromptBytes int64 = 1 << 20
+
+func readPrompt(path string) ([]byte, error) {
+	file, err := os.Open(path) //nolint:gosec // the path the playbook names, beside it
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("is not a regular file")
+	}
+	if info.Size() > MaxPromptBytes {
+		return nil, fmt.Errorf("is %d bytes, and a prompt may be at most %d",
+			info.Size(), MaxPromptBytes)
+	}
+	return io.ReadAll(io.LimitReader(file, MaxPromptBytes))
 }
 
 // mcpProblems refuses an entry naming a whole server (FR-004), and one naming a server

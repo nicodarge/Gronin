@@ -500,8 +500,8 @@
       "name": "the gate accepts a prompt file that is not there",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\t\tbody, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names\n\t\tif err != nil {",
-      "replace": "\t\tbody, err := os.ReadFile(book.PromptPath()) //nolint:gosec // the path the playbook names\n\t\tif false {",
+      "find": "\t\tbody, err := readPrompt(book.PromptPath())\n\t\tif err != nil {",
+      "replace": "\t\tbody, err := readPrompt(book.PromptPath())\n\t\tif false {",
       "command": [
         "go",
         "test",
@@ -641,11 +641,11 @@
       ]
     },
     {
-      "name": "the receipt ignores the allowlist",
+      "name": "the receipt widens itself with the whole allowlist",
       "tree": "..",
       "file": "internal/stage/agent/receipt.go",
-      "find": "\tdeclaredTools := set(append(append([]string{}, decl.Tools...), decl.Allow...))",
-      "replace": "\tdeclaredTools := set(decl.Tools)",
+      "find": "\tdeclaredTools := set(decl.Tools, mcpToolsIn(decl.Allow))",
+      "replace": "\tdeclaredTools := set(decl.Tools, decl.Allow)",
       "command": [
         "go",
         "test",
@@ -663,6 +663,45 @@
         "go",
         "test",
         "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the bare-port shorthand reads as loopback",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\tif host == \"\" || host == \"0.0.0.0\" || host == \"::\" {\n\t\treturn false\n\t}",
+      "replace": "\tif host == \"\" {\n\t\treturn true\n\t}\n\tif host == \"0.0.0.0\" || host == \"::\" {\n\t\treturn false\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a playbook that only moved reads as changed",
+      "tree": "..",
+      "file": "internal/playbook/playbook.go",
+      "find": "\tPath string `yaml:\"-\" json:\"-\"`",
+      "replace": "\tPath string `yaml:\"-\"`",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the prompt is read without a bound",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif info.Size() > MaxPromptBytes {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
         "-count=1"
       ]
     }

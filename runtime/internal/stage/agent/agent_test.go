@@ -481,7 +481,7 @@ func TestTheReceiptCoversTheAllowlist(t *testing.T) {
 		Restricted: true,
 		Tools:      []string{"Read"},
 		MCPServers: []string{"grafana"},
-		Allow:      []string{"mcp__grafana__query_prometheus"},
+		Allow:      []string{"mcp__grafana__query_prometheus", "Read(./**)"},
 	}
 	check := agent.CheckReceipt(decl)
 
@@ -511,10 +511,10 @@ func TestAnAllowlistMismatchIsProducibleAgainstTheStub(t *testing.T) {
 	decl := agent.Declaration{Restricted: true, Tools: []string{"Read"}}
 
 	opts := options(t, fakeagent.ModeSuccess)
-	// The process is given more than the declaration says, the way a flag an older
-	// executable ignores would leave it.
+	// The process is given more than the declaration says, the way a bounding flag an
+	// older executable silently ignores would leave it.
 	opts.OnEvent = agent.CheckReceipt(decl)
-	wider := agent.Declaration{Restricted: true, Tools: []string{"Read"}, Allow: []string{"Glob"}}
+	wider := agent.Declaration{Restricted: true, Tools: []string{"Read", "Glob"}}
 
 	outcome, err := agent.Run(t.Context(), wider, opts)
 	if err != nil {
@@ -522,5 +522,46 @@ func TestAnAllowlistMismatchIsProducibleAgainstTheStub(t *testing.T) {
 	}
 	if !errors.Is(outcome.Aborted, agent.ErrReceiptMismatch) {
 		t.Fatalf("aborted = %v; the receipt reported %v", outcome.Aborted, outcome.Stream.Init.Tools)
+	}
+}
+
+// A scoped file form is a permission on a tool, not a tool, and it never appears in a
+// receipt. Folding the whole allowlist in widened what the check accepts — which is the
+// direction that hides a mismatch rather than catching one.
+func TestAScopedAllowEntryDoesNotWidenWhatTheReceiptAccepts(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{
+		Tools: []string{"Read"},
+		Allow: []string{"Read(./**)", "Glob(./**)"},
+	})
+
+	// A child reporting a tool the allowlist merely scoped is still reporting a tool the
+	// declaration did not name.
+	err := check(agent.Event{Type: "system", Subtype: "init", Tools: []string{"Read", "Glob"}})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("a tool outside the declared set passed because the allowlist mentioned it: %v", err)
+	}
+
+	// The case that separates "fold in the whole allowlist" from "fold in what a receipt
+	// can report": a bare tool name in the allowlist, which the gate permits, is not a
+	// grant of that tool. The tool set is, and this one does not name it.
+	bare := agent.CheckReceipt(agent.Declaration{Tools: []string{"Read"}, Allow: []string{"Glob"}})
+	if err := bare(agent.Event{
+		Type: "system", Subtype: "init", Tools: []string{"Read", "Glob"},
+	}); !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("an allowlist entry stood in for the tool set: %v", err)
+	}
+
+	// And an MCP tool in the allowlist IS foldable, because a connected server's tools
+	// do appear in a receipt.
+	mcp := agent.CheckReceipt(agent.Declaration{
+		Tools: []string{"Read"}, MCPServers: []string{"grafana"},
+		Allow: []string{"mcp__grafana__query_prometheus"},
+	})
+	if err := mcp(agent.Event{
+		Type: "system", Subtype: "init",
+		Tools:      []string{"Read", "mcp__grafana__query_prometheus"},
+		MCPServers: []agent.MCPServer{{Name: "grafana"}},
+	}); err != nil {
+		t.Fatalf("an allowed MCP tool was refused: %v", err)
 	}
 }

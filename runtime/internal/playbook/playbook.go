@@ -17,9 +17,12 @@ type Playbook struct {
 	Guard       *Unknown `yaml:"guard"`
 	Retrieve    *Unknown `yaml:"retrieve"`
 
-	// Path is where this was read from. Not part of the document; the refusal output
-	// names the file, and a prompt path resolves relative to it.
-	Path string `yaml:"-"`
+	// Path is where this was read from. Not part of the document — and `json:"-"` is
+	// what makes that true of the JSON copy the record keeps, which a replay compares
+	// against. Without it, moving the playbook directory, or replaying with a
+	// differently-spelled --playbooks flag than the cron job used, refused a playbook
+	// whose content had not changed at all.
+	Path string `yaml:"-" json:"-"`
 }
 
 // Trigger is how a playbook comes to run. Webhooks are a later feature.

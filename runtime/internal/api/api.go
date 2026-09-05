@@ -65,12 +65,14 @@ func CheckAddress(address, token string) error {
 }
 
 func isLoopback(host string) bool {
-	if host == "" || host == "localhost" {
-		return true
-	}
-	// An unspecified address is every interface, which is the case this exists to stop.
-	if host == "0.0.0.0" || host == "::" {
+	// An empty host is ":8787" — the most natural shorthand for "this port", and Go
+	// binds it to EVERY interface. It read as loopback here, which made the shorthand
+	// the one spelling that walked past FR-036.
+	if host == "" || host == "0.0.0.0" || host == "::" {
 		return false
+	}
+	if host == "localhost" {
+		return true
 	}
 	parsed := net.ParseIP(host)
 	return parsed != nil && parsed.IsLoopback()

@@ -160,3 +160,16 @@ func getBody(t *testing.T, url string) map[string]any {
 	}
 	return body
 }
+
+// The shorthand that walked past the rule. ":8787" has an empty host, which read as
+// loopback here and binds every interface in Go.
+func TestTheBarePortShorthandIsNotLoopback(t *testing.T) {
+	for _, address := range []string{":8787", ":80"} {
+		if err := api.CheckAddress(address, ""); !errors.Is(err, api.ErrRemoteWithoutCredential) {
+			t.Errorf("%q was accepted with no credential: %v", address, err)
+		}
+		if err := api.CheckAddress(address, "a-token"); err != nil {
+			t.Errorf("%q was refused with a credential: %v", address, err)
+		}
+	}
+}
