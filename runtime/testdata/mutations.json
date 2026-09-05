@@ -1,0 +1,28 @@
+{
+  "mutations": [
+    {
+      "name": "version reports its last resort instead of the build's",
+      "tree": "..",
+      "file": "cmd/gronin/version.go",
+      "find": "\tif info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != \"\" {\n\t\treturn info.Main.Version\n\t}\n",
+      "replace": "",
+      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+    },
+    {
+      "name": "the version command is never registered",
+      "tree": "..",
+      "file": "cmd/gronin/root.go",
+      "find": "\troot.AddCommand(newVersionCommand())\n",
+      "replace": "",
+      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+    },
+    {
+      "name": "a refusal no longer names what it refused",
+      "tree": "..",
+      "file": "cmd/gronin/root.go",
+      "find": "SilenceErrors: false,",
+      "replace": "SilenceErrors: true,",
+      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+    }
+  ]
+}

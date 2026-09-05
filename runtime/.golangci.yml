@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - revive
+    - unconvert
+    - usetesting
+  settings:
+    # misspell carries no locale on purpose. The specifications are written in British
+    # English and their technical vocabulary is not ("artifact"), so either locale
+    # argues with the prose it is paired with; unset, it catches an actual misspelling
+    # and stays out of the spelling of "behaviour".
+    revive:
+      rules:
+        - name: exported
+        - name: redefines-builtin-id
+  exclusions:
+    rules:
+      # A test asserting a refusal runs commands and reads paths on purpose.
+      - path: _test\.go
+        linters: [gosec]
+      # bintest exists to build and launch the executable, which is the whole of what
+      # G204 warns about, and its temporary directory is deliberately not t.TempDir():
+      # the binary is shared by every test in a package and outlives any one of them.
+      - path: internal/bintest/
+        linters: [gosec, usetesting]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
