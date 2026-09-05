@@ -60,8 +60,8 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
 - [ ] T078 Binary-level test harness: build the executable into a temporary directory and drive it
       through its command surface (SC-013). Its first subject is `version`; every later
       operator-surface test uses it instead of calling the packages behind it
-- [ ] T076 [P] Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
-      it (SC-011). A flake found here is a bug; found later it is a reason to stop reading red
+- [ ] T076 Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
+      it (SC-011). Not `[P]`: it configures the same CI workflow as T074 and T075. A flake found here is a bug; found later it is a reason to stop reading red
 - [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
       check, the binary-level test and the static-link check each block the merge (SC-012). A job
       that reports without blocking is a dashboard. It lands last in the phase because a check
@@ -292,9 +292,10 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
 
 ## Dependencies & Execution Order
 
-- **Setup (Phase 1)** → **Foundational (Phase 2)** → everything else. T077 and T078 are part of
+- **Setup (Phase 1)** → **Foundational (Phase 2)** → everything else. T074 and T076-T078 are part of
   Setup on purpose: they are what every later phase asserts through, and a harness written after
-  the tests that need it gets shaped to agree with them.
+  the tests that need it gets shaped to agree with them. T075 closes the phase because it makes
+  each of them required, and a check cannot be made required before it exists.
 - **US1 and US2 (Phases 3-4)** are one release. US2's load gate needs nothing from US1 and can be
   built in parallel with it; US2's receipt check (T046) needs T024.
 - **US3 (Phase 5)** needs a run to exist, so it follows US1 — but it ships with it. It does not

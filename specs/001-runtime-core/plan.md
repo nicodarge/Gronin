@@ -50,7 +50,7 @@ timeout, executed in CI with no route to the network so a test that reaches out 
 change is reviewed (SC-010, SC-011); a repeat-run job that treats a flake as a failure; a mutation
 harness that is required to be able to print zero before any count it reports is read (SC-014); and
 at least one test that drives the built executable rather than the packages behind it (SC-013).
-Every one of those blocks the merge (SC-012).
+SC-012 names the set that blocks a merge and is the one place it is enumerated.
 
 **No coverage percentage is set, and that is a choice rather than an omission.** The property that
 matters here is not how much of the tree a test touched but whether the guards fail when they

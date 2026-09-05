@@ -47,11 +47,9 @@ the underlying tool — a hook can load plugins the bare command does not.
 
 ## Tests
 
-The suite is hermetic — no network, no credential, no token — deterministic under the
-race detector, and proven by mutation rather than by being green. It runs against the
-built executable as well as the packages. The rule and its rationale are Principle VI of
-[.specify/memory/constitution.md](.specify/memory/constitution.md); do not restate them
-here, where they would drift.
+What the suite has to be is Principle VI of
+[.specify/memory/constitution.md](.specify/memory/constitution.md). Read it there; a
+paraphrase here would drift from it silently.
 
 `scripts/check-mutation.py` is how a test is shown to be able to fail.
 
