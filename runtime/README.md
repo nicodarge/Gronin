@@ -1,7 +1,8 @@
 # Runtime
 
 The six-stage runtime. What is here: the load gate, the schedule, gather, one bounded
-agent stage with its receipt check, the sinks, and the record with replay and resume.
+agent stage with its receipt check, the sinks — two that deliver and one that creates,
+capped — and the record with replay and resume.
 The guard and retrieve stages are refused rather than ignored — a declared bound nothing
 enforces reads as enforced in review.
 

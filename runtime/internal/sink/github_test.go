@@ -1,0 +1,333 @@
+package sink_test
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/nicodarge/Gronin/runtime/internal/sink"
+)
+
+// forge stands in for GitHub: it holds the open issues, records what was created, and
+// can be told to fail after n creations.
+type forge struct {
+	mu        sync.Mutex
+	open      []string
+	created   []string
+	failAfter int
+	listCode  int
+}
+
+func (f *forge) handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+
+		switch r.Method {
+		case http.MethodGet:
+			if f.listCode != 0 {
+				w.WriteHeader(f.listCode)
+				return
+			}
+			// The cap counts what this runtime opened, which is what the label is for.
+			if r.URL.Query().Get("labels") != sink.Marker {
+				http.Error(w, "the sink listed issues it did not label", http.StatusBadRequest)
+				return
+			}
+			issues := make([]map[string]any, 0, len(f.open))
+			for _, title := range f.open {
+				issues = append(issues, map[string]any{"title": title})
+			}
+			_ = json.NewEncoder(w).Encode(issues)
+
+		case http.MethodPost:
+			if f.failAfter > 0 && len(f.created) >= f.failAfter {
+				http.Error(w, "the forge is down", http.StatusInternalServerError)
+				return
+			}
+			body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+			var issue struct {
+				Title  string   `json:"title"`
+				Labels []string `json:"labels"`
+			}
+			_ = json.Unmarshal(body, &issue)
+			if len(issue.Labels) == 0 || issue.Labels[0] != sink.Marker {
+				http.Error(w, "an issue was created without the marker", http.StatusBadRequest)
+				return
+			}
+			f.created = append(f.created, issue.Title)
+			f.open = append(f.open, issue.Title)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"number": len(f.created)})
+
+		default:
+			http.Error(w, "unexpected", http.StatusMethodNotAllowed)
+		}
+	})
+}
+
+func (f *forge) createdTitles() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.created...)
+}
+
+func issueSink(t *testing.T, ceiling int, prepare func(*forge)) (*forge, sink.Sink) {
+	t.Helper()
+	got := &forge{}
+	if prepare != nil {
+		prepare(got)
+	}
+	server := httptest.NewServer(got.handler())
+	t.Cleanup(server.Close)
+	return got, sink.NewGitHub("owner/repo", "t0ken", ceiling, true, server.URL, server.Client())
+}
+
+func findings(count int) []byte {
+	items := make([]map[string]any, 0, count)
+	for at := range count {
+		items = append(items, map[string]any{
+			"title": fmt.Sprintf("finding %d", at+1),
+			"body":  "what was found",
+		})
+	}
+	report, err := json.Marshal(map[string]any{"findings": items})
+	if err != nil {
+		panic(err)
+	}
+	return report
+}
+
+// T059, FR-024. The cap is the point: an uncapped creator gets muted within a month, and
+// the useful signal goes with the noise.
+func TestSevenFindingsAgainstACapOfThreeCreatesThree(t *testing.T) {
+	got, one := issueSink(t, 3, nil)
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "drift-check", RunID: "run-1", Report: findings(7),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outcome.ItemsCreated != 3 {
+		t.Fatalf("created %d, want 3", outcome.ItemsCreated)
+	}
+	if outcome.ItemsSkipped != 4 {
+		t.Fatalf("skipped %d, want 4", outcome.ItemsSkipped)
+	}
+	if len(got.createdTitles()) != 3 {
+		t.Fatalf("the forge saw %d issues", len(got.createdTitles()))
+	}
+	if outcome.Status != sink.StatusCreated {
+		t.Fatalf("status = %q", outcome.Status)
+	}
+	if !strings.Contains(outcome.Detail, "cap") {
+		t.Fatalf("the outcome does not say it stopped at the cap: %q", outcome.Detail)
+	}
+}
+
+// T060. Capped is not failed: the cap doing its job is the system working as declared,
+// and recording it as a failure trains an operator to ignore the status.
+func TestWithTheCapAlreadyOpenNothingIsCreated(t *testing.T) {
+	got, one := issueSink(t, 3, func(f *forge) {
+		f.open = []string{"an older finding", "another", "a third"}
+	})
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outcome.Status != sink.StatusCapped {
+		t.Fatalf("status = %q, want capped", outcome.Status)
+	}
+	if outcome.ItemsCreated != 0 || len(got.createdTitles()) != 0 {
+		t.Fatalf("created %d", outcome.ItemsCreated)
+	}
+	if outcome.ItemsSkipped != 5 {
+		t.Fatalf("skipped %d, want all five", outcome.ItemsSkipped)
+	}
+	if !strings.Contains(outcome.Detail, "already open") {
+		t.Fatalf("the outcome does not say why: %q", outcome.Detail)
+	}
+}
+
+// FR-024 counts what is already open, so a partly-full repository leaves partial room.
+func TestTheCapCountsWhatIsAlreadyOpen(t *testing.T) {
+	_, one := issueSink(t, 3, func(f *forge) { f.open = []string{"an older finding"} })
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.ItemsCreated != 2 {
+		t.Fatalf("created %d, want 2 — one was already open against a cap of three",
+			outcome.ItemsCreated)
+	}
+}
+
+// A runtime that reopens the same issue every night is the noise the cap exists for.
+func TestAFindingAlreadyOpenIsNotOpenedAgain(t *testing.T) {
+	got, one := issueSink(t, 5, func(f *forge) { f.open = []string{"finding 1", "finding 2"} })
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(3),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.ItemsCreated != 1 {
+		t.Fatalf("created %d, want 1", outcome.ItemsCreated)
+	}
+	if titles := got.createdTitles(); len(titles) != 1 || titles[0] != "finding 3" {
+		t.Fatalf("created %v", titles)
+	}
+	if !strings.Contains(outcome.Detail, "already open") {
+		t.Fatalf("the outcome does not say which were skipped: %q", outcome.Detail)
+	}
+}
+
+// T061. What was created stays created, and the outcome says which items got through —
+// without that an operator cannot tell what to do next.
+func TestAFailureMidwayRecordsWhatWasCreated(t *testing.T) {
+	got, one := issueSink(t, 5, func(f *forge) { f.failAfter = 2 })
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outcome.Status != sink.StatusFailed {
+		t.Fatalf("status = %q", outcome.Status)
+	}
+	if outcome.ItemsCreated != 2 {
+		t.Fatalf("created %d, want the two that got through", outcome.ItemsCreated)
+	}
+	if len(got.createdTitles()) != 2 {
+		t.Fatalf("the forge saw %d", len(got.createdTitles()))
+	}
+	if outcome.ItemsCreated+outcome.ItemsSkipped != 5 {
+		t.Fatalf("%d created and %d skipped does not account for five findings",
+			outcome.ItemsCreated, outcome.ItemsSkipped)
+	}
+	if !strings.Contains(outcome.Detail, "failed") {
+		t.Fatalf("the outcome does not name the failure: %q", outcome.Detail)
+	}
+}
+
+// A creating sink does not narrate a failure into a repository.
+func TestARefusedReportCreatesNothing(t *testing.T) {
+	got, one := issueSink(t, 3, nil)
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1",
+		Failure: fmt.Errorf("the report does not satisfy the declared output schema"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != sink.StatusSkipped || len(got.createdTitles()) != 0 {
+		t.Fatalf("status = %q, created %v", outcome.Status, got.createdTitles())
+	}
+}
+
+func TestAReportWithNoFindingsCreatesNothing(t *testing.T) {
+	got, one := issueSink(t, 3, nil)
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: []byte(`{"findings":[]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != sink.StatusSkipped || len(got.createdTitles()) != 0 {
+		t.Fatalf("status = %q, created %v", outcome.Status, got.createdTitles())
+	}
+}
+
+// A cap cannot be checked against a repository that will not answer, and creating
+// against an unknown count is exactly what FR-024 forbids.
+func TestAnUnreadableRepositoryCreatesNothing(t *testing.T) {
+	got, one := issueSink(t, 3, func(f *forge) { f.listCode = http.StatusForbidden })
+
+	_, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(3),
+	})
+	if err == nil {
+		t.Fatal("the sink created against a count it could not read")
+	}
+	if len(got.createdTitles()) != 0 {
+		t.Fatalf("created %v", got.createdTitles())
+	}
+}
+
+func TestTheIssueSinkDeclaresItselfCreatingAndCapped(t *testing.T) {
+	_, one := issueSink(t, 3, nil)
+
+	if !one.Creates() {
+		t.Fatal("the issue sink does not report that it creates things")
+	}
+	ceiling, declared := one.Cap()
+	if !declared || ceiling != 3 {
+		t.Fatalf("cap = %d, declared = %v", ceiling, declared)
+	}
+	if err := sink.CheckCap(one); err != nil {
+		t.Fatalf("a declared cap was refused: %v", err)
+	}
+}
+
+// FR-006 through the builder, which is where a playbook's declaration arrives.
+func TestBuildRefusesAnIssueSinkWithNoCap(t *testing.T) {
+	_, problems := sink.Build([]sink.Declaration{{
+		Type:   "github",
+		Config: map[string]any{"repo": "owner/repo", "token": "t"},
+	}}, sink.BuildOptions{})
+
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v", problems)
+	}
+	if !strings.Contains(problems[0].Error(), "cap") {
+		t.Fatalf("the refusal does not name the cap: %v", problems[0])
+	}
+}
+
+// A cap read from YAML is an int and one that came through JSON is a float64. A bound
+// lost to which decoder produced it is a bound lost silently.
+func TestACapIsReadWhicheverDecoderProducedIt(t *testing.T) {
+	for name, value := range map[string]any{"int": 3, "float64": float64(3), "int64": int64(3)} {
+		sinks, problems := sink.Build([]sink.Declaration{{
+			Type:   "github",
+			Config: map[string]any{"repo": "owner/repo", "token": "t", "cap": value},
+		}}, sink.BuildOptions{})
+		if len(problems) != 0 {
+			t.Errorf("%s: %v", name, problems)
+			continue
+		}
+		if ceiling, declared := sinks[0].Cap(); !declared || ceiling != 3 {
+			t.Errorf("%s: cap = %d, declared = %v", name, ceiling, declared)
+		}
+	}
+}
+
+func TestBuildRefusesARepositoryThatIsNotOwnerName(t *testing.T) {
+	_, problems := sink.Build([]sink.Declaration{{
+		Type:   "github",
+		Config: map[string]any{"repo": "just-a-name", "token": "t", "cap": 3},
+	}}, sink.BuildOptions{})
+
+	if len(problems) != 1 || !strings.Contains(problems[0].Error(), "owner/name") {
+		t.Fatalf("problems = %v", problems)
+	}
+}

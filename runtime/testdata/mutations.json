@@ -704,6 +704,84 @@
         "./internal/playbook",
         "-count=1"
       ]
+    },
+    {
+      "name": "the issue sink creates past its cap",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif outcome.ItemsCreated >= room {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap ignores what is already open",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\troom := g.cap - len(open)",
+      "replace": "\troom := g.cap",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a finding already open is opened again",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif open[title] {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a saturated repository reads as failed rather than capped",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\tStatus:       StatusCapped,",
+      "replace": "\t\t\tStatus:       StatusFailed,",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a partial failure loses count of what it created",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\toutcome.ItemsSkipped = len(decoded.Findings) - outcome.ItemsCreated",
+      "replace": "\t\t\toutcome.ItemsCreated = 0",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a cap that came through JSON reads as absent",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\tcase float64:\n\t\treturn int(typed), true",
+      "replace": "\tcase float64:\n\t\treturn 0, false",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

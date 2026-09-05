@@ -1,0 +1,26 @@
+name: cert-expiry-issues
+trigger:
+  type: cron
+  schedule: "0 7 * * 1"
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  allow: ["Read(./**)"]
+  output_schema:
+    type: object
+    required: [findings]
+    properties:
+      findings:
+        type: array
+        items:
+          type: object
+          required: [title, body]
+          properties:
+            title: {type: string}
+            body: {type: string}
+sinks:
+  - github:
+      repo: ${config.audit_repo}
+      token: ${config.github_token}
+      cap: 3
