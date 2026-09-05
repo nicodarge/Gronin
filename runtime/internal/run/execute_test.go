@@ -423,3 +423,32 @@ func TestAStreamThatFailedIsNamedInTheRunsError(t *testing.T) {
 		t.Fatalf("the generic message replaced the cause: %q", got.Error)
 	}
 }
+
+// SC-009 through the pipeline: a run whose child reports a wider tool set than declared
+// is refused with no model output, and the record says refused rather than failed.
+func TestARunWhoseReceiptIsWiderThanDeclaredIsRefused(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeMismatch)
+	book := h.playbook(t, goodPlaybook)
+
+	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != record.StatusRefused {
+		t.Fatalf("status = %q, error = %q", got.Status, got.Error)
+	}
+	if !strings.Contains(got.Error, "wider bound") {
+		t.Fatalf("the error does not say why: %q", got.Error)
+	}
+
+	stored, err := h.store.GetRun(t.Context(), got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.CostUSD != 0 {
+		t.Fatalf("a run refused at the receipt was charged %v", stored.CostUSD)
+	}
+	if len(h.posted.all()) != 0 {
+		t.Fatal("a run refused at the receipt delivered something")
+	}
+}

@@ -1,0 +1,12 @@
+name: missing-prompt-file
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: not-there.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

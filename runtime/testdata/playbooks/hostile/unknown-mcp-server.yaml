@@ -1,0 +1,12 @@
+name: unknown-mcp-server
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  mcp: [not-provided-here]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

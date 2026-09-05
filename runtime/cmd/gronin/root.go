@@ -11,7 +11,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 		Use:           "gronin",
 		Short:         "Run bounded agents from declarative playbooks",
 		SilenceUsage:  true,
-		SilenceErrors: false,
+		SilenceErrors: true,
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -31,6 +31,8 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newStateDirCommand())
+	root.AddCommand(newConfigCommand())
+	root.AddCommand(newValidateCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newServeCommand())
 	return root

@@ -12,6 +12,7 @@ import (
 
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/schedule"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
 )
 
 // newServeCommand is FR-020's daemon half: load, refuse, arm, run.
@@ -35,6 +36,21 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 			defer deployment.close()
+
+			// FR-019 then FR-033, before anything is armed. A bounding flag an older
+			// executable does not recognise is ignored rather than refused, and a
+			// deployment that cannot authenticate arms schedules that will fail one by
+			// one, each after a working directory and a record row.
+			version, err := agent.CheckVersion(cmd.Context(), deployment.agentExecutable)
+			if err != nil {
+				return err
+			}
+			source, err := agent.VerifyCredential(cmd.Context(), deployment.agentExecutable,
+				deployment.executor.AgentEnv, deployment.stateDir)
+			if err != nil {
+				return err
+			}
+			cmd.Printf("agent %s, credential from %s\n", version, source)
 
 			// FR-031: a run the record still calls running cannot be, because this
 			// process has just started. It is marked interrupted and left alone —

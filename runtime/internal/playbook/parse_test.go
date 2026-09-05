@@ -168,6 +168,9 @@ func TestLoadReadsADirectoryAndCollectsEveryRefusal(t *testing.T) {
 		}
 	}
 
+	if err := os.WriteFile(filepath.Join(dir, "p.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	good := `
 name: %s
 trigger: {type: manual}
@@ -180,7 +183,7 @@ sinks: [{discord: {webhook: "${config.w}"}}]
 	write("no-sinks.yaml", "name: three\ntrigger: {type: manual}\nagent: {model: m, prompt_file: p.md, output_schema: {type: object}}\nsinks: []\n")
 	write("notes.md", "not a playbook, and not read")
 
-	loaded, err := playbook.Load(dir)
+	loaded, err := playbook.Load(dir, deployment())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +206,9 @@ sinks: [{discord: {webhook: "${config.w}"}}]
 // guard would treat them as one playbook.
 func TestLoadRefusesTwoPlaybooksWithOneName(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "p.md"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	body := `
 name: drift-check
 trigger: {type: manual}
@@ -215,7 +221,7 @@ sinks: [{discord: {webhook: "${config.w}"}}]
 		}
 	}
 
-	loaded, err := playbook.Load(dir)
+	loaded, err := playbook.Load(dir, deployment())
 	if err != nil {
 		t.Fatal(err)
 	}

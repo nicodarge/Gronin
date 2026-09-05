@@ -122,3 +122,48 @@ func TestServeRefusesToArmWhenAPlaybookIsRefused(t *testing.T) {
 		t.Fatalf("it reported arming something: %q", got.Stdout)
 	}
 }
+
+// FR-040. A playbook holds the reference and the deployment holds the value, which is
+// what lets a playbook be committed and shared at all.
+func TestConfigSetsAValueAndRedactsASecretWhenListing(t *testing.T) {
+	stateDir := t.TempDir()
+
+	if got := bintest.Run(t, "config", "set", "ops_channel", "#ops",
+		"--state-dir", stateDir); got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+	if got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+		"--secret", "--state-dir", stateDir); got.ExitCode != 0 {
+		t.Fatalf("set --secret failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	got := bintest.Run(t, "config", "list", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("list failed: %q", got.Stderr)
+	}
+	if !strings.Contains(got.Stdout, "#ops") {
+		t.Fatalf("a value that is not a secret was not shown: %q", got.Stdout)
+	}
+	if strings.Contains(got.Stdout, "t0ken") {
+		t.Fatalf("a secret was printed: %q", got.Stdout)
+	}
+	if !strings.Contains(got.Stdout, "[redacted]") {
+		t.Fatalf("the secret is not shown as redacted: %q", got.Stdout)
+	}
+}
+
+// Setting a secret must not echo it: this runs in a shell whose history keeps what it
+// is told, and the value has just been marked as one worth hiding.
+func TestSettingASecretDoesNotEchoIt(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+		"--secret", "--state-dir", stateDir)
+
+	if strings.Contains(got.Stdout, "t0ken") || strings.Contains(got.Stderr, "t0ken") {
+		t.Fatalf("the value was echoed: %q %q", got.Stdout, got.Stderr)
+	}
+	if !strings.Contains(got.Stdout, "ops_webhook") {
+		t.Fatalf("it does not say what was set: %q", got.Stdout)
+	}
+}

@@ -141,19 +141,34 @@ func (e *Executor) Execute(
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 
-	stage, err := agent.Run(ctx, declarationOf(book), agent.Options{
+	declaration := declarationOf(book)
+	stage, err := agent.Run(ctx, declaration, agent.Options{
 		Executable: e.AgentExecutable,
 		WorkDir:    started.WorkDir,
 		Prompt:     prompt.text,
 		Timeout:    timeout,
 		Env:        e.AgentEnv,
 		MCPServers: serversOf(book),
+		// FR-018. The child reports what it actually received, and this refuses before
+		// any model output when that is wider than the playbook declared. It is what
+		// makes the bound verified rather than asserted — no care constructing the
+		// argument vector can prove the process ended up with what the vector asked for.
+		OnEvent: agent.CheckReceipt(declaration),
 	})
 	if err != nil {
 		outcome.Error = err.Error()
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 	e.recordStage(ctx, started.ID, stage, &outcome, incomplete)
+
+	if stage.Aborted != nil {
+		// Refused, not failed: the bounds stopped it before it produced anything, so it
+		// cost nothing and it is not an incident — but a playbook refused every night is
+		// broken in a way one shared status would hide.
+		outcome.Status = record.StatusRefused
+		outcome.Error = stage.Aborted.Error()
+		return e.finished(started.ID, &outcome, incomplete)
+	}
 
 	if stage.TimedOut {
 		outcome.Status = record.StatusTimedOut

@@ -326,3 +326,149 @@ func TestAStreamThatFailsIsReportedAsSuchRatherThanAsAMissingResult(t *testing.T
 		t.Fatal("the fixture is meant to fail before any terminal event")
 	}
 }
+
+// FR-018, SC-009. The bound is verified rather than asserted: the child reports what it
+// actually received, and a wider set aborts the run before any model output.
+func TestAWiderReceiptAbortsTheRunBeforeAnyOutput(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read"}}
+
+	opts := options(t, fakeagent.ModeMismatch)
+	opts.OnEvent = agent.CheckReceipt(decl)
+
+	outcome, err := agent.Run(t.Context(), decl, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(outcome.Aborted, agent.ErrReceiptMismatch) {
+		t.Fatalf("aborted = %v, want a receipt mismatch", outcome.Aborted)
+	}
+	if !strings.Contains(outcome.Aborted.Error(), "Bash") {
+		t.Fatalf("the refusal does not name what was received: %v", outcome.Aborted)
+	}
+	if outcome.Stream.Result != nil {
+		t.Fatal("the run reached its terminal event; it was meant to stop at the receipt")
+	}
+}
+
+func TestAMatchingReceiptDoesNotAbort(t *testing.T) {
+	decl := agent.Declaration{Restricted: true, Tools: []string{"Read", "Grep"}}
+
+	opts := options(t, fakeagent.ModeSuccess)
+	opts.OnEvent = agent.CheckReceipt(decl)
+
+	outcome, err := agent.Run(t.Context(), decl, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Aborted != nil {
+		t.Fatalf("a matching receipt aborted the run: %v", outcome.Aborted)
+	}
+	if outcome.Stream.Result == nil {
+		t.Fatal("the run did not finish")
+	}
+}
+
+// Narrower is not wider. A process that ended up with fewer tools than the playbook
+// asked for cannot exceed the declaration, and refusing it would turn a harmless
+// difference into an outage.
+func TestANarrowerReceiptIsAccepted(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{Tools: []string{"Read", "Grep", "Glob"}})
+
+	if err := check(agent.Event{Type: "system", Subtype: "init", Tools: []string{"Read"}}); err != nil {
+		t.Fatalf("a narrower receipt was refused: %v", err)
+	}
+	if err := check(agent.Event{Type: "system", Subtype: "init"}); err != nil {
+		t.Fatalf("an empty receipt was refused: %v", err)
+	}
+}
+
+func TestAnUndeclaredServerInTheReceiptIsRefused(t *testing.T) {
+	check := agent.CheckReceipt(agent.Declaration{MCPServers: []string{"grafana"}})
+
+	err := check(agent.Event{
+		Type: "system", Subtype: "init",
+		MCPServers: []agent.MCPServer{{Name: "grafana"}, {Name: "filesystem"}},
+	})
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "filesystem") {
+		t.Fatalf("the refusal does not name the server: %v", err)
+	}
+}
+
+// FR-019. A flag an older executable does not recognise is ignored rather than refused,
+// so a bound expressed as a flag fails open — which is why the floor exists at all.
+func TestTheVersionFloorIsComparedNumerically(t *testing.T) {
+	version, err := agent.CheckVersion(t.Context(), fakeagent.Build(t))
+	if err != nil {
+		t.Fatalf("the stub reports %q and was refused: %v", version, err)
+	}
+	if version == "" {
+		t.Fatal("no version was read")
+	}
+}
+
+func TestVersionComparisonIsNotLexical(t *testing.T) {
+	// The trap: "2.1.9" sorts after "2.1.10" as a string, and is older as a version.
+	for _, probe := range []struct {
+		version string
+		refused bool
+	}{
+		{"2.1.261", false},
+		{"2.1.262", false},
+		{"2.2.0", false},
+		{"3.0.0", false},
+		{"2.1.260", true},
+		{"2.1.9", true},
+		{"2.0.999", true},
+		{"1.9.9", true},
+	} {
+		err := agent.RefuseBelowFloor(probe.version)
+		if probe.refused && err == nil {
+			t.Errorf("%s was accepted, and the floor is %s", probe.version, agent.VersionFloor)
+		}
+		if !probe.refused && err != nil {
+			t.Errorf("%s was refused: %v", probe.version, err)
+		}
+	}
+}
+
+// FR-032, FR-033: the source is read off the process's own report rather than asserted,
+// and a process that found none refuses to start with the places it looked.
+func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
+	t.Run("a configured source is reported", func(t *testing.T) {
+		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=not-a-real-key"}, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source != "ANTHROPIC_API_KEY" {
+			t.Fatalf("source = %q", source)
+		}
+	})
+
+	t.Run("another configured source is reported as itself", func(t *testing.T) {
+		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin", fakeagent.KeySourceVar + "=keychain"}, t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source != "keychain" {
+			t.Fatalf("source = %q", source)
+		}
+	})
+
+	t.Run("none configured refuses and names where it looked", func(t *testing.T) {
+		_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin"}, t.TempDir())
+		if !errors.Is(err, agent.ErrNoCredential) {
+			t.Fatalf("err = %v, want ErrNoCredential", err)
+		}
+		for _, where := range []string{"ANTHROPIC_API_KEY", "apiKeyHelper", "keychain"} {
+			if !strings.Contains(err.Error(), where) {
+				t.Errorf("the refusal does not mention %s: %v", where, err)
+			}
+		}
+	})
+}

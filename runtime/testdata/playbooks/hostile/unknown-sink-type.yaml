@@ -1,0 +1,12 @@
+name: unknown-sink-type
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - carrier-pigeon:
+      loft: ${config.loft}

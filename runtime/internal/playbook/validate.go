@@ -1,0 +1,446 @@
+package playbook
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+)
+
+// Deployment is what this deployment can actually do. The gate refuses a playbook naming
+// anything outside it, because a name that survives the gate fails at delivery instead —
+// after a full agent run has been paid for.
+type Deployment struct {
+	// MCPServers this deployment provides.
+	MCPServers []string
+	// SinkTypes it implements.
+	SinkTypes []string
+	// CreatingSinks are the types that bring things into existence somewhere else, and
+	// so must declare a cap.
+	CreatingSinks []string
+}
+
+// Problem is one refusal: where it is, what was found, and what would be accepted.
+//
+// The last field is the one that matters. A gate that says only what is wrong makes the
+// author guess, and a gate that is guessed at gets switched off.
+type Problem struct {
+	Field    string
+	Found    string
+	Accepted string
+}
+
+func (p Problem) Error() string {
+	if p.Accepted == "" {
+		return fmt.Sprintf("%s: %s", p.Field, p.Found)
+	}
+	return fmt.Sprintf("%s: %s\n    accepted: %s", p.Field, p.Found, p.Accepted)
+}
+
+// readOnlyTools is the built-in set a playbook may name.
+//
+// An allowlist, not a denylist. A denylist has to enumerate every dangerous form, and the
+// one it misses is the one that ships; this refuses a tool nobody has thought about yet,
+// which is the safe direction to be wrong in. Adding to it is a deliberate act.
+var readOnlyTools = map[string]string{
+	"Read":      "reads files",
+	"Grep":      "searches files",
+	"Glob":      "lists files",
+	"WebFetch":  "fetches a URL",
+	"WebSearch": "searches the web",
+}
+
+// shells are named separately so the refusal can say what a tool IS rather than only
+// that it is not on the list. "Bash is not accepted" sends an author looking for a
+// spelling; "Bash is an unrestricted shell" tells them why it never will be.
+var shells = map[string]bool{
+	"Bash": true, "Shell": true, "PowerShell": true, "Zsh": true, "Sh": true,
+	"BashOutput": true, "KillShell": true,
+}
+
+var writingTools = map[string]bool{
+	"Write": true, "Edit": true, "MultiEdit": true, "NotebookEdit": true,
+	"Task": true, "Agent": true,
+}
+
+// mcpShape reads an MCP entry: whether it names a server, and whether it names a tool
+// inside one.
+//
+// Split rather than matched. The regex this replaced was `^mcp__[A-Za-z0-9_-]+$` for
+// "names a whole server", and `_` is in that class — so it matched a fully-qualified
+// tool too, and the gate refused `mcp__grafana__query_prometheus` for naming a whole
+// server. A character class that quietly includes the separator is the same class of
+// mistake as a pattern that reads as containment and is not.
+func mcpShape(entry string) (server string, wholeServer bool, isMCP bool) {
+	parts := strings.Split(entry, "__")
+	if len(parts) < 2 || parts[0] != "mcp" || parts[1] == "" {
+		return "", false, false
+	}
+	if len(parts) == 2 {
+		return parts[1], true, true
+	}
+	// Three or more: a server and something inside it.
+	return parts[1], false, true
+}
+
+// scopedTool matches `Read(./**)` — a file tool with a path scope.
+var scopedTool = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_]*)\((.*)\)$`)
+
+// bareReference matches an interpolation that names no source.
+var bareReference = regexp.MustCompile(`\$\{([^}.]*)\}`)
+
+// Validate applies every refusal rule and returns all of them.
+//
+// It never stops at the first. Fixing refusals one round trip at a time is how a gate
+// gets switched off, and the caller refuses the whole set rather than arming the valid
+// remainder.
+func Validate(book *Playbook, dep Deployment) []Problem {
+	var problems []Problem
+
+	problems = append(problems, validateAgent(book, dep)...)
+	problems = append(problems, validateSinks(book, dep)...)
+	problems = append(problems, validateReserved(book)...)
+	problems = append(problems, validateInterpolation(book)...)
+	return problems
+}
+
+func validateAgent(book *Playbook, dep Deployment) []Problem {
+	var problems []Problem
+	agent := book.Agent
+
+	// FR-041. Turning off the coarsest bound is a decision, and a decision nobody wrote
+	// down is indistinguishable from an accident on review.
+	if !agent.IsRestricted() && strings.TrimSpace(book.Description) == "" {
+		problems = append(problems, Problem{
+			Field:    "agent.restricted",
+			Found:    "false, with no description saying why",
+			Accepted: "a description stating why this playbook needs the command- and code-running tools",
+		})
+	}
+
+	// FR-003.
+	for at, tool := range agent.Tools {
+		field := fmt.Sprintf("agent.tools[%d]", at)
+		switch {
+		case shells[tool]:
+			problems = append(problems, Problem{
+				Field: field, Found: fmt.Sprintf("%q is an unrestricted shell", tool),
+				Accepted: acceptedTools(),
+			})
+		case writingTools[tool]:
+			problems = append(problems, Problem{
+				Field:    field,
+				Found:    fmt.Sprintf("%q can write outside the run's working directory", tool),
+				Accepted: acceptedTools(),
+			})
+		case isMCPEntry(tool):
+			problems = append(problems, mcpProblems(field, tool, dep)...)
+		default:
+			if _, known := readOnlyTools[tool]; !known {
+				problems = append(problems, Problem{
+					Field: field, Found: fmt.Sprintf("%q is not a tool this runtime accepts", tool),
+					Accepted: acceptedTools(),
+				})
+			}
+		}
+	}
+
+	// FR-004 and FR-005.
+	for at, entry := range agent.Allow {
+		field := fmt.Sprintf("agent.allow[%d]", at)
+		switch {
+		case isMCPEntry(entry):
+			problems = append(problems, mcpProblems(field, entry, dep)...)
+		default:
+			problems = append(problems, scopeProblems(field, entry)...)
+		}
+	}
+
+	// FR-007.
+	for at, name := range agent.MCP {
+		if !contains(dep.MCPServers, name) {
+			problems = append(problems, Problem{
+				Field:    fmt.Sprintf("agent.mcp[%d]", at),
+				Found:    fmt.Sprintf("%q is not a server this deployment provides", name),
+				Accepted: provided(dep.MCPServers),
+			})
+		}
+	}
+
+	// A prompt that is not there arms a playbook that cannot run. The gate is where that
+	// is cheap to find.
+	if agent.PromptFile != "" && book.Path != "" {
+		if _, err := os.Stat(book.PromptPath()); err != nil {
+			problems = append(problems, Problem{
+				Field:    "agent.prompt_file",
+				Found:    fmt.Sprintf("%q is not readable from the playbook's directory", agent.PromptFile),
+				Accepted: "a path to a file beside the playbook",
+			})
+		}
+	}
+
+	if agent.Timeout != "" {
+		if _, err := agent.StageTimeout(); err != nil {
+			problems = append(problems, Problem{
+				Field: "agent.timeout", Found: fmt.Sprintf("%q is not a duration", agent.Timeout),
+				Accepted: "a duration such as 10m, 45m or 2h",
+			})
+		}
+	}
+	return problems
+}
+
+func isMCPEntry(entry string) bool {
+	_, _, isMCP := mcpShape(entry)
+	return isMCP
+}
+
+// mcpProblems refuses an entry naming a whole server (FR-004), and one naming a server
+// this deployment does not provide (FR-007). Naming a tool is not the same as naming the
+// server, and a playbook can do the second without doing the first.
+func mcpProblems(field, entry string, dep Deployment) []Problem {
+	server, wholeServer, _ := mcpShape(entry)
+	if wholeServer {
+		return []Problem{{
+			Field: field, Found: fmt.Sprintf("%q names a whole MCP server", entry),
+			Accepted: "an individual tool, e.g. " + entry + "__query_prometheus",
+		}}
+	}
+	if !contains(dep.MCPServers, server) {
+		return []Problem{{
+			Field:    field,
+			Found:    fmt.Sprintf("%q names the server %q, which this deployment does not provide", entry, server),
+			Accepted: provided(dep.MCPServers),
+		}}
+	}
+	return nil
+}
+
+// scopeProblems applies FR-005: a file tool's scope must resolve inside the run's working
+// directory, and the path is resolved before the decision rather than inspected as text.
+// A relative traversal reads as harmless until it is resolved.
+func scopeProblems(field, entry string) []Problem {
+	match := scopedTool.FindStringSubmatch(entry)
+	if match == nil {
+		// Not a scoped form. Bare tool names in the allowlist are the tool set's
+		// business, and repeating that refusal here would say the same thing twice.
+		if _, known := readOnlyTools[entry]; known {
+			return nil
+		}
+		return []Problem{{
+			Field: field, Found: fmt.Sprintf("%q is not a form this runtime accepts", entry),
+			Accepted: `a scoped file tool such as Read(./**), or an MCP tool named in full`,
+		}}
+	}
+
+	tool, scope := match[1], match[2]
+	if _, known := readOnlyTools[tool]; !known {
+		return []Problem{{
+			Field: field, Found: fmt.Sprintf("%q scopes %q, which is not a tool this runtime accepts", entry, tool),
+			Accepted: acceptedTools(),
+		}}
+	}
+	if scope == "" {
+		return []Problem{{
+			Field: field, Found: fmt.Sprintf("%q scopes nothing", entry),
+			Accepted: "a path inside the run's working directory, e.g. " + tool + "(./**)",
+		}}
+	}
+	if !insideWorkingDirectory(scope) {
+		return []Problem{{
+			Field:    field,
+			Found:    fmt.Sprintf("%q resolves outside the run's working directory", scope),
+			Accepted: "a path inside it, e.g. " + tool + "(./**) or " + tool + "(./inputs/**)",
+		}}
+	}
+	return nil
+}
+
+// insideWorkingDirectory resolves a scope the way the filesystem would, against a
+// notional root, and reports whether it stayed inside. Text inspection is not enough:
+// "./a/../../etc" reads as relative and is not.
+func insideWorkingDirectory(scope string) bool {
+	if filepath.IsAbs(scope) {
+		return false
+	}
+	if strings.HasPrefix(scope, "~") {
+		return false
+	}
+	const root = "/run"
+	// The glob characters do not affect where the path resolves to, and Clean leaves
+	// them alone.
+	resolved := filepath.Clean(filepath.Join(root, scope))
+	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+}
+
+func validateSinks(book *Playbook, dep Deployment) []Problem {
+	var problems []Problem
+	for at, one := range book.Sinks {
+		field := fmt.Sprintf("sinks[%d]", at)
+		name, config, ok := one.Type()
+		if !ok {
+			found := "is not one key naming a sink type with its settings"
+			if name != "" {
+				found = fmt.Sprintf("%q does not carry a mapping of settings", name)
+			}
+			problems = append(problems, Problem{
+				Field: field, Found: found,
+				Accepted: "one key naming the sink, e.g. discord: {webhook: ${config.ops_webhook}}",
+			})
+			continue
+		}
+		// FR-038.
+		if !contains(dep.SinkTypes, name) {
+			problems = append(problems, Problem{
+				Field:    field + "." + name,
+				Found:    fmt.Sprintf("%q is not a sink this deployment implements", name),
+				Accepted: provided(dep.SinkTypes),
+			})
+			continue
+		}
+		// FR-006.
+		if contains(dep.CreatingSinks, name) {
+			if _, declared := config["cap"]; !declared {
+				problems = append(problems, Problem{
+					Field: field + "." + name + ".cap", Found: "missing",
+					Accepted: "an integer; a sink that creates things must declare its ceiling",
+				})
+			}
+		}
+	}
+	return problems
+}
+
+// validateReserved applies FR-034. The schema refuses these too; this is the same rule
+// where the runtime can say why, and it holds if the schema is ever loosened.
+func validateReserved(book *Playbook) []Problem {
+	var problems []Problem
+	for field, present := range map[string]bool{"guard": book.Guard != nil, "retrieve": book.Retrieve != nil} {
+		if present {
+			problems = append(problems, Problem{
+				Field:    field,
+				Found:    "declared, and this runtime does not apply it",
+				Accepted: "remove the block; a declared bound nothing enforces reads as enforced in review",
+			})
+		}
+	}
+	sort.Slice(problems, func(i, j int) bool { return problems[i].Field < problems[j].Field })
+	return problems
+}
+
+// validateInterpolation applies FR-039 to every string the document holds. A bare
+// reference resolves against whichever source happens to carry the name, and a trigger
+// payload is written by whoever sent the request.
+func validateInterpolation(book *Playbook) []Problem {
+	var problems []Problem
+	for _, held := range interpolatable(book) {
+		for _, match := range bareReference.FindAllStringSubmatch(held.text, -1) {
+			name := match[1]
+			problems = append(problems, Problem{
+				Field:    held.field,
+				Found:    fmt.Sprintf("${%s} does not name its source", name),
+				Accepted: fmt.Sprintf("${config.%s} or ${trigger.%s}", name, name),
+			})
+		}
+	}
+	return problems
+}
+
+// held is one string in the document and where it is, so a refusal names the field
+// rather than the document.
+type held struct {
+	field string
+	text  string
+}
+
+// interpolatable walks every string a playbook holds. Walking the typed structure rather
+// than the raw document means a field added later is not silently exempt from the rule —
+// it has to be added here, which is a compile-time-shaped reminder rather than a silent
+// hole.
+func interpolatable(book *Playbook) []held {
+	out := []held{
+		{"description", book.Description},
+		{"trigger.schedule", book.Trigger.Schedule},
+		{"agent.model", book.Agent.Model},
+		{"agent.prompt_file", book.Agent.PromptFile},
+	}
+	for at, step := range book.Gather {
+		out = append(out,
+			held{fmt.Sprintf("gather[%d].run", at), step.Run},
+			held{fmt.Sprintf("gather[%d].as", at), step.As})
+	}
+	for at, tool := range book.Agent.Tools {
+		out = append(out, held{fmt.Sprintf("agent.tools[%d]", at), tool})
+	}
+	for at, entry := range book.Agent.Allow {
+		out = append(out, held{fmt.Sprintf("agent.allow[%d]", at), entry})
+	}
+	for at, name := range book.Agent.MCP {
+		out = append(out, held{fmt.Sprintf("agent.mcp[%d]", at), name})
+	}
+	for at, one := range book.Sinks {
+		name, config, ok := one.Type()
+		if !ok {
+			continue
+		}
+		out = append(out, walkValue(fmt.Sprintf("sinks[%d].%s", at, name), config)...)
+	}
+	return out
+}
+
+func walkValue(field string, value any) []held {
+	switch typed := value.(type) {
+	case string:
+		return []held{{field, typed}}
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		var out []held
+		for _, key := range keys {
+			out = append(out, walkValue(field+"."+key, typed[key])...)
+		}
+		return out
+	case Sink:
+		return walkValue(field, map[string]any(typed))
+	case []any:
+		var out []held
+		for at, item := range typed {
+			out = append(out, walkValue(fmt.Sprintf("%s[%d]", field, at), item)...)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func acceptedTools() string {
+	names := make([]string, 0, len(readOnlyTools))
+	for name := range readOnlyTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ") + ", or an MCP tool named in full (mcp__server__tool)"
+}
+
+func provided(names []string) string {
+	if len(names) == 0 {
+		return "nothing; this deployment provides none"
+	}
+	ordered := append([]string(nil), names...)
+	sort.Strings(ordered)
+	return strings.Join(ordered, ", ")
+}
+
+func contains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}

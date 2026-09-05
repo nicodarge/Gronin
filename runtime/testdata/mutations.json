@@ -29,9 +29,9 @@
     {
       "name": "a refusal no longer names what it refused",
       "tree": "..",
-      "file": "cmd/gronin/root.go",
-      "find": "SilenceErrors: false,",
-      "replace": "SilenceErrors: true,",
+      "file": "cmd/gronin/main.go",
+      "find": "\tif !errors.As(err, &silent) {\n\t\tfmt.Fprintln(os.Stderr, \"gronin:\", err)\n\t}",
+      "replace": "\t_ = silent",
       "command": [
         "go",
         "test",
@@ -372,6 +372,189 @@
       "file": "internal/stage/agent/argv.go",
       "find": "\t\t\tif strings.HasPrefix(entry, \"-\") {",
       "replace": "\t\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a shell in the tool set",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tcase shells[tool]:",
+      "replace": "\t\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a writing tool",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tcase writingTools[tool]:",
+      "replace": "\t\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts an allowlist entry naming a whole server",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif wholeServer {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a file scope is judged as text rather than resolved",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tresolved := filepath.Clean(filepath.Join(root, scope))\n\treturn resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))",
+      "replace": "\treturn !strings.Contains(scope, \"..\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts an MCP server this deployment does not provide",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif !contains(dep.MCPServers, name) {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a sink type this deployment does not implement",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif !contains(dep.SinkTypes, name) {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a creating sink with no cap",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tif _, declared := config[\"cap\"]; !declared {",
+      "replace": "\t\t\tif _, declared := config[\"cap\"]; false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a reference that names no source",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tfor _, match := range bareReference.FindAllStringSubmatch(held.text, -1) {",
+      "replace": "\t\tfor _, match := range [][]string{} {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts restricted off with no reason",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif !agent.IsRestricted() && strings.TrimSpace(book.Description) == \"\" {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a prompt file that is not there",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif _, err := os.Stat(book.PromptPath()); err != nil {",
+      "replace": "\t\tif _, err := os.Stat(book.PromptPath()); false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a reserved block",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif present {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a wider receipt does not abort the run",
+      "tree": "..",
+      "file": "internal/stage/agent/receipt.go",
+      "find": "\t\tif len(extraTools) == 0 && len(extraServers) == 0 {\n\t\t\treturn nil\n\t\t}",
+      "replace": "\t\treturn nil\n\t\tif false {\n\t\t\treturn nil\n\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the version floor accepts anything",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\tif below {\n\t\treturn fmt.Errorf(\"%w: %s, and the floor is %s\", ErrBelowVersionFloor, version, VersionFloor)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w: %s\", ErrBelowVersionFloor, version)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a missing credential does not refuse startup",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\tif source == \"\" || source == \"none\" {",
+      "replace": "\tif false {",
       "command": [
         "go",
         "test",
