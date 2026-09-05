@@ -64,5 +64,35 @@ fi
 echo "==> go vet"
 go vet ./...
 
+# SC-005's outside half. The suite asserts internally that no configured secret reaches
+# the record; this asserts that none reached the suite's own output either, which is
+# where a stray t.Logf or a printed error would put it. One literal, read from the
+# package the tests use, so the two checks cannot come to assert different secrets.
+sentinel="$(sed -n 's/^const Value = "\(.*\)"$/\1/p' internal/testsecret/testsecret.go)"
+if [ -z "$sentinel" ]; then
+    echo "run-suite: cannot read the test sentinel from internal/testsecret." >&2
+    echo "run-suite: refusing to run a suite whose secret check cannot work." >&2
+    exit 1
+fi
+
+# -v is not for the reader, it is what makes the scan above mean anything: `go test`
+# buffers a passing test's log output and prints it only on failure, so without -v a
+# secret written by a test that passes never appears in the output being scanned. Probed
+# exactly that way — a t.Logf of the sentinel in a passing test slipped through. The file
+# keeps everything; the terminal gets the per-test noise filtered back out.
 echo "==> go test -race"
-go test ./... -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-10m}" "$@"
+output="$(mktemp)"
+trap 'rm -f "$output"' EXIT
+set +e
+go test ./... -v -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-10m}" "$@" 2>&1 \
+    | tee "$output" \
+    | command grep -vE '^(=== (RUN|PAUSE|CONT)|--- PASS|    )'
+status=${PIPESTATUS[0]}
+set -e
+[ "$status" -eq 0 ] || exit "$status"
+
+if command grep -qF "$sentinel" "$output"; then
+    echo "==> a test secret reached the suite's output:" >&2
+    command grep -nF "$sentinel" "$output" >&2
+    exit 1
+fi

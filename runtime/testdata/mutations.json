@@ -6,7 +6,12 @@
       "file": "cmd/gronin/version.go",
       "find": "\tif info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != \"\" {\n\t\treturn info.Main.Version\n\t}\n",
       "replace": "",
-      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
     },
     {
       "name": "the version command is never registered",
@@ -14,7 +19,12 @@
       "file": "cmd/gronin/root.go",
       "find": "\troot.AddCommand(newVersionCommand())\n",
       "replace": "",
-      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
     },
     {
       "name": "a refusal no longer names what it refused",
@@ -22,7 +32,51 @@
       "file": "cmd/gronin/root.go",
       "find": "SilenceErrors: false,",
       "replace": "SilenceErrors: true,",
-      "command": ["go", "test", "./cmd/gronin", "-count=1"]
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the redactor replaces a secret with itself",
+      "tree": "..",
+      "file": "internal/record/redact.go",
+      "find": "strings.ReplaceAll(text, secret, Placeholder)",
+      "replace": "strings.ReplaceAll(text, secret, secret)",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "interpolation resolves a reference that names no source",
+      "tree": "..",
+      "file": "internal/config/interpolate.go",
+      "find": "\t\tnamespace, key, found := strings.Cut(name, \".\")\n\t\tif !found {",
+      "replace": "\t\tnamespace, key, found := strings.Cut(name, \".\")\n\t\tif false {\n\t\t\t_ = found",
+      "command": [
+        "go",
+        "test",
+        "./internal/config",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the blob store stops resolving a reference before trusting it",
+      "tree": "..",
+      "file": "internal/record/blobs.go",
+      "find": "\tpath, err := b.resolve(ref)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\t// resolve above is what makes this safe, and it is the reason it exists.\n\treturn os.ReadFile(path) //nolint:gosec",
+      "replace": "\treturn os.ReadFile(filepath.Join(b.dir, ref)) //nolint:gosec",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1"
+      ]
     }
   ]
 }
