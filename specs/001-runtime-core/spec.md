@@ -336,8 +336,9 @@ only the cap is created, then run it again unchanged and confirm nothing further
 - **SC-011**: The suite passes under the race detector with test caching disabled, and ten
   consecutive runs against an unchanged tree agree.
 - **SC-012**: Every merge is gated on lint, `go vet`, the suite under the race detector, the
-  refusal-mutation check and the static-link check of SC-007. A change failing any one of them
-  cannot be merged.
+  mutation check in both its uses — the refusal corpus of SC-002 and the harness self-check of
+  SC-014 — the binary-level test of SC-013, and the static-link check of SC-007. A change failing
+  any one of them cannot be merged.
 - **SC-013**: At least one test drives the built executable through the operator's own command
   surface rather than the packages behind it, so a change that breaks the argument vector, the
   embedded schema or the static linkage fails the suite rather than only the release.

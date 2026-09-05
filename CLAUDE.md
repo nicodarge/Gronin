@@ -53,7 +53,7 @@ built executable as well as the packages. The rule and its rationale are Princip
 [.specify/memory/constitution.md](.specify/memory/constitution.md); do not restate them
 here, where they would drift.
 
-Before relying on a test, mutate the line it covers and confirm the exit code flips.
+`scripts/check-mutation.py` is how a test is shown to be able to fail.
 
 ## Documentation
 

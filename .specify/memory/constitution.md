@@ -12,7 +12,8 @@ Added sections:
 Removed sections: none
 Templates requiring review:
   - .specify/templates/plan-template.md — its Constitution Check gate is an unfilled
-    placeholder; it SHOULD be filled with Principles I, II and V when a plan is written
+    placeholder; it SHOULD be filled with Principles I, II, V and VI when a plan is written,
+    matching the Governance clause this amendment edits
   - .specify/templates/spec-template.md — no change required
   - .specify/templates/tasks-template.md — no change required
 Follow-up TODOs: none
@@ -102,8 +103,8 @@ not a grace period — removing something from history later is expensive and un
 
 ### VI. The Suite Is the Gate
 
-Principles I and III both end in an assertion made by a test. This principle is what makes that
-assertion worth anything.
+Principle I ends in an obligation on a test, and Principle III is checked by one. This principle
+is what makes either worth anything.
 
 The suite MUST be hermetic. It MUST pass with no network reachable, with no credential
 configured, and without spending a token: an agent stage is exercised against a stub that emits

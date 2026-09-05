@@ -22,9 +22,9 @@ separately implementable and separately testable, not because each is separately
 
 **Task numbering**: T068-T071 and T074-T078 were added after their phase was written and sit in
 the phase they belong to rather than at the end of the file, so the identifiers are not in
-document order. Identifiers
-are stable and tasks reference each other; renumbering to restore the order would break those
-references silently, which is exactly how the earlier renumbering went wrong.
+document order. Identifiers are stable and tasks reference each other; renumbering to restore the
+order would break those references silently, which is exactly how the earlier renumbering went
+wrong.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -54,17 +54,18 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
       declared timeout — and run it in CI with no route to the network, so a test that reaches out
       fails on the machine that reviews the change rather than passing on the one that wrote it
       (SC-010, SC-011)
-- [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
-      check and the static-link check each block the merge (SC-012). A job that reports without
-      blocking is a dashboard
-- [ ] T076 [P] Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
-      it (SC-011). A flake found here is a bug; found later it is a reason to stop reading red
 - [ ] T077 `scripts/check-mutation.py`: mutate a named line in a copy of its target, assert the
       exit code flips, and prove on an unmodified tree that the harness can print zero (SC-014).
       T036 asserts through this rather than rolling its own
 - [ ] T078 Binary-level test harness: build the executable into a temporary directory and drive it
       through its command surface (SC-013). Its first subject is `version`; every later
       operator-surface test uses it instead of calling the packages behind it
+- [ ] T076 [P] Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
+      it (SC-011). A flake found here is a bug; found later it is a reason to stop reading red
+- [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
+      check, the binary-level test and the static-link check each block the merge (SC-012). A job
+      that reports without blocking is a dashboard. It lands last in the phase because a check
+      cannot be made required before it exists
 
 **Checkpoint**: an empty binary builds statically on three platforms, a hermetic race-enabled suite
 runs against the binary itself, and CI blocks on all of it.
