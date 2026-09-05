@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/nicodarge/Gronin/schemas/playbook.json",
+  "$id": "https://nicodarge.github.io/Gronin/playbook.schema.json",
   "title": "Gronin playbook",
   "description": "The shape of a playbook. This schema is the shape layer only: it is published so editors can complete and lint a playbook, and it is NOT the gate. The semantic refusals - path traversal resolution, MCP server existence, shell detection in a tool set, the receipt check - cannot be expressed here and live in the runtime's validator. A playbook that satisfies this schema may still be refused at load, by design. Interpolation is namespaced (${config.x} or ${trigger.x}); the shape layer does not check that either, so a bare ${x} passes here and is refused by the runtime (FR-039).",
   "type": "object",

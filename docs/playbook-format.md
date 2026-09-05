@@ -4,6 +4,12 @@ A playbook is a YAML file plus a prompt file. It is the unit of sharing: it
 diffs, it reviews, it tests, and someone can contribute one without
 understanding the runtime.
 
+The schema an editor should resolve is published at
+<https://nicodarge.github.io/Gronin/playbook.schema.json>. It is the shape layer
+and it is not the gate: a document it accepts may still be refused at load, by
+design — the refusals that matter are semantic and no schema can express them.
+`gronin validate` is what answers whether a playbook will actually be armed.
+
 ## Shape
 
 ```yaml playbook

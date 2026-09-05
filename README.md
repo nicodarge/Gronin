@@ -8,6 +8,20 @@ A runtime that turns infrastructure signals into bounded agent runs.
 > yet: the issue sink, semantic retrieval, the guard stage and webhook triggers —
 > see [docs/roadmap.md](docs/roadmap.md).
 
+## Running it in a container
+
+The published image carries the runtime and nothing else — not the agent, which is a
+separate executable with its own release cadence and its own credentials. Mount it, or
+build on top of the image, and name it with `--agent`.
+
+It is built for `linux/amd64`. The release also publishes `linux/arm64` and `darwin/arm64`
+binaries; on those, run the binary rather than the image.
+
+The state directory is `/data`, owned by the unprivileged user the image runs as. A named
+volume inherits that ownership; a bind mount does not — it takes the host directory's,
+which is usually root, and there is no shell in the image to fix it at runtime. Use a
+named volume, or `chown 65532:65532` the host directory first.
+
 ## What it is
 
 An alert fires, a schedule elapses, a pull request opens. Gronin picks the

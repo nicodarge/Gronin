@@ -292,10 +292,15 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
       walkthrough end to end on a clean machine (SC-001)
 - [ ] T064 Retire one existing scheduled workflow and replace it with a playbook (SC-006). This is
       the only success criterion that cannot be satisfied by the test suite
-- [ ] T065 [P] Release workflow: signed cross-compiled binaries and a `FROM scratch` image
-- [ ] T066 [P] Update `README.md` — it currently says nothing executes yet, and by here that is
+- [x] T065 [P] Release workflow: signed cross-compiled binaries and a container image — on a
+      distroless base rather than `FROM scratch`, because the agent it drives is dynamically
+      linked and cannot start on scratch at all. The binary is still static and still checked
+- [x] T066 [P] Update `README.md` — it currently says nothing executes yet, and by here that is
       false
-- [ ] T067 [P] Publish `playbook.schema.json` at a stable URL so editors can resolve it
+- [x] T067 [P] Publish `playbook.schema.json` at a stable URL so editors can resolve it —
+      <https://nicodarge.github.io/Gronin/playbook.schema.json>, assembled from the contract at
+      publish time rather than committed a third time. It answers once the repository is public,
+      which is the deadline the constitution already names
 
 ---
 

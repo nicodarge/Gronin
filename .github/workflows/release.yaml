@@ -1,0 +1,130 @@
+---
+name: Release
+
+# A tag is the trigger, so what ships is what a tag names and nothing else. Building on
+# every push would make "the binary from main" a thing people install, and there would be
+# no version to ask a deployment about.
+on:
+  push:
+    tags: ['v*']
+
+# Every job declares its own. The workflow-level floor is read-only so a job that forgets
+# gets nothing rather than everything.
+permissions:
+  contents: read
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: runtime/go.mod
+
+      - name: Build
+        working-directory: runtime
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        # The version is stamped in, so `gronin version` answers with the tag rather than
+        # with "(devel)". A deployment that cannot say which build it is running cannot
+        # be asked whether it has the fix.
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o "../gronin-${GOOS}-${GOARCH}" ./cmd/gronin
+
+      - name: The artifact is self-contained
+        run: scripts/check-static.sh "gronin-${{ matrix.goos }}-${{ matrix.goarch }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gronin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gronin-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: binaries
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # Before signing, not after, which is the only version of this that works. Narrowing
+      # the glob was the first attempt and it changed nothing: `gronin-linux-*` matches
+      # `gronin-linux-amd64.sig` too. Ordering makes the question disappear rather than
+      # answering it with a cleverer pattern — at this point the directory holds binaries
+      # and nothing else.
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum gronin-* > SHA256SUMS
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Keyless, against the workflow's own identity. A signing key in a repository
+      # secret is a long-lived credential every job can reach, which is the thing being
+      # avoided rather than a detail of how it is stored.
+      #
+      # SHA256SUMS is signed too: a checksum file nobody signed is a list an attacker can
+      # rewrite alongside what it describes.
+      - name: Sign each binary and the checksums
+        run: |
+          for artifact in artifacts/gronin-* artifacts/SHA256SUMS; do
+            cosign sign-blob --yes \
+              --output-signature "${artifact}.sig" \
+              --output-certificate "${artifact}.pem" \
+              "$artifact"
+          done
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+  image:
+    runs-on: ubuntu-latest
+    needs: binaries
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: gronin-linux-amd64
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/gronin:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/gronin:latest
