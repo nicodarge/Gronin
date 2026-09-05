@@ -1,0 +1,58 @@
+---
+name: Publish the playbook schema
+
+# T067: editors resolve a schema by its $id, so the $id has to be somewhere that answers.
+#
+# Nothing is committed to a second location. A copy in docs/ would be a third copy of one
+# document — beside the contract and the embedded one — and the copy nobody edits is the
+# one that goes stale. The page is assembled from the contract at publish time instead.
+on:
+  push:
+    branches: [production]
+    paths:
+      - 'specs/001-runtime-core/contracts/playbook.schema.json'
+      - '.github/workflows/schema.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assemble the site from the contract
+        run: |
+          mkdir -p site
+          cp specs/001-runtime-core/contracts/playbook.schema.json site/playbook.schema.json
+          # The $id must be the address this is served from, or an editor resolving it
+          # fetches something else — or nothing.
+          python3 - <<'PY'
+          import json, os, sys
+          path = "site/playbook.schema.json"
+          with open(path) as f:
+              schema = json.load(f)
+          want = os.environ["EXPECTED_ID"]
+          if schema.get("$id") != want:
+              sys.exit(f"the schema's $id is {schema.get('$id')!r}, and it is served from {want!r}")
+          PY
+        env:
+          EXPECTED_ID: https://nicodarge.github.io/Gronin/playbook.schema.json
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v5
