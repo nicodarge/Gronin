@@ -173,3 +173,11 @@ func TestTheBarePortShorthandIsNotLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestLocalhostIsLoopbackWhateverItsCasing(t *testing.T) {
+	for _, address := range []string{"localhost:8787", "LOCALHOST:8787", "LocalHost:8787"} {
+		if err := api.CheckAddress(address, ""); err != nil {
+			t.Errorf("%q was refused: %v", address, err)
+		}
+	}
+}

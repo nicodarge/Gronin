@@ -86,6 +86,13 @@ func set(groups ...[]string) map[string]bool {
 // mcpToolsIn keeps the allowlist entries that name a tool a receipt could report: a
 // fully-qualified MCP tool. Everything else in an allowlist is a scoped file form, which
 // is a permission on a tool rather than a tool.
+//
+// This is deliberately looser than the load gate's own reading of the same shape
+// (playbook.mcpShape, which requires a well-formed tool name after the server). It can
+// afford to be: the gate refuses anything else before a run exists, so a shape that gets
+// here has already passed it. If that stops being true — if the gate's toolName ever
+// widens — this widens with it rather than against it, which is the safe direction for
+// the two to drift.
 func mcpToolsIn(allow []string) []string {
 	var tools []string
 	for _, entry := range allow {

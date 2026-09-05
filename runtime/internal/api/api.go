@@ -71,7 +71,9 @@ func isLoopback(host string) bool {
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		return false
 	}
-	if host == "localhost" {
+	// Case-insensitively: LOCALHOST is the same host, and refusing that spelling would
+	// fail closed on a legitimate one.
+	if strings.EqualFold(host, "localhost") {
 		return true
 	}
 	parsed := net.ParseIP(host)
