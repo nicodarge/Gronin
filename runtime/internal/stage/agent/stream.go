@@ -28,14 +28,18 @@ type Event struct {
 	Tools             []string    `json:"tools"`
 
 	// result — the terminal event.
-	TotalCostUSD      float64            `json:"total_cost_usd"`
-	Usage             Usage              `json:"usage"`
-	NumTurns          int                `json:"num_turns"`
-	DurationMS        int64              `json:"duration_ms"`
-	IsError           bool               `json:"is_error"`
-	StopReason        string             `json:"stop_reason"`
-	TerminalReason    string             `json:"terminal_reason"`
-	Result            json.RawMessage    `json:"result"`
+	TotalCostUSD   float64         `json:"total_cost_usd"`
+	Usage          Usage           `json:"usage"`
+	NumTurns       int             `json:"num_turns"`
+	DurationMS     int64           `json:"duration_ms"`
+	IsError        bool            `json:"is_error"`
+	StopReason     string          `json:"stop_reason"`
+	TerminalReason string          `json:"terminal_reason"`
+	Result         json.RawMessage `json:"result"`
+
+	// assistant and user events carry the tool calls, as content blocks rather than as
+	// events of their own.
+	Message           json.RawMessage    `json:"message"`
 	PermissionDenials []PermissionDenial `json:"permission_denials"`
 }
 
@@ -70,6 +74,7 @@ type PermissionDenial struct {
 type Stream struct {
 	Init      *Event
 	Result    *Event
+	ToolCalls []ToolCall
 	Events    int
 	Undecoded int // lines that were not JSON; counted, not fatal
 	Raw       []byte
@@ -86,6 +91,7 @@ const maxLine = 8 << 20
 // the run produces output — which is what the receipt check needs.
 func Decode(from io.Reader, onEvent func(Event) error) (*Stream, error) {
 	stream := &Stream{}
+	calls := newCollector()
 	var raw []byte
 
 	scanner := bufio.NewScanner(from)
@@ -103,6 +109,10 @@ func Decode(from io.Reader, onEvent func(Event) error) (*Stream, error) {
 		}
 		stream.Events++
 
+		if event.Type == "assistant" || event.Type == "user" {
+			calls.observe(event.Message, time.Now().UTC())
+		}
+
 		switch {
 		case event.Type == "system" && event.Subtype == "init" && stream.Init == nil:
 			held := event
@@ -115,11 +125,13 @@ func Decode(from io.Reader, onEvent func(Event) error) (*Stream, error) {
 		if onEvent != nil {
 			if err := onEvent(event); err != nil {
 				stream.Raw = raw
+				stream.ToolCalls = calls.calls
 				return stream, err
 			}
 		}
 	}
 	stream.Raw = raw
+	stream.ToolCalls = calls.calls
 	return stream, scanner.Err()
 }
 

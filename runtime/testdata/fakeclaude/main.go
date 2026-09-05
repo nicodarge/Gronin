@@ -86,9 +86,36 @@ func main() {
 		emit(map[string]any{"type": "assistant", "message": "hello", "field_from_the_future": true})
 	}
 
+	// Shaped like the real thing: content is a list of blocks, and a tool call is a
+	// tool_use block. The record reads them from here, so a stub emitting a bare string
+	// would make the extractor look like it worked.
 	emit(map[string]any{
-		"type":    "assistant",
-		"message": map[string]any{"role": "assistant", "content": "working on it"},
+		"type": "assistant",
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []any{
+				map[string]any{"type": "text", "text": "reading the gathered facts"},
+				map[string]any{
+					"type":  "tool_use",
+					"id":    "toolu_0001",
+					"name":  "Read",
+					"input": map[string]any{"file_path": "facts.json"},
+				},
+			},
+		},
+	})
+	emit(map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []any{
+				map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": "toolu_0001",
+					"content":     "{\"drift\": 0}",
+				},
+			},
+		},
 	})
 
 	result := map[string]any{

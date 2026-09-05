@@ -75,12 +75,25 @@ func (a Agent) StageTimeout() (time.Duration, error) {
 
 // Type returns the sink's type and its configuration. A sink carries exactly one key;
 // the shape layer enforces that, and this reports what it found either way.
-func (s Sink) Type() (string, any, bool) {
+//
+// The configuration comes back as a plain map. YAML decodes a nested mapping into this
+// named type rather than into map[string]any, so a caller asserting the underlying type
+// gets nothing — which read as a sink with no configuration at all.
+func (s Sink) Type() (string, map[string]any, bool) {
 	if len(s) != 1 {
 		return "", nil, false
 	}
 	for name, value := range s {
-		return name, value, true
+		switch typed := value.(type) {
+		case Sink:
+			return name, map[string]any(typed), true
+		case map[string]any:
+			return name, typed, true
+		case nil:
+			return name, map[string]any{}, true
+		default:
+			return name, map[string]any{}, true
+		}
 	}
 	return "", nil, false
 }

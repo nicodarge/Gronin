@@ -271,3 +271,33 @@ func TestTheReceiptReportsTheToolSetTheChildReceived(t *testing.T) {
 		t.Fatalf("the receipt reports %s", got)
 	}
 }
+
+// FR-026 wants every tool call with its input and output. The stream carries them as
+// content blocks inside assistant and user messages, matched by identifier.
+func TestToolCallsArePairedWithTheirResults(t *testing.T) {
+	outcome, err := agent.Run(t.Context(), agent.Declaration{Restricted: true, Tools: []string{"Read"}},
+		options(t, fakeagent.ModeSuccess))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	calls := outcome.Stream.ToolCalls
+	if len(calls) != 1 {
+		t.Fatalf("%d tool calls recorded: %+v", len(calls), calls)
+	}
+	if calls[0].Name != "Read" {
+		t.Fatalf("name = %q", calls[0].Name)
+	}
+	if !strings.Contains(string(calls[0].Input), "facts.json") {
+		t.Fatalf("input = %s", calls[0].Input)
+	}
+	if len(calls[0].Output) == 0 {
+		t.Fatal("the call has no result; a call without its answer explains nothing")
+	}
+	if calls[0].Outcome != "ok" {
+		t.Fatalf("outcome = %q", calls[0].Outcome)
+	}
+	if calls[0].StartedAt.IsZero() {
+		t.Fatal("the call has no time")
+	}
+}

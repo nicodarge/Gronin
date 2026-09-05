@@ -57,13 +57,14 @@ func (s *Store) FinishRun(ctx context.Context, run Run) error {
 		       agent_session_id  = coalesce(?, agent_session_id),
 		       credential_source = coalesce(?, credential_source),
 		       report_ref        = coalesce(?, report_ref),
-		       prompt_ref        = coalesce(?, prompt_ref)
+		       prompt_ref        = coalesce(?, prompt_ref),
+		       resolved_playbook_ref = coalesce(?, resolved_playbook_ref)
 		 WHERE id = ?`,
 		string(run.Status), formatTime(run.EndedAt),
 		nullable(s.redactor.Redact(run.Error)),
 		nullableFloat(run.CostUSD), nullableInt(run.Tokens),
 		nullable(run.AgentSessionID), nullable(run.CredentialSource),
-		nullable(run.ReportRef), nullable(run.PromptRef),
+		nullable(run.ReportRef), nullable(run.PromptRef), nullable(run.ResolvedPlaybookRef),
 		run.ID)
 	if err != nil {
 		return fmt.Errorf("finishing run %s: %w", run.ID, err)

@@ -233,6 +233,58 @@
         "./internal/stage/agent",
         "-count=1"
       ]
+    },
+    {
+      "name": "the gathered inputs are copied after the directory is removed",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\tincomplete.note(e.Store.AddGatheredInput(ctx, started.ID, input))",
+      "replace": "\t\t_ = input",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a refused report is delivered anyway",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\tdelivery.Failure = reportErr",
+      "replace": "\t\tdelivery.Report = report",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a backlog runs instead of being recorded",
+      "tree": "..",
+      "file": "internal/schedule/schedule.go",
+      "find": "\tlast := due[len(due)-1]\n\tfor _, at := range due[:len(due)-1] {",
+      "replace": "\tlast := due[len(due)-1]\n\tfor _, at := range []time.Time{} {",
+      "command": [
+        "go",
+        "test",
+        "./internal/schedule",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "one sink failing stops the others",
+      "tree": "..",
+      "file": "internal/sink/sink.go",
+      "find": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)",
+      "replace": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)\n\t\tif err != nil {\n\t\t\treturn outcomes\n\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }
