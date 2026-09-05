@@ -1,0 +1,12 @@
+name: drift-check
+trigger:
+  type: cron
+  schedule: "0 6 * * *"
+agent:
+  model: claude-sonnet-5
+  prompt_file: drift-check.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      channel: ${config.ops_channel}

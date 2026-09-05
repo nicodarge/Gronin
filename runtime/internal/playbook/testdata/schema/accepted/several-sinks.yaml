@@ -1,0 +1,17 @@
+name: nightly-summary
+trigger:
+  type: cron
+  schedule: "0 7 * * *"
+agent:
+  model: claude-sonnet-5
+  prompt_file: summary.md
+  mcp: [grafana]
+  allow: [mcp__grafana__query_prometheus]
+  output_schema:
+    type: object
+  timeout: 45m
+sinks:
+  - discord:
+      channel: ${config.ops_channel}
+  - knowledge_base:
+      collection: ${config.kb_collection}

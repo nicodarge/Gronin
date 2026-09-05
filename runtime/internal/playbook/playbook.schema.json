@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nicodarge/Gronin/schemas/playbook.json",
+  "title": "Gronin playbook",
+  "description": "The shape of a playbook. This schema is the shape layer only: it is published so editors can complete and lint a playbook, and it is NOT the gate. The semantic refusals - path traversal resolution, MCP server existence, shell detection in a tool set, the receipt check - cannot be expressed here and live in the runtime's validator. A playbook that satisfies this schema may still be refused at load, by design. Interpolation is namespaced (${config.x} or ${trigger.x}); the shape layer does not check that either, so a bare ${x} passes here and is refused by the runtime (FR-039).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "trigger",
+    "agent",
+    "sinks"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "description": "Unique across the loaded set."
+    },
+    "description": {
+      "type": "string",
+      "description": "Required by the runtime when agent.restricted is false: turning off the coarsest bound is a decision and has to be stated."
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "cron",
+            "manual"
+          ]
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Required when type is cron. Standard five-field cron expression."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cron"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "schedule"
+            ]
+          }
+        }
+      ]
+    },
+    "gather": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run",
+          "as"
+        ],
+        "properties": {
+          "run": {
+            "type": "string"
+          },
+          "as": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+$"
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "prompt_file",
+        "output_schema"
+      ],
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "prompt_file": {
+          "type": "string"
+        },
+        "restricted": {
+          "type": "boolean",
+          "default": true,
+          "description": "Removes the command- and code-running built-in tools at the process level. Default true."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The replacing tool set. The runtime refuses a shell or a writing tool here; the schema cannot tell them apart."
+        },
+        "mcp": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Server names. The runtime refuses a name this deployment does not provide."
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Path-scoped file tools and individually named MCP tools. The runtime refuses an entry naming a whole server, and resolves every path before deciding."
+        },
+        "output_schema": {
+          "description": "JSON Schema the agent report is validated against.",
+          "type": [
+            "object",
+            "string"
+          ]
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(s|m|h)$",
+          "default": "30m"
+        }
+      }
+    },
+    "sinks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "description": "One key naming the sink type, whose value configures it. The runtime refuses a type this deployment does not implement (FR-038) and a creating sink without a cap; neither is knowable from the shape alone."
+      }
+    },
+    "guard": {
+      "not": {},
+      "description": "Reserved. The runtime refuses a playbook declaring this block rather than accepting and ignoring it: a declared bound that nothing applies is worse than an absent one."
+    },
+    "retrieve": {
+      "not": {},
+      "description": "Reserved, on the same terms as guard."
+    }
+  }
+}

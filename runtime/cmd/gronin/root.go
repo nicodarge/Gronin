@@ -15,6 +15,24 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	}
 	root.SetOut(stdout)
 	root.SetErr(stderr)
+
+	// One directory holds everything this deployment persists: the record, the blobs,
+	// the configuration values playbooks interpolate against, and the working
+	// directories runs are given. Persistent, because every command that talks to a
+	// deployment has to name the same one.
+	root.PersistentFlags().String("state-dir", defaultStateDir(),
+		"directory holding the record, the configuration and run working directories")
+
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newStateDirCommand())
 	return root
+}
+
+// stateDirOf reads the resolved state directory for a command.
+func stateDirOf(cmd *cobra.Command) string {
+	dir, err := cmd.Flags().GetString("state-dir")
+	if err != nil || dir == "" {
+		return defaultStateDir()
+	}
+	return dir
 }

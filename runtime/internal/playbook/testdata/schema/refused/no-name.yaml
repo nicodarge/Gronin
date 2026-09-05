@@ -1,0 +1,8 @@
+trigger:
+  type: cron
+  schedule: "0 6 * * *"
+agent:
+  model: claude-sonnet-5
+  prompt_file: p.md
+  output_schema: {type: object}
+sinks: [{discord: {channel: "#ops"}}]

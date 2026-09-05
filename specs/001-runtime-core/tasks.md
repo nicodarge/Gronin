@@ -68,9 +68,11 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
 - [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
       check, the binary-level test and the static-link check each block the merge (SC-012). A job
       that reports without blocking is a dashboard. It lands last in the phase because a check
-      cannot be made required before it exists. The `gate` job exists; what is left is
-      the branch-protection setting that names it, which lives in the repository rather
-      than in this tree
+      cannot be made required before it exists. The `gate` job exists and `production`
+      requires it, but with `enforce_admins` off — the repository's owner is its only
+      admin and its only merger, so the check is required of nobody. Left that way
+      deliberately, which is why this stays open rather than being ticked: the setting
+      is one command away when the trade is worth making
 
 **Checkpoint**: an empty binary builds statically on three platforms, a hermetic race-enabled suite
 runs against the binary itself, and CI blocks on all of it.
@@ -79,28 +81,28 @@ runs against the binary itself, and CI blocks on all of it.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T006 `internal/config`: deployment configuration, the state directory, and value references
+- [x] T006 `internal/config`: deployment configuration, the state directory, and value references
       that playbooks interpolate against. Interpolation MUST NOT read the process environment
       (FR-008) — write that test now, not later
-- [ ] T007 `internal/record`: the SQLite schema from data-model.md and its migration path
-- [ ] T008 [P] `internal/record`: blob store for gathered inputs, prompts and transcripts, keyed per
+- [x] T007 `internal/record`: the SQLite schema from data-model.md and its migration path
+- [x] T008 [P] `internal/record`: blob store for gathered inputs, prompts and transcripts, keyed per
       run
-- [ ] T009 [P] `internal/record`: the redactor, applied at the write boundary of the store and the
+- [x] T009 [P] `internal/record`: the redactor, applied at the write boundary of the store and the
       logger, seeded from configured secret values (FR-029)
-- [ ] T010 Test: no configured secret value appears in any record or log line produced by the whole
+- [x] T010 Test: no configured secret value appears in any record or log line produced by the whole
       suite, asserted by scanning the suite's own output (SC-005)
-- [ ] T011 `internal/playbook`: YAML parse into typed structs (shape layer), and embed
+- [x] T011 `internal/playbook`: YAML parse into typed structs (shape layer), and embed
       `contracts/playbook.schema.json` for publication (FR-002)
-- [ ] T012 Port the schema probe to Go: fourteen documents, ten of which must be refused. The Python
+- [x] T012 Port the schema probe to Go: fourteen documents, ten of which must be refused. The Python
       probe run on 2026-09-04 passed all fourteen; this is the same assertion, in the test suite,
       where it can keep passing
-- [ ] T013 `internal/run`: run lifecycle — identifier, working directory creation and removal
+- [x] T013 `internal/run`: run lifecycle — identifier, working directory creation and removal
       (FR-011), status transitions, and the single-flight guard that stops one playbook running
       twice at once (FR-016)
-- [ ] T014 `testdata/fakeclaude/`: a stub agent binary emitting canned `stream-json`, with knobs for
+- [x] T014 `testdata/fakeclaude/`: a stub agent binary emitting canned `stream-json`, with knobs for
       success, timeout, malformed output, a mismatched tool-set receipt, and a non-zero exit. Every
       agent-stage test uses it; none spends a token
-- [ ] T015 `cmd/gronin`: cobra skeleton with `version` and the flag plumbing for the state
+- [x] T015 `cmd/gronin`: cobra skeleton with `version` and the flag plumbing for the state
       directory (FR-020)
 
 **Checkpoint**: playbooks parse, runs can be created and recorded, and the agent can be faked.

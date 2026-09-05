@@ -1,0 +1,4 @@
+name: drift-check
+trigger: {type: cron}
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]

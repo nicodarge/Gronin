@@ -77,6 +77,58 @@
         "./internal/record",
         "-count=1"
       ]
+    },
+    {
+      "name": "two runs of one playbook are allowed at once",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tif holder, running := m.inFlight[playbookName]; running {",
+      "replace": "\tif holder, running := m.inFlight[playbookName]; false {\n\t\t_ = running",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the working directory outlives its run",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tremoveErr := os.RemoveAll(run.WorkDir)",
+      "replace": "\tvar removeErr error",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the shape layer accepts every document",
+      "tree": "..",
+      "file": "internal/playbook/parse.go",
+      "find": "\terr = compiled.Validate(normalised)\n\tif err == nil {\n\t\treturn nil\n\t}",
+      "replace": "\terr = compiled.Validate(normalised)\n\tif true {\n\t\treturn nil\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the receipt reports what was asked for rather than what was received",
+      "tree": "..",
+      "file": "internal/fakeagent/fakeagent.go",
+      "find": "\tModeMismatch = \"mismatch\"",
+      "replace": "\tModeMismatch = \"success\"",
+      "command": [
+        "go",
+        "test",
+        "./internal/fakeagent",
+        "-count=1"
+      ]
     }
   ]
 }
