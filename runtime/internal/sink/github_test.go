@@ -2,6 +2,7 @@ package sink_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -449,5 +450,57 @@ func TestATokenThatResolvesToNothingIsRefused(t *testing.T) {
 		Config: map[string]any{"repo": "owner/repo", "cap": 3},
 	}}, sink.BuildOptions{}); len(problems) != 0 {
 		t.Fatalf("an absent token was refused: %v", problems)
+	}
+}
+
+// The mirror of the pagination fix, and the one my own comment claimed was already
+// handled while the code did the opposite: past what the walk covers, the count is a
+// floor rather than a total, and creating against it is exactly what FR-024 forbids.
+func TestMoreOpenIssuesThanTheWalkCoversCreatesNothing(t *testing.T) {
+	const beyond = 2500
+
+	existing := make([]string, 0, beyond)
+	for at := range beyond {
+		existing = append(existing, fmt.Sprintf("an older finding %d", at+1))
+	}
+	// A cap deliberately larger than what the walk can count, so a truncated count would
+	// leave room and create.
+	got, one := issueSink(t, 2200, func(f *forge) { f.open = existing })
+
+	_, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if !errors.Is(err, sink.ErrTooManyOpen) {
+		t.Fatalf("err = %v, want ErrTooManyOpen", err)
+	}
+	if len(got.createdTitles()) != 0 {
+		t.Fatalf("created %d issues against a count it could not complete",
+			len(got.createdTitles()))
+	}
+}
+
+// A repository name is interpolated into the endpoint, so its shape is checked rather
+// than assumed. "owner/name?state=closed" contains a slash too.
+func TestARepositoryNameIsCheckedAgainstItsShape(t *testing.T) {
+	for _, repo := range []string{
+		"owner/name?state=closed", "owner/name/extra", "owner/name#fragment",
+		"../../etc/passwd", "owner /name", "/name", "owner/",
+	} {
+		_, problems := sink.Build([]sink.Declaration{{
+			Type:   "github",
+			Config: map[string]any{"repo": repo, "cap": 3},
+		}}, sink.BuildOptions{})
+		if len(problems) == 0 {
+			t.Errorf("repo %q was accepted", repo)
+		}
+	}
+	for _, repo := range []string{"owner/name", "nicodarge/Gronin", "a-b.c/d_e.f"} {
+		_, problems := sink.Build([]sink.Declaration{{
+			Type:   "github",
+			Config: map[string]any{"repo": repo, "cap": 3},
+		}}, sink.BuildOptions{})
+		if len(problems) != 0 {
+			t.Errorf("repo %q was refused: %v", repo, problems)
+		}
 	}
 }

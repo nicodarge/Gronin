@@ -3,6 +3,7 @@ package sink
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -92,6 +93,10 @@ func Types() []string {
 	return types
 }
 
+// repoName is what a repository may be called: GitHub's own shape, and nothing that
+// could carry a query, a fragment or a path segment into the endpoint.
+var repoName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
 // CreatingTypes are the sink types that bring things into existence somewhere else, and
 // so must declare a cap. The load gate asks rather than assuming: a list the gate
 // hard-codes drifts from the one Build knows.
@@ -102,7 +107,9 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !strings.Contains(repo, "/") {
+	// Checked against the shape rather than for a slash. It is interpolated into a URL,
+	// and "owner/name?state=closed" contains a slash too.
+	if !repoName.MatchString(repo) {
 		return nil, fmt.Errorf("repo %q is not owner/name", repo)
 	}
 	// The token may be absent for a deployment whose runner already carries one; what

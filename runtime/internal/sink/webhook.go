@@ -12,9 +12,10 @@ import (
 	"unicode/utf8"
 )
 
-// postTimeout bounds one delivery. A sink that hangs holds the run open long after the
+// requestTimeout bounds one request, whether that is a message being delivered or one
+// page of a listing being read. A sink that hangs holds the run open long after the
 // agent stage has finished paying for itself.
-const postTimeout = 30 * time.Second
+const requestTimeout = 30 * time.Second
 
 // maxMessage is the largest body a messaging sink sends. Both destinations refuse more,
 // and a report that is longer is better read in the record than truncated into a chat
@@ -40,7 +41,7 @@ func (w webhook) Deliver(ctx context.Context, delivery Delivery) (Outcome, error
 		return Outcome{}, fmt.Errorf("encoding the message: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, postTimeout)
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, bytes.NewReader(body))

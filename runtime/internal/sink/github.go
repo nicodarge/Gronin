@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -178,11 +179,19 @@ type openSet struct {
 // perPage is what one listing asks for. GitHub's maximum.
 const perPage = 100
 
-// maxPages bounds the walk. A repository holding more than this many open issues from
-// this runtime is far past any sane cap, and the partial count it produces is already
-// larger than any ceiling — so stopping early refuses to create rather than creating
-// against an unknown number, which is the safe direction.
+// maxPages bounds the walk, so a listing that never ends cannot hold a run open forever.
+//
+// Reaching it is an error, not a partial answer. The comment here used to claim that
+// stopping early "refuses to create rather than creating against an unknown number" —
+// and the code returned the truncated count with no error, so the sink created against
+// exactly that unknown number. A cap of 2200 against 2500 open issues created all of
+// them. The hole had moved from a hundred to two thousand, not closed, and the sentence
+// asserting otherwise is the thing Principle I refuses: a comment describing containment
+// is not containment.
 const maxPages = 20
+
+// ErrTooManyOpen is what refuses to create when the open issues cannot all be counted.
+var ErrTooManyOpen = errors.New("more open issues than this sink will count")
 
 // openIssues counts what this runtime opened and has not closed.
 //
@@ -215,7 +224,11 @@ func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
 			return open, nil
 		}
 	}
-	return open, nil
+	// Fell out of the loop with every page full: there are more than the walk covers, so
+	// the count is a floor rather than a total. Creating against it is what FR-024
+	// forbids, so this fails closed, the same way an unreadable repository does.
+	return openSet{}, fmt.Errorf("%w: more than %d are open, so the cap cannot be checked",
+		ErrTooManyOpen, maxPages*perPage)
 }
 
 func (g *GitHub) create(ctx context.Context, title, body string, delivery Delivery) error {
@@ -234,7 +247,7 @@ func (g *GitHub) create(ctx context.Context, title, body string, delivery Delive
 }
 
 func (g *GitHub) do(ctx context.Context, method, endpoint string, body []byte) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, postTimeout)
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 
 	var reader io.Reader

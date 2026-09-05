@@ -834,6 +834,32 @@
         "./internal/sink",
         "-count=1"
       ]
+    },
+    {
+      "name": "a count that could not be completed is used anyway",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\treturn openSet{}, fmt.Errorf(\"%w: more than %d are open, so the cap cannot be checked\",\n\t\tErrTooManyOpen, maxPages*perPage)",
+      "replace": "\treturn open, nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a repository name is checked only for a slash",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\tif !repoName.MatchString(repo) {",
+      "replace": "\tif !strings.Contains(repo, \"/\") {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }
