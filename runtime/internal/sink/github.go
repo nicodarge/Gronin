@@ -233,8 +233,12 @@ func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
 	// Every page full, the confirming one included: there are more than the walk covers,
 	// so the count is a floor rather than a total. Creating against it is what FR-024
 	// forbids, so this fails closed, the same way an unreadable repository does.
+	// The boundary the message names is the one the walk actually reaches, which is one
+	// confirming page past the bound. Saying maxPages*perPage was true and loose by up
+	// to perPage-1, in a file whose whole argument is that a number you cannot complete
+	// is not a number you may act on.
 	return openSet{}, fmt.Errorf("%w: more than %d are open, so the cap cannot be checked",
-		ErrTooManyOpen, maxPages*perPage)
+		ErrTooManyOpen, (maxPages+1)*perPage)
 }
 
 func (g *GitHub) create(ctx context.Context, title, body string, delivery Delivery) error {

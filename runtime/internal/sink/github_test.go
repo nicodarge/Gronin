@@ -485,6 +485,9 @@ func TestARepositoryNameIsCheckedAgainstItsShape(t *testing.T) {
 	for _, repo := range []string{
 		"owner/name?state=closed", "owner/name/extra", "owner/name#fragment",
 		"../../etc/passwd", "owner /name", "/name", "owner/",
+		// A trailing dot or hyphen in either segment. Refusing these was written and
+		// untested: a reviewer reverted the tightening and the whole suite stayed green.
+		"owner-/name", "owner/name.", "owner./name", "owner/name-",
 	} {
 		_, problems := sink.Build([]sink.Declaration{{
 			Type:   "github",

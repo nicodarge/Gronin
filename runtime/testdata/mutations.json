@@ -839,7 +839,7 @@
       "name": "a count that could not be completed is used anyway",
       "tree": "..",
       "file": "internal/sink/github.go",
-      "find": "\treturn openSet{}, fmt.Errorf(\"%w: more than %d are open, so the cap cannot be checked\",\n\t\tErrTooManyOpen, maxPages*perPage)",
+      "find": "\treturn openSet{}, fmt.Errorf(\"%w: more than %d are open, so the cap cannot be checked\",\n\t\tErrTooManyOpen, (maxPages+1)*perPage)",
       "replace": "\treturn open, nil",
       "command": [
         "go",
@@ -867,6 +867,19 @@
       "file": "internal/sink/github.go",
       "find": "\tfor page := 1; page <= maxPages+1; page++ {",
       "replace": "\tfor page := 1; page <= maxPages; page++ {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a repository name may end in a dot or a hyphen",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t`^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?/[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$`)",
+      "replace": "\t`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)",
       "command": [
         "go",
         "test",
