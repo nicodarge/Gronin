@@ -19,16 +19,23 @@ here="$(cd "$(dirname "$0")" && pwd)"
 # whether we are in one, and nothing in the environment can claim otherwise. The
 # variable survives only as a recursion guard.
 #
-# /proc/net/dev, not /sys/class/net: sysfs keeps showing the mount's original namespace
-# until it is remounted, so inside the namespace it still listed every host interface —
-# a check that answered "not isolated" while the process was isolated. procfs follows
-# the namespace the reading process is in, and was measured doing so.
+# Two planes, because closing one leaves the other open. The interface list comes from
+# /proc/net/dev and not /sys/class/net: sysfs keeps showing the mount's original
+# namespace until it is remounted, so from inside the namespace it listed every host
+# interface and called a correctly isolated suite unisolated. And a namespace with only
+# loopback still resolved names, through a resolver daemon reached over a Unix socket
+# and living in the host's namespace, so a name that resolves is the other half of the
+# answer. Neither reads anything the caller can set.
 isolated() {
     [ -r /proc/net/dev ] || return 1
     case "$(awk 'NR > 2 { sub(/:$/, "", $1); printf "%s ", $1 }' /proc/net/dev)" in
-        "lo ") return 0 ;;
+        "lo ") ;;
         *) return 1 ;;
     esac
+    command -v getent >/dev/null || return 1
+    # A documentation domain, resolved rather than contacted: it answers everywhere the
+    # network is reachable and nowhere it is not.
+    ! getent hosts example.com >/dev/null 2>&1
 }
 
 if ! isolated; then

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "runtime" / "testdata" / "mutations.json"
+
+# Mutation runs go through the same isolation as the suite. They are test invocations
+# like any other, and there is no reason for the one job that grows a test run per
+# mutation to be the one that keeps its network.
+NO_NETWORK = ROOT / "scripts" / "no-network.sh"
 
 
 class ConfigError(Exception):
@@ -67,7 +73,17 @@ def load(config: Path) -> list[Mutation]:
 
 
 def run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    # GOPROXY=off so a module that is not already cached says so, rather than hanging
+    # against a proxy the namespace will never reach.
+    env = {**os.environ, "GOPROXY": "off"}
+    return subprocess.run(
+        [str(NO_NETWORK), *command],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
 
 
 def survives(mutation: Mutation) -> bool:
@@ -201,6 +217,33 @@ def self_test() -> int:
                 continue
             failures.append(f"{description} was counted rather than refused")
 
+        # The third refusal lives in load() rather than in survives(), so it needs a
+        # config file to reach: a mutation naming a tree that is not there must be
+        # refused before anything is run, not counted as a mutant nothing noticed.
+        config = root / "missing-tree.json"
+        config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": "missing tree",
+                            "tree": "no-such-directory",
+                            "file": "subject.sh",
+                            "find": "42",
+                            "replace": "41",
+                            "command": ["./test.sh"],
+                        }
+                    ]
+                }
+            )
+        )
+        try:
+            load(config)
+        except ConfigError:
+            pass
+        else:
+            failures.append("a mutation naming a tree that is not there was loaded")
+
         for failure in failures:
             print(f"check-mutation: self-test: {failure}", file=sys.stderr)
         if failures:
@@ -208,7 +251,7 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, and refuses a broken "
-        "baseline and an absent target"
+        "baseline, an absent target and a missing tree"
     )
     return 0
 
