@@ -44,6 +44,20 @@ a single configurable state directory.
 playbooks and valid playbooks — drive the table tests for the load gate. A stub `claude` binary on
 `PATH` makes the agent stage testable without tokens or network.
 
+The chain around those tests is itself specified, because Principle VI's subject is the suite
+rather than the code: one entry point running `go vet` and `go test ./... -race -count=1` under a
+timeout, executed in CI with no route to the network so a test that reaches out fails where the
+change is reviewed (SC-010, SC-011); a repeat-run job that treats a flake as a failure; a mutation
+harness that is required to be able to print zero before any count it reports is read (SC-014); and
+at least one test that drives the built executable rather than the packages behind it (SC-013).
+Every one of those blocks the merge (SC-012).
+
+**No coverage percentage is set, and that is a choice rather than an omission.** The property that
+matters here is not how much of the tree a test touched but whether the guards fail when they
+should, which SC-002 and SC-014 assert directly by mutation. A percentage floor is satisfied by
+tests that execute a line without asserting anything about it, and it is the number a hurried
+change raises rather than meets.
+
 **Target Platform**: Linux (amd64, arm64) and macOS (arm64), cross-compiled from one machine.
 Container image `FROM scratch`.
 
@@ -64,7 +78,7 @@ the guard feature exists for and is deliberately absent here.
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-Checked against [constitution.md](../../.specify/memory/constitution.md).
+Checked against [constitution.md](../../.specify/memory/constitution.md), at 1.1.0.
 
 ### I. Bounds Are Declared and Enforced — PASS, and it is the design's centre
 
@@ -113,6 +127,19 @@ test: a playbook interpolating a name that exists in the environment must fail t
 
 No infrastructure identifier is required by anything in this plan. Test fixtures use
 documentation-reserved values. `gitleaks` runs pre-commit.
+
+### VI. The Suite Is the Gate — PASS, and it is the principle this plan gained late
+
+The testing paragraph above is the whole of the compliance: hermetic, race-enabled, repeat-run,
+mutation-proven, and asserted through the shipped binary. The principle was added after this plan
+was first written (constitution 1.1.0) precisely because the plan named a stub agent and two
+corpora and then said nothing about what would run them — which is how a suite ends up trusted for
+being green.
+
+The binary-level test (SC-013) is the clause with teeth for this feature specifically. Three
+things here are real only in the executable: the argument vector that carries the containment
+flags, the embedded `playbook.schema.json`, and the static linkage of SC-007. A package test
+passes on all three while each is broken.
 
 ### Operational Constraints — PASS, its one open item closed by Phase 0
 

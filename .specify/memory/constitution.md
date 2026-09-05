@@ -1,13 +1,14 @@
 <!--
 Sync Impact Report
-Version change: none → 1.0.0
-Bump rationale: initial ratification; every principle and section is new.
-Modified principles: none (no prior version)
+Version change: 1.0.0 → 1.1.0
+Bump rationale: a new principle (VI) is added; MINOR per the versioning rule below. Nothing
+existing is removed or redefined. Principle VI states what Principles I and III already assumed
+without saying: that the suite asserting a bound is itself trustworthy, and that the gate runs on
+the artifact that ships.
+Modified principles: none redefined. Development Workflow's "A test MUST be able to fail"
+  paragraph moves into Principle VI, where the rest of the discipline now lives.
 Added sections:
-  - Core Principles I through V
-  - Operational Constraints
-  - Development Workflow
-  - Governance
+  - Core Principle VI — The Suite Is the Gate
 Removed sections: none
 Templates requiring review:
   - .specify/templates/plan-template.md — its Constitution Check gate is an unfilled
@@ -99,6 +100,35 @@ catches shapes it already knows, and an infrastructure hostname is not one of th
 Rationale: this repository is private and becomes public at a known phase. That is a deadline,
 not a grace period — removing something from history later is expensive and unreliable.
 
+### VI. The Suite Is the Gate
+
+Principles I and III both end in an assertion made by a test. This principle is what makes that
+assertion worth anything.
+
+The suite MUST be hermetic. It MUST pass with no network reachable, with no credential
+configured, and without spending a token: an agent stage is exercised against a stub that emits
+the same event stream the real one does. A test that reaches the network is not slow, it is
+conditional — it passes on the machine that has the access and fails on the machine that reviews
+the change.
+
+The suite MUST be deterministic. It runs with the race detector on and with test caching
+disabled, and repeated runs of an unchanged tree MUST agree. A flake is a failure: quarantining
+one teaches the next reader that red is negotiable, which is the whole of what the gate was for.
+
+A test MUST be able to fail. Before relying on one, mutate the line it covers and confirm the
+exit code flips. A test that never executes its own body passes forever, and a green run is not
+evidence that it ran. A mutation harness MUST be able to report zero survivors — one that cannot
+is decoration, and it will report a comfortable number for as long as nobody checks.
+
+The gate MUST run on every merge, and it MUST run on the artifact that ships rather than on the
+packages it was built from: at least one test drives the built executable through the operator's
+own surface. A binary is where the linkage, the embedded schema and the argument vector are
+real, and each of those is lost silently by a change that every package test still passes.
+
+Rationale: this repository's guards are the product. A guard whose test cannot fail, cannot run
+without a credential, or never touches the shipped binary is a comment describing containment,
+which Principle I already refuses.
+
 ## Operational Constraints
 
 **Time.** Elapsed time MUST be computed from wall-clock time on the host. It MUST NOT be
@@ -128,10 +158,6 @@ squash-merged, and only with the explicit approval of the repository owner.
 `pre-commit run` MUST pass on every changed file before a push. Run the hook set, never the
 underlying tool: a hook can load plugins the bare command does not.
 
-A test MUST be able to fail. Before relying on one, mutate the line it covers and confirm the
-exit code flips. A test that never executes its own body passes forever, and a green run is not
-evidence that it ran.
-
 Documentation states facts. It MUST NOT record a version number or a count that restates
 something the repository already holds: both go stale, nothing fails when they do, and the next
 reader trusts them. A measurement anchored to a named date or a named incident is not a count
@@ -146,9 +172,10 @@ Amendments are made by pull request, which MUST state the version bump and its r
 Versioning is semantic: MAJOR for a removed or redefined principle, MINOR for a new principle or
 materially expanded guidance, PATCH for clarification and wording.
 
-Every pull request review MUST verify compliance with Principles I, II and V, which are the
-three whose violation is invisible in a passing test suite. Complexity that a principle
+Every pull request review MUST verify compliance with Principles I, II, V and VI, which are the
+four whose violation is invisible in a passing test suite — VI most of all, since its subject is
+the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-04
+**Version**: 1.1.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-05

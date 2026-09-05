@@ -45,6 +45,16 @@ Run `pre-commit run --files <files>` after every modification and fix
 everything it reports before considering the work complete. Run the hook, not
 the underlying tool — a hook can load plugins the bare command does not.
 
+## Tests
+
+The suite is hermetic — no network, no credential, no token — deterministic under the
+race detector, and proven by mutation rather than by being green. It runs against the
+built executable as well as the packages. The rule and its rationale are Principle VI of
+[.specify/memory/constitution.md](.specify/memory/constitution.md); do not restate them
+here, where they would drift.
+
+Before relying on a test, mutate the line it covers and confirm the exit code flips.
+
 ## Documentation
 
 State facts. Do not write a version number or a count into a README or into

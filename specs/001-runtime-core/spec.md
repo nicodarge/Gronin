@@ -331,6 +331,18 @@ only the cap is created, then run it again unchanged and confirm nothing further
   one was used.
 - **SC-009**: A run whose agent process reports a tool set wider than declared is aborted with no
   model output produced, demonstrated by a stub agent that reports a wider set than it was given.
+- **SC-010**: The full test suite passes on a machine with no route to the network and no
+  configured credential, and no test in it spends a token.
+- **SC-011**: The suite passes under the race detector with test caching disabled, and ten
+  consecutive runs against an unchanged tree agree.
+- **SC-012**: Every merge is gated on lint, `go vet`, the suite under the race detector, the
+  refusal-mutation check and the static-link check of SC-007. A change failing any one of them
+  cannot be merged.
+- **SC-013**: At least one test drives the built executable through the operator's own command
+  surface rather than the packages behind it, so a change that breaks the argument vector, the
+  embedded schema or the static linkage fails the suite rather than only the release.
+- **SC-014**: The mutation harness reports zero surviving mutants on an unmodified tree. A harness
+  that cannot report zero cannot report a survivor either, and its counts mean nothing.
 
 ## Assumptions
 
