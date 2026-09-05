@@ -352,6 +352,32 @@
         "./internal/stage/agent",
         "-count=1"
       ]
+    },
+    {
+      "name": "a stream that failed is reported as a missing result",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tcase stage.DecodeErr != nil && stage.Stream.Result == nil:",
+      "replace": "\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an entry that would be read as a flag is passed through",
+      "tree": "..",
+      "file": "internal/stage/agent/argv.go",
+      "find": "\t\t\tif strings.HasPrefix(entry, \"-\") {",
+      "replace": "\t\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
     }
   ]
 }

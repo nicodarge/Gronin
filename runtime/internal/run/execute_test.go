@@ -401,3 +401,25 @@ func TestATriggerDuringARunDoesNotStartASecond(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The run's error has to name what actually went wrong. Reporting "no terminal event"
+// for a stream that failed loses the only description of the cause, and Principle III's
+// whole claim is that a run can be explained afterwards.
+func TestAStreamThatFailedIsNamedInTheRunsError(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeOversize)
+	book := h.playbook(t, goodPlaybook)
+
+	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != record.StatusFailed {
+		t.Fatalf("status = %q", got.Status)
+	}
+	if !strings.Contains(got.Error, "could not be read") {
+		t.Fatalf("the error does not say the output could not be read: %q", got.Error)
+	}
+	if strings.Contains(got.Error, "no terminal event") {
+		t.Fatalf("the generic message replaced the cause: %q", got.Error)
+	}
+}

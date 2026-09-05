@@ -166,9 +166,14 @@ func (e *Executor) Execute(
 	// description of what actually went wrong.
 	report, reportErr := stage.Report()
 	switch {
-	case stage.DecodeErr != nil:
+	case stage.DecodeErr != nil && stage.Stream.Result == nil:
+		// The stream failed before an answer arrived. Reporting the generic "no terminal
+		// event" here would lose the only description of what actually went wrong.
 		reportErr = fmt.Errorf("the agent's output could not be read: %w", stage.DecodeErr)
 	case reportErr == nil:
+		// A decode failure AFTER the terminal event decoded is not a reason to throw the
+		// answer away. It failed toward discarding a good result at first, which is the
+		// expensive direction.
 		reportErr = agent.ValidateReport(report, book.Agent.OutputSchema)
 	}
 

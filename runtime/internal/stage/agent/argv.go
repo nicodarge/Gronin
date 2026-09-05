@@ -53,6 +53,11 @@ const (
 // argument on its internal spaces was not established, and is not claimed here.
 var ErrSeparatorInEntry = errors.New("a declared entry contains a comma, which the flag's parser may split")
 
+// ErrEntryLooksLikeAFlag is returned for a declared entry beginning with a dash. The
+// variadic flags stop consuming at the next argument that looks like a flag, so such an
+// entry would leave the list rather than join it.
+var ErrEntryLooksLikeAFlag = errors.New("a declared entry begins with a dash and would be read as a flag")
+
 // BuildArgs constructs the argument vector.
 //
 // The bounding flags — the tool set, the strict MCP configuration and the setting
@@ -71,6 +76,14 @@ func BuildArgs(decl Declaration, mcpConfigPath string) ([]string, error) {
 		for _, entry := range group {
 			if strings.Contains(entry, ",") {
 				return nil, fmt.Errorf("%w: %q", ErrSeparatorInEntry, entry)
+			}
+			// An entry beginning with a dash ends the variadic list and is read as a
+			// flag, which would narrow the bound while looking like it widened it. No
+			// tool name or path pattern starts with one, so refusing costs nothing —
+			// and the constitution asks a guard to refuse rather than to assume what an
+			// author will write.
+			if strings.HasPrefix(entry, "-") {
+				return nil, fmt.Errorf("%w: %q", ErrEntryLooksLikeAFlag, entry)
 			}
 		}
 	}

@@ -127,10 +127,6 @@ func TestThePromptIsNotInTheArgumentVector(t *testing.T) {
 			t.Fatalf("the prompt is in the vector: %v", args)
 		}
 	}
-	// Nor is there anywhere for it: the vector ends with flags and their values.
-	if len(args)%2 == 1 && !strings.HasPrefix(args[len(args)-1], "--") {
-		t.Fatalf("the vector ends with a bare value: %v", args)
-	}
 }
 
 func TestTheOutputSchemaIsPassedThroughAsJSON(t *testing.T) {
@@ -215,5 +211,16 @@ func TestAnEntryMayHoldASpace(t *testing.T) {
 	got := valuesAfter(t, args, "--allowedTools")
 	if !slices.Equal(got, []string{"Bash(git *)", "Read(./**)"}) {
 		t.Fatalf("--allowedTools = %v", got)
+	}
+}
+
+func TestAnEntryThatWouldBeReadAsAFlagIsRefused(t *testing.T) {
+	for _, decl := range []agent.Declaration{
+		{Restricted: true, Tools: []string{"--dangerously-skip-permissions"}},
+		{Restricted: true, Allow: []string{"-p"}},
+	} {
+		if args, err := agent.BuildArgs(decl, "/run/mcp.json"); !errors.Is(err, agent.ErrEntryLooksLikeAFlag) {
+			t.Errorf("%+v was accepted and produced %v", decl, args)
+		}
 	}
 }

@@ -34,6 +34,7 @@ const (
 	modeMismatch  = "mismatch"   // reports a tool set wider than it was given
 	modeExitError = "exit-error" // emits a failing result and exits non-zero
 	modeUnknown   = "unknown"    // emits event types and fields the runtime has never seen
+	modeOversize  = "oversize"   // emits one line larger than the decoder will read
 )
 
 // Version is what this reports as the CLI version, high enough to clear a floor.
@@ -84,6 +85,11 @@ func main() {
 		time.Sleep(24 * time.Hour)
 	case modeMalformed:
 		fmt.Println("this line is not JSON, and the decoder is expected to survive it")
+	case modeOversize:
+		// Larger than the decoder's per-line bound, so the stream fails rather than the
+		// report. The receipt is already out, which is what makes the two distinguishable.
+		fmt.Println(strings.Repeat("x", 9<<20))
+		return
 	case modeUnknown:
 		// A CLI update must degrade rather than break: unknown types and unknown fields.
 		emit(map[string]any{"type": "something_new", "payload": map[string]any{"a": 1}})

@@ -301,3 +301,28 @@ func TestToolCallsArePairedWithTheirResults(t *testing.T) {
 		t.Fatal("the call has no time")
 	}
 }
+
+// A stream that fails is not a report that fails, and not "no terminal event" either.
+// The distinction had no test until a reviewer reverted the code that makes it and
+// watched the whole suite stay green.
+func TestAStreamThatFailsIsReportedAsSuchRatherThanAsAMissingResult(t *testing.T) {
+	outcome, err := agent.Run(t.Context(), agent.Declaration{Restricted: true},
+		options(t, fakeagent.ModeOversize))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outcome.DecodeErr == nil {
+		t.Fatal("a line past the decoder's bound did not surface as a decode failure")
+	}
+	if outcome.Aborted != nil {
+		t.Fatalf("a stream failure was reported as the bounds refusing the run: %v", outcome.Aborted)
+	}
+	// The receipt was already out, which is what makes the two distinguishable at all.
+	if outcome.Stream.Init == nil {
+		t.Fatal("what the child said before the stream failed was discarded")
+	}
+	if outcome.Stream.Result != nil {
+		t.Fatal("the fixture is meant to fail before any terminal event")
+	}
+}
