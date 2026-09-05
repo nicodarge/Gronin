@@ -2,9 +2,10 @@
 
 A runtime that turns infrastructure signals into bounded agent runs.
 
-> **Status: design.** Nothing executes yet. This repository currently holds the
-> architecture, the playbook format and the packaging rules. The runtime lands
-> in phase 2 — see [docs/roadmap.md](docs/roadmap.md).
+> **Status: scaffolding.** The executable builds and reports its version; no
+> stage of the pipeline below is implemented. What this repository holds is the
+> architecture, the playbook format, the packaging rules, and the test chain the
+> runtime will be built against — see [docs/roadmap.md](docs/roadmap.md).
 
 ## What it is
 

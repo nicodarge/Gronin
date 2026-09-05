@@ -40,33 +40,35 @@ Paths follow the structure in [plan.md](./plan.md): a single Go module rooted at
 
 ## Phase 1: Setup
 
-- [ ] T001 Create `runtime/` module: `go.mod` with the Go 1.27 toolchain directive, the package
+- [x] T001 Create `runtime/` module: `go.mod` with the Go 1.27 toolchain directive, the package
       skeleton from plan.md, and a `main` that prints its own version
-- [ ] T002 Pin dependencies and record why the SQLite driver is the pure-Go one: `cobra`,
+- [x] T002 Pin dependencies and record why the SQLite driver is the pure-Go one: `cobra`,
       `robfig/cron/v3`, `gopkg.in/yaml.v3`, `modernc.org/sqlite`, `santhosh-tekuri/jsonschema/v6`
-- [ ] T003 [P] Add `.golangci.yml` and wire `golangci-lint` plus `go test` into
+- [x] T003 [P] Add `.golangci.yml` and wire `golangci-lint` plus `go test` into
       `.pre-commit-config.yaml`
-- [ ] T004 [P] Add the CI workflow: lint, test, and cross-compile for linux/amd64, linux/arm64,
+- [x] T004 [P] Add the CI workflow: lint, test, and cross-compile for linux/amd64, linux/arm64,
       darwin/arm64 with `CGO_ENABLED=0`
-- [ ] T005 Add a CI check that fails if the built binary is dynamically linked — SC-007 is the
+- [x] T005 Add a CI check that fails if the built binary is dynamically linked — SC-007 is the
       requirement most easily lost to an innocent dependency bump, and nothing else notices
-- [ ] T074 One entry point for the suite — `go vet`, then `go test ./... -race -count=1` under a
+- [x] T074 One entry point for the suite — `go vet`, then `go test ./... -race -count=1` under a
       declared timeout — and run it in CI with no route to the network, so a test that reaches out
       fails on the machine that reviews the change rather than passing on the one that wrote it
       (SC-010, SC-011)
-- [ ] T077 `scripts/check-mutation.py`: mutate a named line in a copy of its target, assert the
+- [x] T077 `scripts/check-mutation.py`: mutate a named line in a copy of its target, assert the
       exit code flips, and prove on an unmodified tree that the harness can print zero (SC-014).
       T036 asserts through this rather than rolling its own
-- [ ] T078 Binary-level test harness: build the executable into a temporary directory and drive it
+- [x] T078 Binary-level test harness: build the executable into a temporary directory and drive it
       through its command surface (SC-013). Its first subject is `version`; every later
       operator-surface test uses it instead of calling the packages behind it
-- [ ] T076 Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
+- [x] T076 Repeat-run job: the suite ten times against an unchanged tree, disagreement failing
       it (SC-011). A flake found here is a bug; found later it is a reason to stop reading
       red. Not `[P]`: it configures the same CI workflow as T074 and T075
 - [ ] T075 Make the gate required rather than advisory: lint, vet, the race suite, the mutation
       check, the binary-level test and the static-link check each block the merge (SC-012). A job
       that reports without blocking is a dashboard. It lands last in the phase because a check
-      cannot be made required before it exists
+      cannot be made required before it exists. The `gate` job exists; what is left is
+      the branch-protection setting that names it, which lives in the repository rather
+      than in this tree
 
 **Checkpoint**: an empty binary builds statically on three platforms, a hermetic race-enabled suite
 runs against the binary itself, and CI blocks on all of it.

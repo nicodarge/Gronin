@@ -1,0 +1,30 @@
+---
+name: Repeat suite
+
+# A flake is a failure. Found here it is a bug; found later it is a reason to stop
+# reading red, and the gate stops meaning anything shortly afterwards.
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: runtime/go.mod
+      - run: go mod download
+        working-directory: runtime
+      - name: Ten runs of an unchanged tree
+        run: |
+          for run in $(seq 1 10); do
+            echo "::group::run $run"
+            scripts/run-suite.sh
+            echo "::endgroup::"
+          done

@@ -41,8 +41,33 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.13.2
+    hooks:
+      # -full rather than the default hook: that one lints only what changed, which
+      # silently disables every linter that has to see the whole module to say
+      # anything — `unused` first among them.
+      - id: golangci-lint-full
+        entry: bash -c 'cd runtime && golangci-lint run --fix'
+      - id: golangci-lint-config-verify
+        entry: bash -c 'cd runtime && golangci-lint config verify'
+
   - repo: local
     hooks:
+      - id: go-suite
+        name: the Go suite, hermetic and race-enabled
+        entry: scripts/run-suite.sh
+        language: script
+        files: '^runtime/'
+        pass_filenames: false
+
+      - id: mutation
+        name: the mutation harness kills every declared mutant
+        entry: scripts/check-mutation.py
+        language: python
+        files: '^(runtime/|scripts/check-mutation\.py$)'
+        pass_filenames: false
+
       # Both sweep the whole tree rather than the changed files: the failures they
       # exist for are a document contradicting a neighbour nobody edited.
       - id: doc-examples
