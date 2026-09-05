@@ -94,7 +94,11 @@ func (g *GitHub) Deliver(ctx context.Context, delivery Delivery) (Outcome, error
 		return Outcome{}, err
 	}
 
-	room := g.cap - len(open)
+	// The count, not the number of distinct titles. They were one structure at first,
+	// and two open issues sharing a title then undercounted what exists — which inflates
+	// the room and lets the cap be exceeded. Counting for the cap and de-duplicating by
+	// title are different questions.
+	room := g.cap - open.count
 	if room <= 0 {
 		// Capped is not failed. The cap doing its job is the system working as declared,
 		// and recording it as a failure would train an operator to ignore the status.
@@ -102,12 +106,18 @@ func (g *GitHub) Deliver(ctx context.Context, delivery Delivery) (Outcome, error
 			Status:       StatusCapped,
 			ItemsSkipped: len(decoded.Findings),
 			Detail: fmt.Sprintf("%d issue(s) already open against a cap of %d",
-				len(open), g.cap),
+				open.count, g.cap),
 		}, nil
 	}
 
 	outcome := Outcome{Status: StatusCreated}
-	var details []string
+	var (
+		details   []string
+		cappedOut bool
+	)
+	// The order matters and is easy to reverse by accident: a finding skipped for having
+	// no title, or for being open already, does not spend a unit of room. Moving the
+	// room check above them would make a duplicate count against the cap.
 	for _, item := range decoded.Findings {
 		title := strings.TrimSpace(item.Title)
 		if title == "" {
@@ -115,13 +125,14 @@ func (g *GitHub) Deliver(ctx context.Context, delivery Delivery) (Outcome, error
 			details = append(details, "a finding with no title")
 			continue
 		}
-		if open[title] {
+		if open.titles[title] {
 			outcome.ItemsSkipped++
 			details = append(details, fmt.Sprintf("%q is already open", title))
 			continue
 		}
 		if outcome.ItemsCreated >= room {
 			outcome.ItemsSkipped++
+			cappedOut = true
 			continue
 		}
 
@@ -140,37 +151,69 @@ func (g *GitHub) Deliver(ctx context.Context, delivery Delivery) (Outcome, error
 			return outcome, nil
 		}
 		outcome.ItemsCreated++
-		open[title] = true
+		open.titles[title] = true
 	}
 
 	if outcome.ItemsCreated == 0 {
 		outcome.Status = StatusSkipped
 	}
-	if outcome.ItemsSkipped > 0 && outcome.ItemsCreated == room {
+	// Said only when the cap actually stopped something. Inferring it from
+	// ItemsCreated == room claimed the cap was the bottleneck on a run where every skip
+	// was a duplicate and nothing was left on the floor.
+	if cappedOut {
 		details = append(details, fmt.Sprintf("stopped at the cap of %d", g.cap))
 	}
 	outcome.Detail = strings.Join(details, "; ")
 	return outcome, nil
 }
 
-// openIssues is what this runtime created and has not closed, by title.
-func (g *GitHub) openIssues(ctx context.Context) (map[string]bool, error) {
-	endpoint := fmt.Sprintf("%s/repos/%s/issues?state=open&labels=%s&per_page=100",
-		g.api, g.repo, url.QueryEscape(Marker))
+// openSet is what this runtime opened and has not closed: how many there are, which is
+// what the cap is measured against, and which titles, which is what stops a finding
+// being opened twice.
+type openSet struct {
+	count  int
+	titles map[string]bool
+}
 
-	body, err := g.do(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	var issues []struct {
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal(body, &issues); err != nil {
-		return nil, fmt.Errorf("listing open issues: the answer was not a list of issues")
-	}
-	open := make(map[string]bool, len(issues))
-	for _, issue := range issues {
-		open[issue.Title] = true
+// perPage is what one listing asks for. GitHub's maximum.
+const perPage = 100
+
+// maxPages bounds the walk. A repository holding more than this many open issues from
+// this runtime is far past any sane cap, and the partial count it produces is already
+// larger than any ceiling — so stopping early refuses to create rather than creating
+// against an unknown number, which is the safe direction.
+const maxPages = 20
+
+// openIssues counts what this runtime opened and has not closed.
+//
+// It walks the pages. Asking for one page of a hundred and stopping was a real hole:
+// past a hundred open issues the count came back short, room came back larger than the
+// truth, and the sink created MORE than its declared cap. The direction of that error is
+// the dangerous one — fewer counted, more created, never the reverse.
+func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
+	open := openSet{titles: map[string]bool{}}
+
+	for page := 1; page <= maxPages; page++ {
+		endpoint := fmt.Sprintf("%s/repos/%s/issues?state=open&labels=%s&per_page=%d&page=%d",
+			g.api, g.repo, url.QueryEscape(Marker), perPage, page)
+
+		body, err := g.do(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return openSet{}, err
+		}
+		var issues []struct {
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(body, &issues); err != nil {
+			return openSet{}, fmt.Errorf("listing open issues: the answer was not a list of issues")
+		}
+		for _, issue := range issues {
+			open.count++
+			open.titles[issue.Title] = true
+		}
+		if len(issues) < perPage {
+			return open, nil
+		}
 	}
 	return open, nil
 }

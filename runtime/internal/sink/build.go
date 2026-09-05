@@ -108,9 +108,20 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 	// The token may be absent for a deployment whose runner already carries one; what
 	// must never happen is it being written into the playbook, which is why it is read
 	// through the deployment like every other value.
-	token, err := resolved(decl, opts, "token")
-	if err != nil && decl.Config["token"] != nil {
-		return nil, err
+	//
+	// Declared-and-empty is not absent. `gronin config set github_token ""` resolves to
+	// an empty string without error, and accepting that built an unauthenticated client
+	// with nothing said at load time — a playbook that looks configured and is not.
+	var token string
+	if _, declared := decl.Config["token"]; declared {
+		token, err = resolved(decl, opts, "token")
+		if err != nil {
+			return nil, err
+		}
+		if token == "" {
+			return nil, fmt.Errorf("token resolves to nothing; accepted: a value, or " +
+				"remove the field for a deployment whose runner carries its own")
+		}
 	}
 
 	ceiling, declared := capOf(decl)

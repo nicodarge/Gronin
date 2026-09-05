@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ type forge struct {
 	created   []string
 	failAfter int
 	listCode  int
+	pages     int
 }
 
 func (f *forge) handler() http.Handler {
@@ -39,10 +41,22 @@ func (f *forge) handler() http.Handler {
 				http.Error(w, "the sink listed issues it did not label", http.StatusBadRequest)
 				return
 			}
-			issues := make([]map[string]any, 0, len(f.open))
-			for _, title := range f.open {
-				issues = append(issues, map[string]any{"title": title})
+			// Paginated like the real endpoint, so a sink that reads one page is caught
+			// here rather than on the repository where it matters.
+			page := 1
+			if raw := r.URL.Query().Get("page"); raw != "" {
+				page, _ = strconv.Atoi(raw)
 			}
+			size, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+			if size <= 0 {
+				size = 30
+			}
+			from := (page - 1) * size
+			issues := make([]map[string]any, 0, size)
+			for at := from; at < from+size && at < len(f.open); at++ {
+				issues = append(issues, map[string]any{"title": f.open[at]})
+			}
+			f.pages++
 			_ = json.NewEncoder(w).Encode(issues)
 
 		case http.MethodPost:
@@ -329,5 +343,111 @@ func TestBuildRefusesARepositoryThatIsNotOwnerName(t *testing.T) {
 
 	if len(problems) != 1 || !strings.Contains(problems[0].Error(), "owner/name") {
 		t.Fatalf("problems = %v", problems)
+	}
+}
+
+// The hole a review found: one page of a hundred, and past that the count came back
+// short, room came back larger than the truth, and the sink created MORE than its cap.
+func TestTheCapCountsBeyondTheFirstPage(t *testing.T) {
+	const alreadyOpen = 150
+
+	existing := make([]string, 0, alreadyOpen)
+	for at := range alreadyOpen {
+		existing = append(existing, fmt.Sprintf("an older finding %d", at+1))
+	}
+	got, one := issueSink(t, 100, func(f *forge) { f.open = existing })
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(5),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if outcome.Status != sink.StatusCapped {
+		t.Fatalf("status = %q; 150 open against a cap of 100 is saturated", outcome.Status)
+	}
+	if len(got.createdTitles()) != 0 {
+		t.Fatalf("created %d issues past a cap already exceeded", len(got.createdTitles()))
+	}
+	got.mu.Lock()
+	pages := got.pages
+	got.mu.Unlock()
+	if pages < 2 {
+		t.Fatalf("the sink read %d page(s); the count stops at a hundred on one", pages)
+	}
+}
+
+// Counting and de-duplicating are different questions. Two open issues sharing a title
+// are two issues against the cap, however many distinct titles that is.
+func TestTwoOpenIssuesSharingATitleCountTwice(t *testing.T) {
+	got, one := issueSink(t, 3, func(f *forge) {
+		f.open = []string{"the same finding", "the same finding", "another"}
+	})
+
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(3),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Status != sink.StatusCapped {
+		t.Fatalf("status = %q; three open against a cap of three is saturated", outcome.Status)
+	}
+	if len(got.createdTitles()) != 0 {
+		t.Fatalf("created %v", got.createdTitles())
+	}
+}
+
+// The cap is claimed only when it stopped something. Saying it on a run where every skip
+// was a duplicate tells an operator the ceiling is the bottleneck when it is not.
+func TestTheCapIsOnlyBlamedWhenItBit(t *testing.T) {
+	_, one := issueSink(t, 3, func(f *forge) {
+		f.open = []string{"finding 1"}
+	})
+
+	// Two findings: one already open, one new. Room is two, one is created — equal to
+	// nothing being left on the floor by the cap.
+	outcome, err := one.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "run-1", Report: findings(2),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(outcome.Detail, "stopped at the cap") {
+		t.Fatalf("the cap was blamed for a skip it did not cause: %q", outcome.Detail)
+	}
+	if !strings.Contains(outcome.Detail, "already open") {
+		t.Fatalf("the outcome does not say what actually happened: %q", outcome.Detail)
+	}
+}
+
+// Declared and empty is not absent: a playbook that looks configured and is not would
+// build an unauthenticated client with nothing said at load time.
+func TestATokenThatResolvesToNothingIsRefused(t *testing.T) {
+	_, problems := sink.Build([]sink.Declaration{{
+		Type:   "github",
+		Config: map[string]any{"repo": "owner/repo", "token": "${config.github_token}", "cap": 3},
+	}}, sink.BuildOptions{
+		Interpolate: func(text string) (string, error) {
+			// The deployment holds the key and its value is empty, which is not the same
+			// as the key not being there.
+			if text == "${config.github_token}" {
+				return "", nil
+			}
+			return text, nil
+		},
+	})
+
+	if len(problems) != 1 || !strings.Contains(problems[0].Error(), "resolves to nothing") {
+		t.Fatalf("problems = %v", problems)
+	}
+
+	// And omitting the field entirely is still allowed, for a runner carrying its own.
+	if _, problems := sink.Build([]sink.Declaration{{
+		Type:   "github",
+		Config: map[string]any{"repo": "owner/repo", "cap": 3},
+	}}, sink.BuildOptions{}); len(problems) != 0 {
+		t.Fatalf("an absent token was refused: %v", problems)
 	}
 }

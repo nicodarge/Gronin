@@ -722,7 +722,7 @@
       "name": "the cap ignores what is already open",
       "tree": "..",
       "file": "internal/sink/github.go",
-      "find": "\troom := g.cap - len(open)",
+      "find": "\troom := g.cap - open.count",
       "replace": "\troom := g.cap",
       "command": [
         "go",
@@ -735,7 +735,7 @@
       "name": "a finding already open is opened again",
       "tree": "..",
       "file": "internal/sink/github.go",
-      "find": "\t\tif open[title] {",
+      "find": "\t\tif open.titles[title] {",
       "replace": "\t\tif false {",
       "command": [
         "go",
@@ -776,6 +776,58 @@
       "file": "internal/sink/build.go",
       "find": "\tcase float64:\n\t\treturn int(typed), true",
       "replace": "\tcase float64:\n\t\treturn 0, false",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the open count stops at the first page",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\tif len(issues) < perPage {\n\t\t\treturn open, nil\n\t\t}",
+      "replace": "\t\treturn open, nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap counts distinct titles rather than open issues",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\t\t\topen.count++",
+      "replace": "\t\t\topen.count = len(open.titles) + 1",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cap is blamed for a skip it did not cause",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "\tif cappedOut {",
+      "replace": "\tif outcome.ItemsSkipped > 0 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a token that resolves to nothing is accepted",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif token == \"\" {",
+      "replace": "\t\tif false {",
       "command": [
         "go",
         "test",
