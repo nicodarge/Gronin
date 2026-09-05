@@ -59,7 +59,8 @@ tests that execute a line without asserting anything about it, and it is the num
 change raises rather than meets.
 
 **Target Platform**: Linux (amd64, arm64) and macOS (arm64), cross-compiled from one machine.
-Container image `FROM scratch`.
+Container image on a distroless base — see the correction in Complexity Tracking; this line said
+`FROM scratch` until the image was actually built and run.
 
 **Project Type**: Single Go module producing one CLI/daemon binary.
 
@@ -238,3 +239,4 @@ reinterpret the principle — which is what the constitution's own governance se
 | Pure-Go SQLite driver | SC-007 requires a binary that runs where no toolchain exists | The common cgo driver is faster and better known, but forfeits static linking, and the record store is not on any hot path |
 | Two validation layers (shape, then semantics) | The refusal rules are semantic — path resolution, cap presence, server existence — and a schema cannot express them | A JSON Schema alone would pass playbooks the constitution forbids. The schema is still published, for editors, but it is not the gate |
 | Artifact blobs on disk, not in the row | A full transcript in a database row makes the store unreadable and unbackupable | Storing everything in SQLite is simpler until the first large transcript |
+| Distroless image rather than `FROM scratch` | The image exists to run `serve`, and `serve` drives the agent — which is a dynamically linked ELF needing glibc and `ld-linux.so`. Measured with `ldd` on the shipped executable, and by running it inside both images: it cannot start on scratch, and mounting it in does not help | `FROM scratch` was this plan's own choice and it survives everywhere it is actually load-bearing: SC-007 is about the BINARY, which is still built with `CGO_ENABLED=0` and refused by `scripts/check-static.sh` if it is not static. A scratch image would have run `validate`, `runs` and `show` and never the thing it exists for |
