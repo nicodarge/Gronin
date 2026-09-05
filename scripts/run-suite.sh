@@ -64,6 +64,22 @@ fi
 echo "==> go vet"
 go vet ./...
 
+# No agent on the path. Every agent test drives the stub and names it, and a test that
+# reaches for whatever `claude` the machine happens to have passes here and fails on a
+# machine that has none — which is exactly what happened on the first CI run after
+# `gronin version` started reporting the agent it found. A shim that refuses makes that
+# failure happen wherever the test is written instead.
+shim="$(mktemp -d)"
+trap 'rm -rf "$shim"' EXIT
+cat > "$shim/claude" <<'SHIM'
+#!/bin/sh
+echo "run-suite: a test reached for the machine's agent." >&2
+echo "run-suite: name one instead — the stub is internal/fakeagent.Build(t)." >&2
+exit 127
+SHIM
+chmod +x "$shim/claude"
+export PATH="$shim:$PATH"
+
 # SC-005's outside half. The suite asserts internally that no configured secret reaches
 # the record; this asserts that none reached the suite's own output either, which is
 # where a stray t.Logf or a printed error would put it. One literal, read from the
@@ -82,7 +98,7 @@ fi
 # keeps everything; the terminal gets the per-test noise filtered back out.
 echo "==> go test -race"
 output="$(mktemp)"
-trap 'rm -f "$output"' EXIT
+trap 'rm -f "$output"; rm -rf "$shim"' EXIT
 set +e
 go test ./... -v -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-10m}" "$@" 2>&1 \
     | tee "$output" \

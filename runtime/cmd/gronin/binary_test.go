@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/nicodarge/Gronin/runtime/internal/bintest"
+	"github.com/nicodarge/Gronin/runtime/internal/fakeagent"
 )
 
 func TestMain(m *testing.M) {
@@ -12,7 +13,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestVersionPrintsSomething(t *testing.T) {
-	got := bintest.Run(t, "version")
+	// The agent is named explicitly. `version` reports the agent it found as well as its
+	// own, so without this the test passes on a machine where the real executable is
+	// installed and fails everywhere else — which is what it did, on the first CI run
+	// after the agent line was added.
+	got := bintest.Run(t, "version", "--agent", fakeagent.Build(t))
 
 	if got.ExitCode != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", got.ExitCode, got.Stderr)
