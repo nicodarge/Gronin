@@ -12,7 +12,31 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 
-if [ "${GRONIN_SUITE_ISOLATED:-}" != "1" ]; then
+# Isolation is verified, not declared. An earlier version re-executed itself unless an
+# environment variable said it had already done so, which made the whole hermetic
+# guarantee something a stray `export` could switch off silently — and it did, in
+# review. The namespace holds nothing but loopback, so the interface list is what says
+# whether we are in one, and nothing in the environment can claim otherwise. The
+# variable survives only as a recursion guard.
+#
+# /proc/net/dev, not /sys/class/net: sysfs keeps showing the mount's original namespace
+# until it is remounted, so inside the namespace it still listed every host interface —
+# a check that answered "not isolated" while the process was isolated. procfs follows
+# the namespace the reading process is in, and was measured doing so.
+isolated() {
+    [ -r /proc/net/dev ] || return 1
+    case "$(awk 'NR > 2 { sub(/:$/, "", $1); printf "%s ", $1 }' /proc/net/dev)" in
+        "lo ") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if ! isolated; then
+    if [ "${GRONIN_SUITE_ISOLATED:-}" = "1" ]; then
+        echo "run-suite: re-executed under no-network.sh and the network is still there." >&2
+        echo "run-suite: refusing to call a suite hermetic when it is not." >&2
+        exit 1
+    fi
     exec env GRONIN_SUITE_ISOLATED=1 "$here/no-network.sh" "$0" "$@"
 fi
 

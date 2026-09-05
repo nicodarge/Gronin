@@ -10,7 +10,8 @@ first: a harness whose baseline is already broken can never print zero, and will
 comfortable number forever. It refuses a mutation whose target text is not found exactly
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
-the count is shown to move in both directions before any real count is read.
+the count is shown to move in both directions before any real count is read — and against
+two it must refuse outright, a broken baseline and a target text that is not there.
 
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
@@ -127,6 +128,10 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 ./subject.sh > /dev/null
 """
 
+SELF_TEST_BROKEN = """#!/bin/sh
+exit 1
+"""
+
 
 def self_test() -> int:
     """Show the count moving in both directions before any real count is trusted."""
@@ -161,13 +166,49 @@ def self_test() -> int:
         if check([survived], quiet=True) != 1:
             failures.append("a mutation nothing detects was counted as killed")
 
+        # The refusals matter as much as the counts. A harness that treats a broken
+        # baseline or an unapplied mutation as a result reports a number for something
+        # it never measured, and a denylist probed only on what it accepts is untested.
+        broken = root / "broken"
+        broken.mkdir()
+        (broken / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (broken / "subject.sh").chmod(0o755)
+        (broken / "test.sh").write_text(SELF_TEST_BROKEN)
+        (broken / "test.sh").chmod(0o755)
+
+        refusals = {
+            "a baseline that already fails": Mutation(
+                name="broken baseline",
+                tree=broken,
+                file="subject.sh",
+                find="42",
+                replace="41",
+                command=["./test.sh"],
+            ),
+            "a target text that is not in the file": Mutation(
+                name="absent target",
+                tree=killed.tree,
+                file="subject.sh",
+                find="no such text",
+                replace="x",
+                command=["./test.sh"],
+            ),
+        }
+        for description, mutation in refusals.items():
+            try:
+                check([mutation], quiet=True)
+            except ConfigError:
+                continue
+            failures.append(f"{description} was counted rather than refused")
+
         for failure in failures:
             print(f"check-mutation: self-test: {failure}", file=sys.stderr)
         if failures:
             return 1
 
     print(
-        "check-mutation: self-test ok — reports zero when a test notices, one when it does not"
+        "check-mutation: self-test ok — counts zero and one, and refuses a broken "
+        "baseline and an absent target"
     )
     return 0
 

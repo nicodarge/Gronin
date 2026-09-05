@@ -49,10 +49,16 @@ check_one() {
     echo "check-static: $bin ok ($goos, CGO_ENABLED=0)"
 }
 
+# Global, and cleaned on EXIT rather than on RETURN: fail() exits, so a RETURN trap
+# would leave the directory behind on precisely the run that found something — and a
+# local would not be in scope by the time an EXIT trap fired.
+selftest_dir=""
+trap 'rm -rf "${selftest_dir:-}"' EXIT
+
 self_test() {
-    local dir pkg rc
-    dir="$(mktemp -d)"
-    trap 'rm -rf "$dir"' RETURN
+    local pkg rc dir
+    selftest_dir="$(mktemp -d)"
+    dir="$selftest_dir"
     pkg="$(cd "$(dirname "$0")/../runtime" && pwd)/cmd/gronin"
 
     ( cd "$(dirname "$pkg")/.." && CGO_ENABLED=1 go build -o "$dir/dynamic" ./cmd/gronin )

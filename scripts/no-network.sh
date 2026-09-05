@@ -30,6 +30,9 @@ fi
 
 if sudo -n unshare --net true 2>/dev/null; then
     echo "no-network: isolated with sudo unshare, dropping back to $(id -un)" >&2
+    # The preserved list is what the suite needs today, not a complete one. A later
+    # phase that reaches for an environment variable under this path extends it here
+    # rather than working around it.
     exec sudo -n unshare --net -- \
         "${BASH:-/bin/bash}" -c "$raise_lo"'; exec sudo -n -u "$0" \
             --preserve-env=PATH,HOME,GOPATH,GOMODCACHE,GOCACHE,GOPROXY,GOFLAGS,GRONIN_SUITE_ISOLATED,GRONIN_SUITE_TIMEOUT \

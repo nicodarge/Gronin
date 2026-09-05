@@ -42,7 +42,7 @@ func Build(t *testing.T) string {
 		}
 		buildDir = dir
 		path := filepath.Join(dir, "gronin")
-		cmd := exec.CommandContext(context.Background(), //nolint:usetesting // built once for the package, not for one test
+		cmd := exec.CommandContext(context.Background(),
 			"go", "build", "-o", path, "github.com/nicodarge/Gronin/runtime/cmd/gronin")
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
