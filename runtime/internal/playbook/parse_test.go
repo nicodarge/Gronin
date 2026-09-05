@@ -1,0 +1,159 @@
+package playbook_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/nicodarge/Gronin/runtime/internal/playbook"
+)
+
+// T012, SC-002's shape half. Fourteen documents, ten of which the published schema must
+// refuse. The corpus is here rather than in a probe script so it keeps running: a probe
+// that passed once, on a machine that no longer exists, is a claim rather than a check.
+//
+// Every refusal here is one JSON Schema can express. The ones it cannot — a shell in a
+// tool set, a path escaping the working directory, an MCP server this deployment does not
+// provide — belong to the validator and have their own corpus.
+func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
+	accepted := documentsIn(t, "testdata/schema/accepted")
+	refused := documentsIn(t, "testdata/schema/refused")
+
+	if len(accepted)+len(refused) != 14 {
+		t.Fatalf("the corpus holds %d documents, and the probe it ports had fourteen",
+			len(accepted)+len(refused))
+	}
+	if len(refused) != 10 {
+		t.Fatalf("%d documents are meant to be refused, and the probe refused ten", len(refused))
+	}
+
+	for name, document := range accepted {
+		if _, err := playbook.Parse(name, document); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+	// Each document is pinned to the reason it exists for. Asserting only that it was
+	// refused would let one drift into being refused by accident — a typo in a field the
+	// case does not care about — and the corpus would stay green while covering nothing.
+	because := map[string]string{
+		"agent-without-output-schema.yaml": "agent: missing property 'output_schema'",
+		"cron-without-schedule.yaml":       "trigger: missing property 'schedule'",
+		"gather-step-without-a-name.yaml":  "gather/0: missing property 'as'",
+		"guard-block.yaml":                 "guard: 'not' failed",
+		"name-not-a-slug.yaml":             "does not match pattern",
+		"no-name.yaml":                     "missing property 'name'",
+		"no-sinks.yaml":                    "sinks: minItems: got 0, want 1",
+		"sink-with-two-types.yaml":         "sinks/0: maxProperties: got 2, want 1",
+		"trigger-type-unknown.yaml":        "trigger/type: value must be one of 'cron', 'manual'",
+		"unknown-top-level-key.yaml":       "additional properties 'on_failure' not allowed",
+	}
+	for path, document := range refused {
+		_, err := playbook.Parse(path, document)
+		if err == nil {
+			t.Errorf("%s was accepted, and the schema is meant to refuse it", path)
+			continue
+		}
+		want, ok := because[filepath.Base(path)]
+		if !ok {
+			t.Errorf("%s has no pinned reason; add one so it cannot pass by accident", path)
+			continue
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%s was refused, but not for its reason.\n  want: %s\n  got:  %v", path, want, err)
+		}
+	}
+}
+
+func documentsIn(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documents := map[string][]byte{}
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path) //nolint:gosec // a fixture directory in this package
+		if err != nil {
+			t.Fatal(err)
+		}
+		documents[path] = data
+	}
+	return documents
+}
+
+// The schema is published from the contract and embedded for the executable. Two copies
+// of one document drift, and the copy that drifts is the one nobody reads — so the drift
+// is what is asserted, not either copy.
+func TestTheEmbeddedSchemaIsTheContract(t *testing.T) {
+	contract, err := os.ReadFile("../../../specs/001-runtime-core/contracts/playbook.schema.json")
+	if err != nil {
+		t.Skipf("the specification is not beside this module: %v", err)
+	}
+	if string(contract) != string(playbook.Schema) {
+		t.Fatal("the embedded schema and specs/001-runtime-core/contracts/playbook.schema.json " +
+			"have diverged; the contract is the source, copy it over")
+	}
+}
+
+func TestParseDecodesWhatTheRuntimeReads(t *testing.T) {
+	got, err := playbook.ParseFile("testdata/schema/accepted/manual-with-gather.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Name != "cert-expiry" || got.Trigger.Type != "manual" {
+		t.Fatalf("parsed as %+v", got)
+	}
+	if len(got.Gather) != 1 || got.Gather[0].As != "inventory.json" {
+		t.Fatalf("gather = %+v", got.Gather)
+	}
+	if !got.Agent.IsRestricted() {
+		t.Fatal("restricted defaulted to false; a playbook that says nothing gets the bound")
+	}
+	timeout, err := got.Agent.StageTimeout()
+	if err != nil || timeout.Minutes() != 10 {
+		t.Fatalf("timeout = %v, err = %v", timeout, err)
+	}
+	if want := filepath.Join("testdata/schema/accepted", "prompts/cert-expiry.md"); got.PromptPath() != want {
+		t.Fatalf("prompt path = %q, want %q", got.PromptPath(), want)
+	}
+}
+
+func TestRestrictedIsOnlyOffWhenSaidSo(t *testing.T) {
+	off, err := playbook.ParseFile("testdata/schema/accepted/unrestricted-with-a-reason.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off.Agent.IsRestricted() {
+		t.Fatal("restricted: false did not read as false")
+	}
+	if off.Description == "" {
+		t.Fatal("the fixture is meant to carry the reason the bound is off")
+	}
+
+	on, err := playbook.ParseFile("testdata/schema/accepted/minimal-cron.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !on.Agent.IsRestricted() {
+		t.Fatal("a playbook that declares nothing lost the default bound")
+	}
+	if timeout, err := on.Agent.StageTimeout(); err != nil || timeout != playbook.DefaultTimeout {
+		t.Fatalf("timeout = %v, err = %v", timeout, err)
+	}
+}
+
+func TestParseRefusesSomethingThatIsNotAPlaybook(t *testing.T) {
+	for name, document := range map[string]string{
+		"empty":       "",
+		"a list":      "- not a playbook\n",
+		"a scalar":    "42\n",
+		"broken yaml": "name: [unclosed\n",
+	} {
+		if _, err := playbook.Parse(name, []byte(document)); err == nil {
+			t.Errorf("%s was accepted as a playbook", name)
+		}
+	}
+}

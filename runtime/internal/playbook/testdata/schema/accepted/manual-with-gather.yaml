@@ -1,0 +1,17 @@
+name: cert-expiry
+description: Reads the certificate inventory and reports what expires soon.
+trigger:
+  type: manual
+gather:
+  - run: cat inventory.json
+    as: inventory.json
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompts/cert-expiry.md
+  tools: [Read, Grep]
+  allow: ["Read(./**)"]
+  output_schema: schemas/findings.json
+  timeout: 10m
+sinks:
+  - slack:
+      channel: ${config.ops_channel}

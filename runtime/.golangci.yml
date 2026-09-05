@@ -27,10 +27,11 @@ linters:
       # A test asserting a refusal runs commands and reads paths on purpose.
       - path: _test\.go
         linters: [gosec]
-      # bintest exists to build and launch the executable, which is the whole of what
-      # G204 warns about, and its temporary directory is deliberately not t.TempDir():
-      # the binary is shared by every test in a package and outlives any one of them.
-      - path: internal/bintest/
+      # These two exist to build and launch a binary, which is the whole of what G204
+      # warns about, and their temporary directories are deliberately not t.TempDir():
+      # the binary each builds is shared by every test in a package and outlives any one
+      # of them.
+      - path: internal/(bintest|fakeagent)/
         linters: [gosec, usetesting]
 
 formatters:

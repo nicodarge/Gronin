@@ -1,0 +1,5 @@
+name: drift-check
+trigger: {type: manual}
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]
+on_failure: page-someone

@@ -1,0 +1,6 @@
+name: drift-check
+trigger: {type: manual}
+gather:
+  - run: cat facts.json
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]
