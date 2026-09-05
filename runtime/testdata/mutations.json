@@ -250,7 +250,7 @@
     {
       "name": "a refused report is delivered anyway",
       "tree": "..",
-      "file": "internal/run/execute.go",
+      "file": "internal/run/replay.go",
       "find": "\t\tdelivery.Failure = reportErr",
       "replace": "\t\tdelivery.Report = report",
       "command": [
@@ -356,7 +356,7 @@
     {
       "name": "a stream that failed is reported as a missing result",
       "tree": "..",
-      "file": "internal/run/execute.go",
+      "file": "internal/run/replay.go",
       "find": "\tcase stage.DecodeErr != nil && stage.Stream.Result == nil:",
       "replace": "\tcase false:",
       "command": [
@@ -559,6 +559,58 @@
         "go",
         "test",
         "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a replay re-runs the gather steps",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tinputs, err := e.Store.GatheredInputs(ctx, parentID)",
+      "replace": "\tinputs, err := []record.GatheredInput{}, error(nil)",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a resume runs the agent again",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\toutcome.Status = record.StatusSucceeded\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
+      "replace": "\toutcome.Status = record.StatusSucceeded\n\toutcome.CostUSD = 0.01\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the API binds anywhere without a credential",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\tif token == \"\" {\n\t\treturn fmt.Errorf(\"%w; %q is not loopback\", ErrRemoteWithoutCredential, host)\n\t}",
+      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w\", ErrRemoteWithoutCredential)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the API token is compared by prefix",
+      "tree": "..",
+      "file": "internal/api/api.go",
+      "find": "\t\tif offered == \"\" || offered != s.token {",
+      "replace": "\t\tif offered == \"\" || !strings.HasPrefix(s.token, offered) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/api",
         "-count=1"
       ]
     }

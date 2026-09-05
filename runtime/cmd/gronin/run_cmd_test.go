@@ -167,3 +167,41 @@ func TestSettingASecretDoesNotEchoIt(t *testing.T) {
 		t.Fatalf("it does not say what was set: %q", got.Stdout)
 	}
 }
+
+// FR-021 through the operator's own surface: run it, list it, read it back, and act on
+// the record without stopping anything.
+func TestARunCanBeListedAndReadBack(t *testing.T) {
+	stateDir, _ := deploymentOnDisk(t, cliPlaybook)
+	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
+	agentPath := fakeagent.Build(t)
+
+	invoked := bintest.Run(t, "run", "drift-check", "--state-dir", stateDir, "--agent", agentPath)
+	if !strings.Contains(invoked.Stdout, "Z-") {
+		t.Fatalf("the run printed no identifier: %q %q", invoked.Stdout, invoked.Stderr)
+	}
+	id := strings.Fields(invoked.Stdout)[0]
+
+	listed := bintest.Run(t, "runs", "--state-dir", stateDir, "--agent", agentPath)
+	if listed.ExitCode != 0 || !strings.Contains(listed.Stdout, id) {
+		t.Fatalf("the run is not in the list: %q", listed.Stdout)
+	}
+	if !strings.Contains(listed.Stdout, "drift-check") {
+		t.Fatalf("the list does not name the playbook: %q", listed.Stdout)
+	}
+
+	shown := bintest.Run(t, "show", id, "--state-dir", stateDir, "--agent", agentPath)
+	if shown.ExitCode != 0 {
+		t.Fatalf("show failed: %q", shown.Stderr)
+	}
+	// SC-003: what it was asked, what each sink did, and what its bounds refused.
+	for _, want := range []string{"playbook", "status", "gathered", "sink", "refused", "prompt"} {
+		if !strings.Contains(shown.Stdout, want) {
+			t.Errorf("the record does not show %q: %q", want, shown.Stdout)
+		}
+	}
+
+	unknown := bintest.Run(t, "show", "no-such-run", "--state-dir", stateDir, "--agent", agentPath)
+	if unknown.ExitCode == 0 {
+		t.Fatal("show exited 0 for a run that does not exist")
+	}
+}

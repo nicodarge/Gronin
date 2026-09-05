@@ -1,7 +1,9 @@
 # Runtime
 
-The six-stage runtime. Phase 1 is here: the module, the package skeleton, and the chain
-the rest will be built against. No stage is implemented yet.
+The six-stage runtime. What is here: the load gate, the schedule, gather, one bounded
+agent stage with its receipt check, the sinks, and the record with replay and resume.
+The guard and retrieve stages are refused rather than ignored — a declared bound nothing
+enforces reads as enforced in review.
 
 ## Running the tests
 

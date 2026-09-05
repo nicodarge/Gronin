@@ -2,10 +2,11 @@
 
 A runtime that turns infrastructure signals into bounded agent runs.
 
-> **Status: scaffolding.** The executable builds and reports its version; no
-> stage of the pipeline below is implemented. What this repository holds is the
-> architecture, the playbook format, the packaging rules, and the test chain the
-> runtime will be built against — see [docs/roadmap.md](docs/roadmap.md).
+> **Status: the runtime core runs.** A playbook on a schedule gathers its inputs,
+> drives one bounded agent, and delivers a report; unsafe playbooks are refused
+> before anything is armed; every run is recorded, replayable and resumable. Not
+> yet: the issue sink, semantic retrieval, the guard stage and webhook triggers —
+> see [docs/roadmap.md](docs/roadmap.md).
 
 ## What it is
 

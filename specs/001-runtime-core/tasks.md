@@ -241,27 +241,27 @@ nobody can read fails Principle III, which US3 closes.
 
 ### Tests for User Story 3
 
-- [ ] T049 [P] [US3] Record-completeness test: for a completed run, every field FR-026 lists is
+- [x] T049 [P] [US3] Record-completeness test: for a completed run, every field FR-026 lists is
       present and readable, and its terminal status distinguishes refused from failed (FR-037,
       SC-003)
-- [ ] T050 [P] [US3] Replay test: recorded inputs are reused, gather does not re-execute, no trigger
+- [x] T050 [P] [US3] Replay test: recorded inputs are reused, gather does not re-execute, no trigger
       fires, and the replay is a distinct run linked to its parent (FR-027)
-- [ ] T051 [P] [US3] Resume test: the recorded report is reused, the agent does not re-execute, and
+- [x] T051 [P] [US3] Resume test: the recorded report is reused, the agent does not re-execute, and
       the resumed run reports zero additional token cost (FR-028, SC-004)
-- [ ] T052 [P] [US3] Interruption test: a runtime killed mid-run marks that run interrupted on
+- [x] T052 [P] [US3] Interruption test: a runtime killed mid-run marks that run interrupted on
       restart, keeps its partial record, and does not resume it (FR-031)
 
 ### Implementation for User Story 3
 
-- [ ] T053 [US3] Record every action the agent attempted that its bounds refused (FR-026). Small
+- [x] T053 [US3] Record every action the agent attempted that its bounds refused (FR-026). Small
       table, and the only thing in the record that says a playbook's tool set is wrong (FR-037)
-- [ ] T054 [US3] `internal/api`: the local HTTP API — list runs, read one, invoke, replay, resume.
+- [x] T054 [US3] `internal/api`: the local HTTP API — list runs, read one, invoke, replay, resume.
       Loopback by default; binding elsewhere requires a configured credential first (FR-021,
       FR-036)
-- [ ] T055 [P] [US3] `gronin runs` and `gronin show` (FR-021)
-- [ ] T056 [P] [US3] `gronin replay` — re-run the agent against recorded inputs
-- [ ] T057 [P] [US3] `gronin resume` — re-run only the sinks against the recorded report
-- [ ] T058 [US3] Interrupted-run reconciliation on startup
+- [x] T055 [P] [US3] `gronin runs` and `gronin show` (FR-021)
+- [x] T056 [P] [US3] `gronin replay` — re-run the agent against recorded inputs
+- [x] T057 [P] [US3] `gronin resume` — re-run only the sinks against the recorded report
+- [x] T058 [US3] Interrupted-run reconciliation on startup
 
 **Checkpoint**: a surprising run can be understood and acted on without paying twice. **This is the
 first tag**: US1, US2 and US3 together are the smallest thing that satisfies the constitution.

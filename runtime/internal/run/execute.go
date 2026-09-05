@@ -103,20 +103,6 @@ func (e *Executor) Execute(
 	incomplete.note(err)
 	outcome.ResolvedPlaybookRef = ref
 
-	// The sinks are built before the agent runs. A destination this deployment cannot
-	// reach is worth finding out about before spending a run on a report nobody gets.
-	sinks, problems := sink.Build(declarationsOf(book), sink.BuildOptions{
-		Interpolate: func(text string) (string, error) {
-			return e.Config.Interpolate(text, trigger)
-		},
-		Client: e.Client,
-	})
-	if len(problems) > 0 {
-		outcome.Status = record.StatusRefused
-		outcome.Error = errors.Join(problems...).Error()
-		return e.finished(started.ID, &outcome, incomplete)
-	}
-
 	gatherErr := e.gather(ctx, started, book, incomplete)
 	if gatherErr != nil {
 		// FR-010: the run is refused before the stage that costs money, and the inputs
@@ -134,94 +120,9 @@ func (e *Executor) Execute(
 	}
 	outcome.PromptRef = prompt.ref
 
-	timeout, err := book.Agent.StageTimeout()
-	if err != nil {
-		outcome.Status = record.StatusRefused
-		outcome.Error = err.Error()
-		return e.finished(started.ID, &outcome, incomplete)
-	}
-
-	declaration := declarationOf(book)
-	stage, err := agent.Run(ctx, declaration, agent.Options{
-		Executable: e.AgentExecutable,
-		WorkDir:    started.WorkDir,
-		Prompt:     prompt.text,
-		Timeout:    timeout,
-		Env:        e.AgentEnv,
-		MCPServers: serversOf(book),
-		// FR-018. The child reports what it actually received, and this refuses before
-		// any model output when that is wider than the playbook declared. It is what
-		// makes the bound verified rather than asserted — no care constructing the
-		// argument vector can prove the process ended up with what the vector asked for.
-		OnEvent: agent.CheckReceipt(declaration),
-	})
-	if err != nil {
-		outcome.Error = err.Error()
-		return e.finished(started.ID, &outcome, incomplete)
-	}
-	e.recordStage(ctx, started.ID, stage, &outcome, incomplete)
-
-	if stage.Aborted != nil {
-		// Refused, not failed: the bounds stopped it before it produced anything, so it
-		// cost nothing and it is not an incident — but a playbook refused every night is
-		// broken in a way one shared status would hide.
-		outcome.Status = record.StatusRefused
-		outcome.Error = stage.Aborted.Error()
-		return e.finished(started.ID, &outcome, incomplete)
-	}
-
-	if stage.TimedOut {
-		outcome.Status = record.StatusTimedOut
-		outcome.Error = fmt.Sprintf("the agent stage exceeded its %s timeout", timeout)
-		return e.finished(started.ID, &outcome, incomplete)
-	}
-
-	// A stream that failed is not a report that failed the schema, and it is not "no
-	// terminal event" either. Reporting the generic message would lose the only
-	// description of what actually went wrong.
-	report, reportErr := stage.Report()
-	switch {
-	case stage.DecodeErr != nil && stage.Stream.Result == nil:
-		// The stream failed before an answer arrived. Reporting the generic "no terminal
-		// event" here would lose the only description of what actually went wrong.
-		reportErr = fmt.Errorf("the agent's output could not be read: %w", stage.DecodeErr)
-	case reportErr == nil:
-		// A decode failure AFTER the terminal event decoded is not a reason to throw the
-		// answer away. It failed toward discarding a good result at first, which is the
-		// expensive direction.
-		reportErr = agent.ValidateReport(report, book.Agent.OutputSchema)
-	}
-
-	delivery := sink.Delivery{PlaybookName: book.Name, RunID: started.ID}
-	switch {
-	case reportErr != nil:
-		// FR-014: failed, and what the sinks are given is the refusal rather than the
-		// content the runtime has just decided it cannot read.
-		outcome.Status = record.StatusFailed
-		outcome.Error = reportErr.Error()
-		delivery.Failure = reportErr
-	default:
-		outcome.Status = record.StatusSucceeded
-		delivery.Report = report
-		ref, err := e.Store.Blobs().Put(started.ID, "report.json", report)
-		incomplete.note(err)
-		outcome.ReportRef = ref
-	}
-
-	for _, delivered := range sink.DeliverAll(ctx, sinks, delivery) {
-		incomplete.note(e.Store.AddSinkOutcome(ctx, started.ID, record.SinkOutcome{
-			Sink: delivered.Sink, Status: string(delivered.Status),
-			ItemsCreated: delivered.ItemsCreated, ItemsSkipped: delivered.ItemsSkipped,
-			Detail: delivered.Detail,
-		}))
-		if delivered.Status == sink.StatusFailed && outcome.Status == record.StatusSucceeded {
-			// The report stands; the delivery did not. FR-025 keeps them apart.
-			outcome.Status = record.StatusFailed
-			outcome.Error = "a sink failed; the report is in the record and the run can be resumed"
-		}
-	}
-
-	return e.finished(started.ID, &outcome, incomplete)
+	// The same path a replay takes, so a replay cannot end up bounded differently from
+	// the run it derives from.
+	return e.agentAndSinks(ctx, started, book, prompt.text, &outcome, incomplete, trigger)
 }
 
 type resolvedPrompt struct {

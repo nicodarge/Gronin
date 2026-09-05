@@ -2,6 +2,7 @@ package run_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -450,5 +451,187 @@ func TestARunWhoseReceiptIsWiderThanDeclaredIsRefused(t *testing.T) {
 	}
 	if len(h.posted.all()) != 0 {
 		t.Fatal("a run refused at the receipt delivered something")
+	}
+}
+
+// FR-027. A replay re-runs the agent against the SAME inputs: re-gathering would change
+// the question being asked, and firing the trigger would make a diagnostic tool a cause
+// of load.
+func TestAReplayReusesTheRecordedInputsAndDoesNotGatherAgain(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
+
+	// A gather step that appends every time it runs, so a second execution is visible.
+	marker := filepath.Join(h.dir, "gathers")
+	book := h.playbook(t, strings.Replace(goodPlaybook,
+		"    as: facts.json", "    as: facts.json", 1))
+	book.Gather[0].Run = "echo ran >> " + marker + "; echo '{\"drift\":0}'"
+
+	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Status != record.StatusSucceeded {
+		t.Fatalf("the first run did not succeed: %q %q", first.Status, first.Error)
+	}
+
+	replayed, err := h.executor.Replay(t.Context(), first.ID, book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Status != record.StatusSucceeded {
+		t.Fatalf("the replay did not succeed: %q %q", replayed.Status, replayed.Error)
+	}
+	if replayed.ID == first.ID {
+		t.Fatal("the replay reused the run it derives from")
+	}
+
+	// The gather step ran once, for the original.
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Count(string(data), "ran"); lines != 1 {
+		t.Fatalf("gather ran %d times; a replay does not re-gather", lines)
+	}
+
+	stored, err := h.store.GetRun(t.Context(), replayed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TriggerKind != record.TriggerReplay {
+		t.Fatalf("trigger kind = %q", stored.TriggerKind)
+	}
+	if stored.ParentRunID != first.ID {
+		t.Fatalf("the replay is not linked to its parent: %q", stored.ParentRunID)
+	}
+	// The inputs are in the replay's own record too, or the replay is unreadable on its
+	// own terms.
+	inputs, err := h.store.GatheredInputs(t.Context(), replayed.ID)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs = %+v, err = %v", inputs, err)
+	}
+	// And it cost money, which a record that hid it would understate.
+	if stored.CostUSD <= 0 {
+		t.Fatalf("the replay recorded no cost: %+v", stored)
+	}
+}
+
+// FR-028, SC-004. A sink that was down should not cost a second agent run.
+func TestAResumeDeliversAgainWithoutRunningTheAgent(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[{"id":"one"}]}`)
+	book := h.playbook(t, goodPlaybook)
+
+	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivered := len(h.posted.all())
+	if delivered != 1 {
+		t.Fatalf("%d messages from the first run", delivered)
+	}
+
+	// The agent is made unusable, so a resume that ran it would fail loudly rather than
+	// silently costing money.
+	h.executor.AgentExecutable = "/nonexistent/claude"
+
+	resumed, err := h.executor.Resume(t.Context(), first.ID, book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Status != record.StatusSucceeded {
+		t.Fatalf("status = %q, error = %q", resumed.Status, resumed.Error)
+	}
+
+	if got := len(h.posted.all()); got != delivered+1 {
+		t.Fatalf("%d messages after the resume, want %d", got, delivered+1)
+	}
+
+	stored, err := h.store.GetRun(t.Context(), resumed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.TriggerKind != record.TriggerResume || stored.ParentRunID != first.ID {
+		t.Fatalf("recorded as %+v", stored)
+	}
+	// SC-004: zero additional token cost. The agent did not run.
+	if stored.CostUSD != 0 || stored.Tokens != 0 {
+		t.Fatalf("a resume reported cost %v and %d tokens", stored.CostUSD, stored.Tokens)
+	}
+	if stored.AgentSessionID != "" {
+		t.Fatalf("a resume recorded an agent session: %q", stored.AgentSessionID)
+	}
+}
+
+func TestARunWithNoReportCannotBeResumed(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"summary":"no findings key"}`)
+	book := h.playbook(t, goodPlaybook)
+
+	failed, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != record.StatusFailed {
+		t.Fatalf("status = %q", failed.Status)
+	}
+
+	if _, err := h.executor.Resume(t.Context(), failed.ID, book); !errors.Is(err, run.ErrNotResumable) {
+		t.Fatalf("err = %v, want ErrNotResumable", err)
+	}
+}
+
+// T049, SC-003. From the record alone: what the agent was asked, what it answered, and
+// what each sink did.
+func TestACompletedRunCanBeExplainedFromItsRecordAlone(t *testing.T) {
+	h := newHarness(t, fakeagent.ModeSuccess)
+	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[{"id":"one"}]}`)
+	book := h.playbook(t, goodPlaybook)
+
+	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	stored, err := h.store.GetRun(ctx, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// What it was asked.
+	prompt, err := h.store.Blobs().Get(stored.PromptRef)
+	if err != nil || len(prompt) == 0 {
+		t.Fatalf("the prompt as sent is not readable: %v", err)
+	}
+	// What it answered.
+	report, err := h.store.Blobs().Get(stored.ReportRef)
+	if err != nil || !strings.Contains(string(report), "findings") {
+		t.Fatalf("the report is not readable: %q %v", report, err)
+	}
+	// The playbook as it actually ran, so the record survives the file changing.
+	if _, err := h.store.Blobs().Get(stored.ResolvedPlaybookRef); err != nil {
+		t.Fatalf("the resolved playbook is not readable: %v", err)
+	}
+	// What each sink did.
+	outcomes, err := h.store.SinkOutcomes(ctx, got.ID)
+	if err != nil || len(outcomes) == 0 {
+		t.Fatalf("no sink outcome was recorded: %v", err)
+	}
+	// Every tool call, with its input and its answer.
+	calls, err := h.store.ToolCalls(ctx, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) == 0 {
+		t.Fatal("no tool call was recorded")
+	}
+	if calls[0].InputRef == "" || calls[0].OutputRef == "" {
+		t.Fatalf("a tool call has no input or no output: %+v", calls[0])
+	}
+	// And every action the bounds refused.
+	refused, err := h.store.RefusedActions(ctx, got.ID)
+	if err != nil || len(refused) == 0 {
+		t.Fatalf("the refused actions are not in the record: %v", err)
 	}
 }
