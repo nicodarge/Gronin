@@ -243,14 +243,17 @@ func (s *Store) ToolCalls(ctx context.Context, runID string) ([]ToolCall, error)
 type RefusedAction struct {
 	Sequence int
 	Tool     string
-	Reason   string
+	// Asked is what the agent asked for, as the executable reported it. Not a reason:
+	// the executable gives none, and calling it one would say the record holds something
+	// it does not. The column keeps its name so no stored record has to be rewritten.
+	Asked string
 }
 
 // AddRefusedAction records one refusal the agent process reported.
 func (s *Store) AddRefusedAction(ctx context.Context, runID string, action RefusedAction) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO refused_actions (run_id, sequence, tool, reason) VALUES (?, ?, ?, ?)`,
-		runID, action.Sequence, s.redactor.Redact(action.Tool), s.redactor.Redact(action.Reason))
+		runID, action.Sequence, s.redactor.Redact(action.Tool), s.redactor.Redact(action.Asked))
 	return err
 }
 
@@ -266,7 +269,7 @@ func (s *Store) RefusedActions(ctx context.Context, runID string) ([]RefusedActi
 	var actions []RefusedAction
 	for rows.Next() {
 		var action RefusedAction
-		if err := rows.Scan(&action.Sequence, &action.Tool, &action.Reason); err != nil {
+		if err := rows.Scan(&action.Sequence, &action.Tool, &action.Asked); err != nil {
 			return nil, err
 		}
 		actions = append(actions, action)

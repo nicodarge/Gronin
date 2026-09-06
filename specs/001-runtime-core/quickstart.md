@@ -3,7 +3,10 @@
 The path SC-001 is measured against: someone who has never seen this takes a shipped example,
 changes two things, and gets a report delivered. Under thirty minutes, without reading the source.
 
-Everything below is the target experience, not a description of working software.
+This has been followed end to end against the real agent, which is what T063 asked for and what
+every earlier test had stubbed. Step 1 is the exception: it downloads a release, and no tag exists
+yet, so the walkthrough was driven with a locally built binary. Everything from step 2 down is a
+description of working software.
 
 ## 1. Install
 
@@ -28,7 +31,8 @@ cp examples/doc-check.{yaml,prompt} ~/.gronin/playbooks/
 
 ## 3. Change two things
 
-In `doc-check.yaml`, the schedule and the destination:
+In `doc-check.yaml`, the schedule, and the destination — replacing the `sinks:` block the
+example ships with rather than adding a second sink beside it:
 
 ```yaml
 trigger:
@@ -47,7 +51,11 @@ run; a bare `${name}` is refused, so a payload can never shadow a configuration 
 
 ```bash
 gronin config set discord_webhook 'https://discord.com/api/webhooks/REPLACE_ME'
+gronin config set checkout "$HOME/some-repository"
 ```
+
+The second one is the repository the example reads. Both are refused at load if they are unset, so
+a value you forget is found below rather than at six in the morning.
 
 ## 4. Check it before arming it
 
@@ -55,8 +63,12 @@ gronin config set discord_webhook 'https://discord.com/api/webhooks/REPLACE_ME'
 gronin validate ~/.gronin/playbooks
 ```
 
-This is the load gate, and it needs no credential — so it also belongs in CI. If it refuses, it
-names the playbook, the field, what it found and what would be accepted, for every problem at once.
+This is the load gate. If it refuses, it names the playbook, the field, what it found and what
+would be accepted, for every problem at once.
+
+It needs no credential, so it also belongs in CI — but it does need the configuration keys to
+exist, because a reference resolving to nothing is one of the things it refuses. In CI, set them to
+placeholders: what the gate checks is that a name resolves, never what it resolves to.
 
 ## 5. Run it once, by hand
 

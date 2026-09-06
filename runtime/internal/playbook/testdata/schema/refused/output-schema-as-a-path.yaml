@@ -1,0 +1,6 @@
+name: five
+trigger: {type: manual}
+agent: {model: m, prompt_file: p.md, output_schema: schemas/findings.json}
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

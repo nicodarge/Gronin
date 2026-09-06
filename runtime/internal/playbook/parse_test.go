@@ -10,7 +10,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 )
 
-// T012, SC-002's shape half. Fourteen documents, ten of which the published schema must
+// T012, SC-002's shape half. Fifteen documents, eleven of which the published schema must
 // refuse. The corpus is here rather than in a probe script so it keeps running: a probe
 // that passed once, on a machine that no longer exists, is a claim rather than a check.
 //
@@ -21,12 +21,12 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 	accepted := documentsIn(t, "testdata/schema/accepted")
 	refused := documentsIn(t, "testdata/schema/refused")
 
-	if len(accepted)+len(refused) != 14 {
-		t.Fatalf("the corpus holds %d documents, and the probe it ports had fourteen",
+	if len(accepted)+len(refused) != 15 {
+		t.Fatalf("the corpus holds %d documents, and it is meant to hold fifteen",
 			len(accepted)+len(refused))
 	}
-	if len(refused) != 10 {
-		t.Fatalf("%d documents are meant to be refused, and the probe refused ten", len(refused))
+	if len(refused) != 11 {
+		t.Fatalf("%d documents are meant to be refused, and eleven are", len(refused))
 	}
 
 	for name, document := range accepted {
@@ -45,6 +45,7 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 		"name-not-a-slug.yaml":             "does not match pattern",
 		"no-name.yaml":                     "missing property 'name'",
 		"no-sinks.yaml":                    "sinks: minItems: got 0, want 1",
+		"output-schema-as-a-path.yaml":     "agent/output_schema: got string, want object",
 		"sink-with-two-types.yaml":         "sinks/0: maxProperties: got 2, want 1",
 		"trigger-type-unknown.yaml":        "trigger/type: value must be one of 'cron', 'manual'",
 		"unknown-top-level-key.yaml":       "additional properties 'on_failure' not allowed",

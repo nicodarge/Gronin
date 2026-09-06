@@ -103,7 +103,7 @@ func (e *Executor) Execute(
 	incomplete.note(err)
 	outcome.ResolvedPlaybookRef = ref
 
-	gatherErr := e.gather(ctx, started, book, incomplete)
+	gatherErr := e.gather(ctx, started, book, incomplete, trigger)
 	if gatherErr != nil {
 		// FR-010: the run is refused before the stage that costs money, and the inputs
 		// it did collect are kept, because they are what explains the refusal.
@@ -153,10 +153,18 @@ func (e *Executor) prompt(
 // the ordering is the whole of this function.
 func (e *Executor) gather(
 	ctx context.Context, started *Run, book *playbook.Playbook, incomplete *problems,
+	trigger map[string]string,
 ) error {
 	steps := make([]gather.Step, 0, len(book.Gather))
+	// A step's references resolve through its environment rather than into its text.
+	// Substituting a value into a shell line is command injection by construction, and
+	// the value is one the deployment holds and the playbook cannot see.
 	for _, step := range book.Gather {
-		steps = append(steps, gather.Step{Run: step.Run, As: step.As})
+		bound, err := e.Config.BindShell(step.Run, trigger)
+		if err != nil {
+			return fmt.Errorf("gather step %s: %w", step.As, err)
+		}
+		steps = append(steps, gather.Step{Run: bound.Line, As: step.As, Env: bound.Env})
 	}
 
 	results, runErr := gather.Run(ctx, steps, gather.Options{
@@ -207,7 +215,7 @@ func (e *Executor) recordStage(
 		outcome.Tokens = result.Usage.Total()
 		for at, denial := range result.PermissionDenials {
 			incomplete.note(e.Store.AddRefusedAction(ctx, runID, record.RefusedAction{
-				Sequence: at + 1, Tool: denial.Tool, Reason: denial.Reason,
+				Sequence: at + 1, Tool: denial.Tool, Asked: string(denial.Input),
 			}))
 		}
 	}

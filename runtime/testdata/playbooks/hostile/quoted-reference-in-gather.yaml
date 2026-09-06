@@ -1,0 +1,15 @@
+name: quoted-reference-in-gather
+trigger:
+  type: manual
+gather:
+  - run: git ls-files '${config.loft}'
+    as: files.txt
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

@@ -108,8 +108,16 @@ func inheritedEnv(names []string) []string {
 // capabilities is what this deployment can do, which is half of whether a playbook is
 // safe. A name the gate cannot resolve is refused here rather than at delivery, after a
 // full agent run has been paid for.
-func capabilities() playbook.Deployment {
+func capabilities(cfg *config.Config) playbook.Deployment {
+	var keys []string
+	if cfg != nil {
+		keys = cfg.Keys()
+	}
 	return playbook.Deployment{
+		// What the deployment can resolve. spec.md asks for a reference that resolves to
+		// nothing to be refused at load rather than at trigger time, and the gate cannot
+		// answer that without knowing which keys exist.
+		ConfigKeys: keys,
 		// No MCP server is wired yet. An empty list is the honest answer and it refuses
 		// every playbook naming one, which is the right direction: a server the runtime
 		// does not pass to the child is a bound the playbook thinks it has.
@@ -132,7 +140,11 @@ func playbooksDir(cmd *cobra.Command) string {
 // the failure the design exists to prevent, so the output says nothing was armed.
 func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
-	loaded, err := playbook.Load(dir, capabilities())
+	cfg, err := config.Load(stateDirOf(cmd))
+	if err != nil {
+		return playbook.Loaded{}, err
+	}
+	loaded, err := playbook.Load(dir, capabilities(cfg))
 	if err != nil {
 		return loaded, err
 	}

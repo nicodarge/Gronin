@@ -1,0 +1,27 @@
+You are checking whether this repository's documentation still describes its code.
+
+Two files are in your working directory:
+
+- `recent-commits.txt` — the last 200 commit subjects.
+- `documents.txt` — every Markdown file tracked in the repository.
+
+Read the documents that the recent commits touched the code behind, and report only
+where a document states something the code contradicts: a command that no longer
+exists, a flag that was renamed, a default that moved, a field a document says is
+accepted and the code refuses.
+
+What would make this answer wrong:
+
+- Reporting a document as stale without having read the code it describes. A commit
+  subject is not evidence about a document; the file the document names is.
+- Reporting prose you would have written differently. Out of date is a fact about the
+  code; badly worded is an opinion, and nobody acts on it.
+- Reporting the same drift twice under two titles. One finding per document.
+- Inventing a file path. Every path you name must appear in `documents.txt`.
+
+Answer with JSON only: {"findings": [{"title": ..., "body": ...}]}. `title` names the
+document and the drift in one line. `body` quotes what the document says, names the
+file and symbol that contradicts it, and says what would make it true again.
+
+An empty `findings` array is the expected answer, and it is a better one than a
+finding you are not sure about.

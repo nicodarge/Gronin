@@ -565,3 +565,85 @@ func TestAScopedAllowEntryDoesNotWidenWhatTheReceiptAccepts(t *testing.T) {
 		t.Fatalf("an allowed MCP tool was refused: %v", err)
 	}
 }
+
+// StructuredOutput is what the executable adds when BuildArgs passes --json-schema, and
+// it does that whenever the playbook declares an output schema — which the playbook
+// schema makes required. Measured on the shipped executable: the same invocation reports
+// `tools: [Read]` without the flag and `tools: [Read, StructuredOutput]` with it.
+//
+// Before this, every run against the real agent was refused by its own receipt check, and
+// no test saw it because the stub does not add the tool. That is what T063 was for.
+func TestStructuredOutputIsAcceptedOnlyWhenTheRunAskedForIt(t *testing.T) {
+	declared := agent.Declaration{
+		Tools:        []string{"Read"},
+		OutputSchema: map[string]any{"type": "object"},
+	}
+	receipt := agent.Event{
+		Type: "system", Subtype: "init",
+		Tools: []string{"Read", "StructuredOutput"},
+	}
+	if err := agent.CheckReceipt(declared)(receipt); err != nil {
+		t.Fatalf("a run declaring an output schema was refused for the tool that "+
+			"serves it: %v", err)
+	}
+
+	// The refusing half, which is what keeps the fold from being a widening: without a
+	// declared schema the runtime never passes --json-schema, so a receipt naming the
+	// tool is a bound nobody asked for.
+	withoutSchema := agent.Declaration{Tools: []string{"Read"}}
+	err := agent.CheckReceipt(withoutSchema)(receipt)
+	if !errors.Is(err, agent.ErrReceiptMismatch) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "StructuredOutput") {
+		t.Fatalf("the refusal does not name the tool: %v", err)
+	}
+}
+
+// The terminal event as the shipped executable actually writes it. Copied from a real
+// run's transcript rather than composed here: every field below was named by guessing
+// once, and `permission_denials` was guessed wrong — the struct read `tool` and `reason`
+// where the executable writes `tool_name` and `tool_input`, so both decoded empty and
+// `gronin show` printed "refused   : " for a refusal that had happened.
+//
+// The refusal section is the one an operator only ever reads when something went wrong,
+// which is the worst place for a field name nobody checked.
+func TestTheTerminalEventDecodesAsTheExecutableWritesIt(t *testing.T) {
+	const terminal = `{"type":"result","subtype":"success","is_error":false,` +
+		`"duration_ms":19159,"num_turns":7,"total_cost_usd":0.037,` +
+		`"result":"{\"findings\":[]}","structured_output":{"findings":[]},` +
+		`"usage":{"input_tokens":11,"output_tokens":22},` +
+		`"permission_denials":[{"tool_name":"Glob","tool_use_id":"toolu_01",` +
+		`"tool_input":{"pattern":"**/README.md","path":"/"}}]}`
+
+	stream, err := agent.Decode(strings.NewReader(terminal), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stream.Result == nil {
+		t.Fatal("no terminal event was decoded")
+	}
+
+	denials := stream.Result.PermissionDenials
+	if len(denials) != 1 {
+		t.Fatalf("denials = %+v", denials)
+	}
+	if denials[0].Tool != "Glob" {
+		t.Errorf("the refused tool decoded as %q", denials[0].Tool)
+	}
+	if !strings.Contains(string(denials[0].Input), "README.md") {
+		t.Errorf("what the agent asked for decoded as %q", denials[0].Input)
+	}
+
+	// The answer is taken from structured_output. `result` holds the same answer as a
+	// JSON string, and validating that against an object schema is what failed every real
+	// run before this.
+	outcome := &agent.Outcome{Stream: stream}
+	report, err := outcome.Report()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.ValidateReport(report, map[string]any{"type": "object"}); err != nil {
+		t.Errorf("the report does not satisfy an object schema: %v", err)
+	}
+}
