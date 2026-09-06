@@ -18,6 +18,10 @@ const DefaultGitHubAPI = "https://api.github.com"
 // Marker is put on every issue this runtime opens, so the cap can count what it created
 // before without counting what a human opened by hand. Counting every open issue in a
 // repository would make one busy week silence the runtime entirely.
+//
+// It is the default rather than the only value: a playbook names its own label, and two
+// playbooks opening issues on one repository need two, or they share a cap and the
+// busier of them silences the other.
 const Marker = "gronin"
 
 // GitHub creates issues, and is the one sink here that brings anything into existence.
@@ -29,18 +33,28 @@ const Marker = "gronin"
 type GitHub struct {
 	repo   string
 	token  string
+	label  string
 	cap    int
 	capSet bool
 	api    string
 	client *http.Client
 }
 
-// NewGitHub returns the issue sink.
-func NewGitHub(repo, token string, ceiling int, capSet bool, api string, client *http.Client) *GitHub {
+// NewGitHub returns the issue sink. An empty label is the Marker, which is what a
+// playbook naming none gets.
+func NewGitHub(
+	repo, token, label string, ceiling int, capSet bool, api string, client *http.Client,
+) *GitHub {
 	if api == "" {
 		api = DefaultGitHubAPI
 	}
-	return &GitHub{repo: repo, token: token, cap: ceiling, capSet: capSet, api: api, client: client}
+	if label == "" {
+		label = Marker
+	}
+	return &GitHub{
+		repo: repo, token: token, label: label,
+		cap: ceiling, capSet: capSet, api: api, client: client,
+	}
 }
 
 // Name is how this sink appears in the record.
@@ -210,7 +224,7 @@ func (g *GitHub) openIssues(ctx context.Context) (openSet, error) {
 	// before it, mirrored.
 	for page := 1; page <= maxPages+1; page++ {
 		endpoint := fmt.Sprintf("%s/repos/%s/issues?state=open&labels=%s&per_page=%d&page=%d",
-			g.api, g.repo, url.QueryEscape(Marker), perPage, page)
+			g.api, g.repo, url.QueryEscape(g.label), perPage, page)
 
 		body, err := g.do(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
@@ -246,7 +260,7 @@ func (g *GitHub) create(ctx context.Context, title, body string, delivery Delive
 		"title": title,
 		"body": fmt.Sprintf("%s\n\n---\nOpened by the playbook `%s`, run `%s`.",
 			body, delivery.PlaybookName, delivery.RunID),
-		"labels": []string{Marker},
+		"labels": []string{g.label},
 	})
 	if err != nil {
 		return err

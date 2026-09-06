@@ -977,6 +977,71 @@
         "./cmd/gronin",
         "-count=1"
       ]
+    },
+    {
+      "name": "the gate accepts a label the cap cannot be counted against",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tproblems = append(problems, labelProblems(field+\".\"+name+\".label\", config)...)",
+      "replace": "\t\t\t_ = config",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the issue sink ignores the label the playbook declared",
+      "tree": "..",
+      "file": "internal/sink/github.go",
+      "find": "url.QueryEscape(g.label)",
+      "replace": "url.QueryEscape(Marker)",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the sink accepts a label holding a comma",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif strings.Contains(label, \",\") {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate lets the trigger choose the bucket its cap is counted against",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif strings.Contains(text, \"${trigger.\") {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the sink accepts a label the trigger names",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif strings.Contains(text, \"${trigger.\") {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

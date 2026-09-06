@@ -1,0 +1,14 @@
+name: empty-label
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - github:
+      repo: ${config.audit_repo}
+      label: "  "
+      cap: 3

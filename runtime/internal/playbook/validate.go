@@ -373,6 +373,7 @@ func validateSinks(book *Playbook, dep Deployment) []Problem {
 					Accepted: "an integer; a sink that creates things must declare its ceiling",
 				})
 			}
+			problems = append(problems, labelProblems(field+"."+name+".label", config)...)
 		}
 	}
 	return problems
@@ -589,4 +590,61 @@ func configured(dep Deployment) map[string]bool {
 		known[key] = true
 	}
 	return known
+}
+
+// labelProblems applies the label rule where it is cheap: the cap is counted against the
+// label, so a label the sink cannot use is a cap measured against nothing.
+//
+// The sink refuses all of these too, when it is built. Here as well because there the run
+// has already been triggered, and this gate exists so a playbook that cannot work is
+// refused before anything is armed. What this cannot judge is what a reference resolves
+// to — the deployment holds that value and the gate holds no values — so a written label
+// is refused twice and a resolved one is refused by the sink.
+func labelProblems(field string, config map[string]any) []Problem {
+	raw, declared := config["label"]
+	if !declared {
+		return nil
+	}
+	text, ok := raw.(string)
+	if !ok {
+		return []Problem{{
+			Field: field, Found: "is not a string",
+			Accepted: "a label name, e.g. doc-drift",
+		}}
+	}
+	// Empty first, then the comma, matching the order the sink applies them so the two
+	// halves of one rule cannot drift into disagreeing about which refusal comes out.
+	//
+	// A reference resolves to a value this gate cannot see, so only a written label is
+	// judged empty here.
+	if !strings.Contains(text, "${") && strings.TrimSpace(text) == "" {
+		return []Problem{{
+			Field: field, Found: "is empty, which counts every open issue in the repository",
+			Accepted: "a label name, or remove the field to use the default",
+		}}
+	}
+	if strings.Contains(text, ",") {
+		return []Problem{{
+			Field: field,
+			Found: fmt.Sprintf("%q holds a comma, which GitHub reads as two labels", text),
+			Accepted: "one label name; the cap counts the issues carrying it, and a list " +
+				"would count issues the sink never creates",
+		}}
+	}
+	// The cap is counted against the label, so whatever names the label chooses the
+	// bucket the ceiling applies to. A trigger must not: it would make the cap
+	// per-trigger rather than per-repository, and a payload that varied the label would
+	// mint a fresh empty bucket every run — each respecting its own ceiling while the
+	// repository filled up. No trigger source needs to name a label, so this costs
+	// nothing, and it is refused now rather than when a trigger arrives that is written
+	// by whoever sent the request.
+	if strings.Contains(text, "${trigger.") {
+		return []Problem{{
+			Field: field,
+			Found: "resolves through the trigger, which would let what fires the run choose " +
+				"the bucket its cap is counted against",
+			Accepted: "a label name, or ${config.x}; the deployment names it, not the trigger",
+		}}
+	}
+	return nil
 }

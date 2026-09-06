@@ -133,12 +133,53 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 		}
 	}
 
+	// The label the cap is counted against. A playbook may name its own, because two
+	// playbooks opening issues on one repository otherwise share a cap and the busier one
+	// silences the other.
+	//
+	// A comma is refused rather than escaped. GitHub reads `labels=` as a list, so
+	// "a,b" would count the issues carrying BOTH while creating one issue whose single
+	// label is the literal "a,b" — the count and the creation would name different
+	// things, and the cap would be measured against a set the sink never adds to.
+	// Declared-and-empty is refused for the neighbouring reason: it drops the filter and
+	// counts every open issue in the repository.
+	label := Marker
+	if raw, declared := decl.Config["label"]; declared {
+		text, ok := raw.(string)
+		if !ok {
+			return nil, fmt.Errorf("label is not a string; accepted: a label name, e.g. %q", Marker)
+		}
+		// Checked on the written text, before it resolves: the cap is counted against the
+		// label, so whatever names it chooses the bucket the ceiling applies to, and a
+		// trigger naming it makes the cap per-trigger rather than per-repository. The
+		// load gate refuses this too — it is duplicated here for the same reason the
+		// comma and the empty label are, so the sink holds the rule even when it is
+		// reached by something that did not come through the gate.
+		if strings.Contains(text, "${trigger.") {
+			return nil, fmt.Errorf("label %q resolves through the trigger, which would let "+
+				"what fires the run choose the bucket its cap is counted against; accepted: "+
+				"a label name, or ${config.x}", text)
+		}
+		label, err = opts.interpolate(text)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(label) == "" {
+			return nil, fmt.Errorf("label resolves to nothing; accepted: a label name, or " +
+				"remove the field to use the default")
+		}
+		if strings.Contains(label, ",") {
+			return nil, fmt.Errorf("label %q holds a comma, which GitHub reads as two labels; "+
+				"accepted: one label name", label)
+		}
+	}
+
 	ceiling, declared := capOf(decl)
 	if declared && ceiling <= 0 {
 		return nil, fmt.Errorf("%w: %d creates nothing, which is not a ceiling", ErrNoCap, ceiling)
 	}
 	api, _ := decl.Config["api"].(string)
-	return NewGitHub(repo, token, ceiling, declared, api, opts.Client), nil
+	return NewGitHub(repo, token, label, ceiling, declared, api, opts.Client), nil
 }
 
 // capOf reads the declared ceiling. YAML gives an int; JSON, and a value that came
@@ -184,4 +225,14 @@ func webhookURL(decl Declaration, opts BuildOptions) (string, error) {
 		return "", fmt.Errorf("the webhook resolved to nothing")
 	}
 	return resolved, nil
+}
+
+// interpolate resolves a value through the deployment, or returns it unchanged when a
+// caller supplied no resolver. resolved() does this for a field it also requires; a label
+// is optional, so the two halves are separate.
+func (o BuildOptions) interpolate(raw string) (string, error) {
+	if o.Interpolate == nil {
+		return raw, nil
+	}
+	return o.Interpolate(raw)
 }
