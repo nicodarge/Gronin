@@ -20,7 +20,11 @@ developer — goes through it, so a green suite means one thing rather than thre
 The mutations live in [testdata/mutations.json](testdata/mutations.json). Add one when
 you add a guard: a test that has never been watched failing is not evidence of anything.
 `scripts/check-mutation.py --self-test` shows the harness reporting zero, which is what
-makes the zero it reports on the real mutations worth reading.
+makes the zero it reports on the real mutations worth reading. It also shows it refusing
+rather than reporting — a mutant that does not compile is one of those, because a build
+failure exits non-zero exactly like a failing test and would otherwise be counted as
+caught by a test that never ran, and so is a mutation whose tree holds Go the harness
+cannot compile.
 
 ## Layout
 

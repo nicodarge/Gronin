@@ -660,3 +660,45 @@ func TestALabelResolvesThroughTheDeployment(t *testing.T) {
 		t.Fatal("no sink was built")
 	}
 }
+
+// The endpoint is a value like every other one a playbook holds, so the deployment
+// supplies it. Read raw, a playbook writing `api: ${config.github_api}` passed the load
+// gate — which walks the field and checks the key exists — and then sent its request to a
+// URL still spelling the reference. The endpoint is only used at delivery, so that failure
+// landed after the agent run had been paid for.
+func TestTheEndpointResolvesThroughTheDeployment(t *testing.T) {
+	var asked string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.Path
+		_, _ = w.Write([]byte("[]"))
+	}))
+	t.Cleanup(server.Close)
+
+	built, problems := sink.Build([]sink.Declaration{{
+		Type: "github",
+		Config: map[string]any{
+			"repo": "owner/repo", "cap": 1, "api": "${config.github_api}",
+		},
+	}}, sink.BuildOptions{
+		Interpolate: func(raw string) (string, error) {
+			if raw == "${config.github_api}" {
+				return server.URL, nil
+			}
+			return raw, nil
+		},
+		Client: server.Client(),
+	})
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+
+	if _, err := built[0].Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "r",
+		Report: []byte(`{"findings":[{"title":"t","body":"b"}]}`),
+	}); err != nil {
+		t.Fatalf("delivery failed, so the endpoint did not resolve: %v", err)
+	}
+	if asked == "" {
+		t.Fatal("the deployment's endpoint was never reached")
+	}
+}

@@ -114,6 +114,34 @@ def survives(mutation: Mutation) -> bool:
             )
         target.write_text(text.replace(mutation.find, mutation.replace))
 
+        # A mutant that does not compile exits non-zero exactly like a failing test, so
+        # the command below would count it killed without ever running the defect.
+        # Refused instead, the way a moved target and a broken baseline already are.
+        #
+        # `go test -run=^$` builds every test binary and runs none of them. `go build`
+        # does not compile _test.go at all, and `go vet` refuses on its own diagnostics —
+        # measured, it calls one legitimate mutant here unreachable code.
+        #
+        # Skipped only for a tree holding no Go at all, which is the self-test's shell
+        # subject. Go without a go.mod at the root is refused rather than skipped: a
+        # mutation scoped to a package directory would otherwise walk past this check in
+        # silence and be counted killed again, which is the whole defect above.
+        built = None
+        if (work / "go.mod").is_file():
+            built = run(["go", "test", "-run=^$", "-count=1", "./..."], work)
+        elif any(work.rglob("*.go")):
+            raise ConfigError(
+                f"{mutation.name}: {mutation.tree} holds Go but no go.mod at its root, "
+                f"so the mutated tree cannot be compiled before the command runs; point "
+                f"the mutation's tree at the module root"
+            )
+        if built is not None and built.returncode != 0:
+            raise ConfigError(
+                f"{mutation.name}: the mutated tree does not compile, so the command "
+                f"below would report it killed without ever running the defect:\n"
+                f"{built.stdout}{built.stderr}"
+            )
+
         return run(mutation.command, work).returncode == 0
 
 
@@ -146,6 +174,34 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 
 SELF_TEST_BROKEN = """#!/bin/sh
 exit 1
+"""
+
+# A Go module, because the compile refusal only applies where there is something to
+# compile, and the shell subjects above have nothing. One package, one test, and a
+# mutation that leaves an import unused — which is the shape every one of the thirteen
+# mutants this refusal was written for had.
+SELF_TEST_GO_MOD = """module example.com/selftest
+
+go 1.24
+"""
+
+SELF_TEST_GO_SUBJECT = """package selftest
+
+import "strings"
+
+// Answer is what the test below checks, and strings is what the mutation orphans.
+func Answer() string { return strings.TrimSpace(" 42 ") }
+"""
+
+SELF_TEST_GO_TEST = """package selftest
+
+import "testing"
+
+func TestAnswer(t *testing.T) {
+	if Answer() != "42" {
+		t.Fatal("wrong")
+	}
+}
 """
 
 
@@ -210,6 +266,39 @@ def self_test() -> int:
                 command=["./test.sh"],
             ),
         }
+
+        # The compile refusal. Without a case here the harness's newest branch is the one
+        # piece of it nothing exercises, which is the shape of defect it exists to catch.
+        gomod = root / "gomod"
+        gomod.mkdir()
+        (gomod / "go.mod").write_text(SELF_TEST_GO_MOD)
+        (gomod / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
+        (gomod / "subject_test.go").write_text(SELF_TEST_GO_TEST)
+        refusals["a mutant that does not compile"] = Mutation(
+            name="uncompilable mutant",
+            tree=gomod,
+            file="subject.go",
+            # Orphans the strings import, exactly as the thirteen did.
+            find='return strings.TrimSpace(" 42 ")',
+            replace='return "41"',
+            command=["go", "test", "./...", "-count=1"],
+        )
+
+        # Go with no module root. The compile gate can only run where `go test ./...`
+        # resolves, and skipping silently there is how the defect above would come back
+        # for a mutation scoped to a package directory rather than the module.
+        nomod = root / "nomod"
+        nomod.mkdir()
+        (nomod / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
+        refusals["Go with no go.mod at the tree root"] = Mutation(
+            name="no module root",
+            tree=nomod,
+            file="subject.go",
+            find='return strings.TrimSpace(" 42 ")',
+            replace='return "41"',
+            command=["true"],
+        )
+
         for description, mutation in refusals.items():
             try:
                 check([mutation], quiet=True)
@@ -251,7 +340,8 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, and refuses a broken "
-        "baseline, an absent target and a missing tree"
+        "baseline, an absent target, a mutant that does not compile, Go with no module "
+        "root and a missing tree"
     )
     return 0
 

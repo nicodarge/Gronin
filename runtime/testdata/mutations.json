@@ -5,7 +5,7 @@
       "tree": "..",
       "file": "cmd/gronin/version.go",
       "find": "\tif info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != \"\" {\n\t\treturn info.Main.Version\n\t}\n",
-      "replace": "",
+      "replace": "\tif info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != \"\" && false {\n\t\treturn info.Main.Version\n\t}\n",
       "command": [
         "go",
         "test",
@@ -31,7 +31,7 @@
       "tree": "..",
       "file": "cmd/gronin/main.go",
       "find": "\tif !errors.As(err, &silent) {\n\t\tfmt.Fprintln(os.Stderr, \"gronin:\", err)\n\t}",
-      "replace": "\t_ = silent",
+      "replace": "\tif !errors.As(err, &silent) && false {\n\t\tfmt.Fprintln(os.Stderr, \"gronin:\", err)\n\t}",
       "command": [
         "go",
         "test",
@@ -226,7 +226,7 @@
       "tree": "..",
       "file": "internal/stage/agent/validate.go",
       "find": "\tif err := compiled.Validate(document); err != nil {",
-      "replace": "\tif err := error(nil); err != nil {",
+      "replace": "\tif err := compiled.Validate(document); false && err != nil {",
       "command": [
         "go",
         "test",
@@ -317,7 +317,7 @@
       "tree": "..",
       "file": "internal/sink/sink.go",
       "find": "\tif !declared {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
-      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
+      "replace": "\tif !declared && false {\n\t\treturn fmt.Errorf(\"%w\", ErrNoCap)\n\t}",
       "command": [
         "go",
         "test",
@@ -410,7 +410,7 @@
       "tree": "..",
       "file": "internal/playbook/validate.go",
       "find": "\tif wholeServer {",
-      "replace": "\tif false {",
+      "replace": "\tif wholeServer && false {",
       "command": [
         "go",
         "test",
@@ -462,7 +462,7 @@
       "tree": "..",
       "file": "internal/playbook/validate.go",
       "find": "\t\t\tif _, declared := config[\"cap\"]; !declared {",
-      "replace": "\t\t\tif _, declared := config[\"cap\"]; false {",
+      "replace": "\t\t\tif _, declared := config[\"cap\"]; !declared && false {",
       "command": [
         "go",
         "test",
@@ -514,7 +514,7 @@
       "tree": "..",
       "file": "internal/playbook/validate.go",
       "find": "\t\tif present {",
-      "replace": "\t\tif false {",
+      "replace": "\t\tif present && false {",
       "command": [
         "go",
         "test",
@@ -541,7 +541,7 @@
       "tree": "..",
       "file": "internal/stage/agent/startup.go",
       "find": "\tif below {\n\t\treturn fmt.Errorf(\"%w: %s, and the floor is %s\", ErrBelowVersionFloor, version, VersionFloor)\n\t}",
-      "replace": "\tif false {\n\t\treturn fmt.Errorf(\"%w: %s\", ErrBelowVersionFloor, version)\n\t}",
+      "replace": "\tif below && false {\n\t\treturn fmt.Errorf(\"%w: %s, and the floor is %s\", ErrBelowVersionFloor, version, VersionFloor)\n\t}",
       "command": [
         "go",
         "test",
@@ -606,7 +606,7 @@
       "tree": "..",
       "file": "internal/api/api.go",
       "find": "\t\tif offered == \"\" || subtle.ConstantTimeCompare([]byte(offered), []byte(s.token)) != 1 {",
-      "replace": "\t\tif offered == \"\" || !strings.HasPrefix(s.token, offered) {",
+      "replace": "\t\tif offered == \"\" || subtle.ConstantTimeCompare([]byte(offered), []byte(s.token)) != 1 && false {",
       "command": [
         "go",
         "test",
@@ -632,7 +632,7 @@
       "tree": "..",
       "file": "internal/playbook/validate.go",
       "find": "\t\t\twhere := \"agent.prompt_file (\" + agent.PromptFile + \")\"\n\t\t\tproblems = append(problems, bareReferences(where, string(body))...)",
-      "replace": "\t\t\t_ = body",
+      "replace": "\t\t\twhere := \"agent.prompt_file (\" + agent.PromptFile + \")\"\n\t\t\t_ = body",
       "command": [
         "go",
         "test",
@@ -658,7 +658,7 @@
       "tree": "..",
       "file": "internal/run/replay.go",
       "find": "\tif !bytes.Equal(bytes.TrimSpace(recorded), bytes.TrimSpace(now)) {",
-      "replace": "\tif false {",
+      "replace": "\tif !bytes.Equal(bytes.TrimSpace(recorded), bytes.TrimSpace(now)) && false {",
       "command": [
         "go",
         "test",
@@ -814,7 +814,7 @@
       "tree": "..",
       "file": "internal/sink/github.go",
       "find": "\tif cappedOut {",
-      "replace": "\tif outcome.ItemsSkipped > 0 {",
+      "replace": "\tif cappedOut || outcome.ItemsSkipped > 0 {",
       "command": [
         "go",
         "test",
@@ -905,7 +905,7 @@
       "tree": "..",
       "file": "internal/playbook/validate.go",
       "find": "\t\tfor _, name := range config.QuotedReferences(step.Run) {",
-      "replace": "\t\tfor _, name := range []string(nil) {\n\t\t\t_ = step",
+      "replace": "\t\tfor _, name := range config.QuotedReferences(step.Run[:0]) {",
       "command": [
         "go",
         "test",
@@ -1036,6 +1036,19 @@
       "file": "internal/sink/build.go",
       "find": "\t\tif strings.Contains(text, \"${trigger.\") {",
       "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the sink's endpoint is read raw instead of resolved",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\tapi, err := opts.interpolate(stringAt(decl, \"api\"))",
+      "replace": "\tapi, err := stringAt(decl, \"api\"), error(nil)",
       "command": [
         "go",
         "test",
