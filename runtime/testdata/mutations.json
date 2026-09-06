@@ -1055,6 +1055,32 @@
         "./internal/sink",
         "-count=1"
       ]
+    },
+    {
+      "name": "an unauthenticated agent is read as authenticated",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\tif outcome.Stream.Result.IsError {",
+      "replace": "\tif false {\n\t\t_ = outcome.Stream.Result.IsError",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "any failed turn is read as a missing credential",
+      "tree": "..",
+      "file": "internal/stage/agent/startup.go",
+      "find": "\t\tif status == \"\" || status == \"null\" || status == \"401\" {",
+      "replace": "\t\tif true {\n\t\t\t_ = status",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
     }
   ]
 }
