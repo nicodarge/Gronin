@@ -18,7 +18,11 @@ func newRunsCommand() *cobra.Command {
 		Short: "List runs, most recent first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			deployment, err := openDeployment(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -53,7 +57,11 @@ func newShowCommand() *cobra.Command {
 		Short: "Print one run's record",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deployment, err := openDeployment(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -173,7 +181,11 @@ func fromRecord(
 	do func(*deployment, *cobra.Command, string, *bookRef) (record.Run, error),
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		deployment, err := openDeployment(cmd)
+		cfg, err := openConfig(cmd)
+		if err != nil {
+			return err
+		}
+		deployment, err := openDeployment(cmd, cfg)
 		if err != nil {
 			return err
 		}
@@ -184,7 +196,7 @@ func fromRecord(
 			return err
 		}
 
-		loaded, err := loadPlaybooks(cmd)
+		loaded, err := loadPlaybooks(cmd, cfg)
 		if err != nil {
 			return errSilent{err}
 		}

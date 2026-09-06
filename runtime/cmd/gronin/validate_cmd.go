@@ -21,7 +21,11 @@ func newValidateCommand() *cobra.Command {
 					return err
 				}
 			}
-			loaded, err := loadPlaybooks(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg)
 			if err != nil {
 				return errSilent{err}
 			}

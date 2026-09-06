@@ -49,13 +49,13 @@ var agentEnvVars = []string{
 	"AWS_REGION", "AWS_PROFILE", "GOOGLE_CLOUD_PROJECT",
 }
 
-func openDeployment(cmd *cobra.Command) (*deployment, error) {
+// openDeployment builds everything a command needs around an already-loaded
+// configuration. It takes the configuration rather than reading it because the gate needs
+// the same one — and a command that read it twice would read the same file twice per
+// invocation.
+func openDeployment(cmd *cobra.Command, cfg *config.Config) (*deployment, error) {
 	stateDir := stateDirOf(cmd)
 
-	cfg, err := config.Load(stateDir)
-	if err != nil {
-		return nil, err
-	}
 	store, err := record.Open(cmd.Context(), filepath.Join(stateDir, "record"),
 		record.NewRedactor(cfg.Secrets()))
 	if err != nil {
@@ -138,12 +138,8 @@ func playbooksDir(cmd *cobra.Command) string {
 // loadPlaybooks reads the directory and refuses the whole set if any of it is refused.
 // The last line is deliberate: a gate that refuses two out of six and starts anyway is
 // the failure the design exists to prevent, so the output says nothing was armed.
-func loadPlaybooks(cmd *cobra.Command) (playbook.Loaded, error) {
+func loadPlaybooks(cmd *cobra.Command, cfg *config.Config) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
-	cfg, err := config.Load(stateDirOf(cmd))
-	if err != nil {
-		return playbook.Loaded{}, err
-	}
 	loaded, err := playbook.Load(dir, capabilities(cfg))
 	if err != nil {
 		return loaded, err
@@ -179,4 +175,10 @@ func logLevel(cmd *cobra.Command) slog.Level {
 		return slog.LevelDebug
 	}
 	return slog.LevelInfo
+}
+
+// openConfig reads the deployment's configuration. Every command that needs it reads it
+// once here and hands it on, so the gate and the deployment share one read of one file.
+func openConfig(cmd *cobra.Command) (*config.Config, error) {
+	return config.Load(stateDirOf(cmd))
 }

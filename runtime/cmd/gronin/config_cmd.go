@@ -25,7 +25,11 @@ func newConfigCommand() *cobra.Command {
 		Short: "Set a deployment configuration value",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deployment, err := openDeployment(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -54,7 +58,11 @@ func newConfigCommand() *cobra.Command {
 		Short: "List configuration keys, secrets redacted",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			deployment, err := openDeployment(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}
