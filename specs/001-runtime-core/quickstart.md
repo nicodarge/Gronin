@@ -4,9 +4,9 @@ The path SC-001 is measured against: someone who has never seen this takes a shi
 changes two things, and gets a report delivered. Under thirty minutes, without reading the source.
 
 This has been followed end to end against the real agent, which is what T063 asked for and what
-every earlier test had stubbed. Step 1 is the exception: it downloads a release, and no tag exists
-yet, so the walkthrough was driven with a locally built binary. Everything from step 2 down is a
-description of working software.
+every earlier test had stubbed — including step 1, from the v0.1.0 release: downloaded, checksum
+verified against the signed SHA256SUMS, confirmed statically linked. It is a description of working
+software rather than a target.
 
 ## 1. Install
 
