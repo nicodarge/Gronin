@@ -21,34 +21,47 @@ trigger:
   schedule: "0 6 * * *"
 
 gather:
-  - run: gh issue list --repo ${config.repo} --state open --json number,title
-    as: open-issues.json
   - run: git -C ${config.checkout} log --oneline -n 200
     as: recent-commits.txt
+  - run: git -C ${config.checkout} ls-files 'docs/*.md' '*.md'
+    as: documents.txt
 
 agent:
-  model: sonnet
+  model: claude-sonnet-5
   prompt_file: doc-check.prompt
-  restricted: true               # default; removes command- and code-running built-ins
-  tools: [Read, Grep, Glob]      # the bound, validated at load
-  mcp: []                        # declared servers only
+  restricted: true
+  tools: [Read, Grep, Glob]
   allow:
     - "Read(./**)"
     - "Grep(./**)"
-  output_schema: issues
+    - "Glob(./**)"
+  output_schema:
+    type: object
+    required: [findings]
+    properties:
+      findings:
+        type: array
+        items:
+          type: object
+          required: [title, body]
+          properties:
+            title: {type: string}
+            body: {type: string}
   timeout: 30m
 
 sinks:
-  - github_issues:
-      repo: "${config.repo}"
-      label: doc-check
+  - github:
+      repo: ${config.repo}
       cap: 5
 ```
 
-Everything in this example is accepted by the runtime as it stands. That is the point of showing
-it: an example carrying a field the loader refuses teaches the reader something that does not work,
-and it is the first thing they copy. The `guard` and `retrieve` blocks a later feature will add are
-absent for exactly that reason — see the refusal list below.
+This is [`examples/doc-check.yaml`](../examples/doc-check.yaml) verbatim, and a test pins the two
+together. It is also driven through the load gate rather than only through the schema above, which
+is a different check: the schema is the shape layer, and it accepted an example carrying a sink type
+this deployment does not implement, a `label` field the GitHub sink never reads, and an
+`output_schema` no run could compile. An example is the first thing a reader copies, so what it is
+checked against is the gate that arms a playbook. The `guard` and `retrieve` blocks a later feature
+will add are absent for the same reason — see the refusal list below.
 
 ## Interpolation is namespaced by source
 
@@ -62,6 +75,37 @@ question.
 
 Neither namespace reaches the process environment. That is FR-008, and it is why the deployment's
 own database password is not addressable from a playbook.
+
+A reference that resolves to nothing is refused at load, before anything is armed — so `gronin
+validate` needs the deployment's configuration keys to exist. The values may be placeholders; what
+it checks is that a name resolves, not what it resolves to.
+
+### A gather step resolves through its environment, not into its text
+
+A gather step is a shell line, and substituting a value into a shell line is command injection by
+construction: a configuration value of `x; rm -rf ~` would become a second command, and nothing the
+playbook author writes can prevent that, because the value belongs to the deployment and the
+playbook cannot see it.
+
+So `${config.checkout}` in a gather step becomes `"$GRONIN_CONFIG_CHECKOUT"`, and the value reaches
+the step through its environment. A double-quoted expansion is not re-parsed by the shell, so the
+value arrives as exactly one word whatever bytes it holds.
+
+That containment only holds where the substitution controls its own quoting, so a reference inside
+quotes is refused rather than bound:
+
+```yaml
+gather:
+  - run: git ls-files ${config.glob}        # bound
+    as: files.txt
+  - run: git ls-files '${config.glob}'      # refused
+    as: quoted.txt
+```
+
+Inside single quotes the expansion would not happen at all and the step would silently receive the
+literal text; inside double quotes it would nest and split on whitespace. Both are quiet, which is
+why they are refused instead. A value is one word: a reference is not a way to pass several
+arguments.
 
 ## Fields that are refused rather than warned about
 
@@ -78,6 +122,9 @@ The runtime rejects a playbook at load time, before any trigger is armed, when:
 - A `guard` or `retrieve` block is present while the runtime does not yet apply it. A declared
   bound the runtime ignores is worse than an absent one, so it is refused rather than dropped.
 - An interpolation omits its namespace. `${repo}` is refused; `${config.repo}` is not.
+- A `${config.x}` names a key this deployment does not hold. Refused at load rather than at trigger
+  time, which is the difference between finding out now and finding out at six in the morning.
+- A gather step puts a reference inside quotes — see above.
 - A sink names a type this deployment does not implement. A typo in a sink name would otherwise
   survive the gate and fail at delivery, after a full agent run has been paid for.
 

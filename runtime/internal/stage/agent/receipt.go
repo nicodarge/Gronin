@@ -11,6 +11,11 @@ import (
 // playbook declared.
 var ErrReceiptMismatch = errors.New("the agent process received a wider bound than the playbook declared")
 
+// structuredOutputTool is what the executable adds when it is given --json-schema. It is
+// the mechanism by which the answer conforms to the declared output schema, so a run that
+// declared one has asked for it.
+const structuredOutputTool = "StructuredOutput"
+
 // CheckReceipt returns an OnEvent hook that compares the child's own report of what it
 // received against what was declared, and refuses before any model output.
 //
@@ -36,7 +41,21 @@ func CheckReceipt(decl Declaration) func(Event) error {
 	// What can legitimately appear is an individually named MCP tool, because a
 	// connected server's tools do show up. Those are folded in; a scoped file form like
 	// `Read(./**)` is not a tool name and is not.
-	declaredTools := set(decl.Tools, mcpToolsIn(decl.Allow))
+	// StructuredOutput is the runtime's own doing, not a widening. BuildArgs passes
+	// `--json-schema` whenever the playbook declares an output schema — and the playbook
+	// schema makes that field required — and the executable answers that flag with this
+	// tool. Measured rather than reasoned: the same invocation reports `tools: [Read]`
+	// without the flag and `tools: [Read, StructuredOutput]` with it.
+	//
+	// Folded in only when the flag is actually passed, so a receipt naming it without the
+	// runtime having asked is still a mismatch. This is the one name folded in, for the
+	// reason the comment below gives about the allowlist: every extra name here widens
+	// what the check accepts.
+	structured := []string{}
+	if decl.OutputSchema != nil {
+		structured = append(structured, structuredOutputTool)
+	}
+	declaredTools := set(decl.Tools, mcpToolsIn(decl.Allow), structured)
 	declaredServers := set(decl.MCPServers)
 
 	return func(event Event) error {

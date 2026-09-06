@@ -631,7 +631,7 @@
       "name": "a bare reference in the prompt body is not seen",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\t\t\tproblems = append(problems,\n\t\t\t\tbareReferences(\"agent.prompt_file (\"+agent.PromptFile+\")\", string(body))...)",
+      "find": "\t\t\twhere := \"agent.prompt_file (\" + agent.PromptFile + \")\"\n\t\t\tproblems = append(problems, bareReferences(where, string(body))...)",
       "replace": "\t\t\t_ = body",
       "command": [
         "go",
@@ -644,8 +644,8 @@
       "name": "the receipt widens itself with the whole allowlist",
       "tree": "..",
       "file": "internal/stage/agent/receipt.go",
-      "find": "\tdeclaredTools := set(decl.Tools, mcpToolsIn(decl.Allow))",
-      "replace": "\tdeclaredTools := set(decl.Tools, decl.Allow)",
+      "find": "\tdeclaredTools := set(decl.Tools, mcpToolsIn(decl.Allow), structured)",
+      "replace": "\tdeclaredTools := set(decl.Tools, decl.Allow, structured)",
       "command": [
         "go",
         "test",
@@ -884,6 +884,84 @@
         "go",
         "test",
         "./internal/sink",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a ${config.x} this deployment does not hold",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif resolvedHere[fieldKind(held.field)] {\n\t\t\tproblems = append(problems, unconfigured(held.field, held.text, known)...)\n\t\t}",
+      "replace": "\t\t_ = known",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the gate accepts a gather reference sitting inside quotes",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tfor _, name := range config.QuotedReferences(step.Run) {",
+      "replace": "\t\tfor _, name := range []string(nil) {\n\t\t\t_ = step",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a gather step's value is substituted into its text",
+      "tree": "..",
+      "file": "internal/config/shell.go",
+      "find": "\t\tout.WriteString(`\"$` + variable + `\"`)",
+      "replace": "\t\tout.WriteString(value)",
+      "command": [
+        "go",
+        "test",
+        "./internal/config",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the receipt folds StructuredOutput in whether or not it was asked for",
+      "tree": "..",
+      "file": "internal/stage/agent/receipt.go",
+      "find": "\tif decl.OutputSchema != nil {\n\t\tstructured = append(structured, structuredOutputTool)\n\t}",
+      "replace": "\tstructured = append(structured, structuredOutputTool)",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the report is read from result rather than structured_output",
+      "tree": "..",
+      "file": "internal/stage/agent/agent.go",
+      "find": "\tif structured := o.Stream.Result.StructuredOutput; !emptyJSON(structured) {\n\t\treturn structured, nil\n\t}",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a refusal decodes from a field the executable does not write",
+      "tree": "..",
+      "file": "internal/stage/agent/stream.go",
+      "find": "\tTool string `json:\"tool_name\"`",
+      "replace": "\tTool string `json:\"tool\"`",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/agent",
         "-count=1"
       ]
     }

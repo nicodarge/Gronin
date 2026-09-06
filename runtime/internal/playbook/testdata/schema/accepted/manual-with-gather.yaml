@@ -10,7 +10,12 @@ agent:
   prompt_file: prompts/cert-expiry.md
   tools: [Read, Grep]
   allow: ["Read(./**)"]
-  output_schema: schemas/findings.json
+  output_schema:
+    type: object
+    required: [findings]
+    properties:
+      findings:
+        type: array
   timeout: 10m
 sinks:
   - slack:

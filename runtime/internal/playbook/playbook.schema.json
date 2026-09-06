@@ -118,11 +118,8 @@
           "description": "Path-scoped file tools and individually named MCP tools. The runtime refuses an entry naming a whole server, and resolves every path before deciding."
         },
         "output_schema": {
-          "description": "JSON Schema the agent report is validated against.",
-          "type": [
-            "object",
-            "string"
-          ]
+          "description": "JSON Schema the agent report is validated against. An object, because that is what the runtime compiles: a string was accepted here and named a schema file the runtime never resolved, so it passed the load gate and failed every run after the agent had been paid for.",
+          "type": "object"
         },
         "timeout": {
           "type": "string",

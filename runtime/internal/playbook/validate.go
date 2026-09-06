@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/nicodarge/Gronin/runtime/internal/config"
 )
 
 // Deployment is what this deployment can actually do. The gate refuses a playbook naming
@@ -22,6 +24,14 @@ type Deployment struct {
 	// CreatingSinks are the types that bring things into existence somewhere else, and
 	// so must declare a cap.
 	CreatingSinks []string
+	// ConfigKeys are the configuration keys this deployment holds. A ${config.x} naming
+	// anything else is refused here, which is what spec.md's "refused at load, not at
+	// trigger time" asks for: without this the gate accepts a playbook whose every
+	// reference resolves to nothing, and the operator finds out at the first trigger.
+	//
+	// The values are deliberately absent. The gate decides whether a name resolves, and
+	// a gate holding the deployment's secrets is a gate that leaks them into a refusal.
+	ConfigKeys []string
 }
 
 // Problem is one refusal: where it is, what was found, and what would be accepted.
@@ -112,7 +122,7 @@ func Validate(book *Playbook, dep Deployment) []Problem {
 	problems = append(problems, validateAgent(book, dep)...)
 	problems = append(problems, validateSinks(book, dep)...)
 	problems = append(problems, validateReserved(book)...)
-	problems = append(problems, validateInterpolation(book)...)
+	problems = append(problems, validateInterpolation(book, dep)...)
 	return problems
 }
 
@@ -194,8 +204,9 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 			// trigger payload, so it is where FR-039 most needs applying. The walk covered
 			// the prompt's PATH and not its content, so a bare reference there was caught
 			// at run time — after the gather steps had already run and cost money.
-			problems = append(problems,
-				bareReferences("agent.prompt_file ("+agent.PromptFile+")", string(body))...)
+			where := "agent.prompt_file (" + agent.PromptFile + ")"
+			problems = append(problems, bareReferences(where, string(body))...)
+			problems = append(problems, unconfigured(where, string(body), configured(dep))...)
 		}
 	}
 
@@ -387,13 +398,73 @@ func validateReserved(book *Playbook) []Problem {
 // validateInterpolation applies FR-039 to every string the document holds. A bare
 // reference resolves against whichever source happens to carry the name, and a trigger
 // payload is written by whoever sent the request.
-func validateInterpolation(book *Playbook) []Problem {
+func validateInterpolation(book *Playbook, dep Deployment) []Problem {
+	known := configured(dep)
+
 	var problems []Problem
 	for _, held := range interpolatable(book) {
 		problems = append(problems, bareReferences(held.field, held.text)...)
+		if resolvedHere[fieldKind(held.field)] {
+			problems = append(problems, unconfigured(held.field, held.text, known)...)
+		}
+	}
+	for at, step := range book.Gather {
+		// A gather step's references are bound through its environment rather than
+		// substituted into its text, and that containment is what a quoted reference
+		// breaks. Refused here rather than at the run: a step refused at the run is
+		// refused after the schedule has already fired.
+		for _, name := range config.QuotedReferences(step.Run) {
+			problems = append(problems, Problem{
+				Field: fmt.Sprintf("gather[%d].run", at),
+				Found: fmt.Sprintf("${%s} sits inside quotes", name),
+				Accepted: "the reference on its own, as in `git -C ${config.checkout} log` — " +
+					"it is substituted as one quoted word and cannot be nested in another",
+			})
+		}
 	}
 	return problems
 }
+
+// resolvedHere names the fields the runtime interpolates. Only those are held to
+// resolving: a ${config.x} in a field nothing interpolates is broken whatever the
+// deployment holds, and refusing it for the wrong reason sends the author to set a key
+// that would not have helped.
+var resolvedHere = map[string]bool{"gather.run": true, "sinks": true}
+
+// fieldKind reduces "gather[0].run" and "sinks[1].github.repo" to the kind of field they
+// are, which is what decides whether the runtime resolves them.
+func fieldKind(field string) string {
+	if at := strings.IndexByte(field, '['); at >= 0 {
+		rest := field[at:]
+		if end := strings.IndexByte(rest, ']'); end >= 0 {
+			field = field[:at] + rest[end+1:]
+		}
+	}
+	if before, _, found := strings.Cut(field, "."); found && before == "sinks" {
+		return "sinks"
+	}
+	return strings.TrimPrefix(field, ".")
+}
+
+// unconfigured refuses a ${config.x} this deployment cannot resolve. ${trigger.x} is not
+// checked and cannot be: the payload does not exist until something fires the run.
+func unconfigured(field, text string, known map[string]bool) []Problem {
+	var problems []Problem
+	for _, match := range configReference.FindAllStringSubmatch(text, -1) {
+		key := match[1]
+		if known[key] {
+			continue
+		}
+		problems = append(problems, Problem{
+			Field:    field,
+			Found:    fmt.Sprintf("${config.%s} is not configured", key),
+			Accepted: fmt.Sprintf("set it with `gronin config set %s <value>`", key),
+		})
+	}
+	return problems
+}
+
+var configReference = regexp.MustCompile(`\$\{config\.([^}]*)\}`)
 
 func bareReferences(field, text string) []Problem {
 	var problems []Problem
@@ -420,10 +491,11 @@ type held struct {
 // it has to be added here, which is a compile-time-shaped reminder rather than a silent
 // hole.
 //
-// Two of these strings are interpolated by the runtime today — the prompt body, checked
-// where it is read above, and a sink's configuration. The rest are checked anyway: an
-// author who writes ${x} in a gather command means it to be resolved, and a gate that
-// stays quiet teaches them it works.
+// Three of these are interpolated by the runtime — the prompt body, checked where it is
+// read above, a sink's configuration, and a gather step. resolvedHere below is which. The
+// rest are checked for a bare reference anyway: an author who writes ${x} in a field
+// nothing resolves means it to be resolved, and a gate that stays quiet teaches them it
+// works.
 func interpolatable(book *Playbook) []held {
 	out := []held{
 		{"description", book.Description},
@@ -508,4 +580,13 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// configured is what this deployment can resolve, as a set.
+func configured(dep Deployment) map[string]bool {
+	known := make(map[string]bool, len(dep.ConfigKeys))
+	for _, key := range dep.ConfigKeys {
+		known[key] = true
+	}
+	return known
 }

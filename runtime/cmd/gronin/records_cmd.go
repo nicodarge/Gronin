@@ -112,7 +112,7 @@ func newShowCommand() *cobra.Command {
 				return err
 			}
 			for _, action := range refused {
-				cmd.Printf("refused   %s: %s\n", action.Tool, action.Reason)
+				cmd.Printf("refused   %s: %s\n", action.Tool, action.Asked)
 			}
 
 			outcomes, err := deployment.store.SinkOutcomes(ctx, one.ID)

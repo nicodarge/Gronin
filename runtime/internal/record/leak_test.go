@@ -54,7 +54,7 @@ func TestNoConfiguredSecretReachesTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.AddRefusedAction(ctx, runID, record.RefusedAction{
-		Sequence: 1, Tool: testsecret.Value, Reason: "reaching for " + testsecret.Value,
+		Sequence: 1, Tool: testsecret.Value, Asked: "reaching for " + testsecret.Value,
 	}); err != nil {
 		t.Fatal(err)
 	}

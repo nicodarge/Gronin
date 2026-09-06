@@ -3,7 +3,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -153,9 +155,25 @@ func Run(ctx context.Context, decl Declaration, opts Options) (*Outcome, error) 
 
 // Report is the structured result the agent answered with, and the only thing a sink is
 // allowed to act on.
+//
+// `structured_output` is preferred over `result` because they are the same answer in two
+// shapes: the terminal event carries the object under the first and a JSON string of it
+// under the second. Reading `result` made every schema-declaring run fail its own
+// validation with "got string, want object" — and every playbook declares a schema,
+// because the published contract makes the field required.
 func (o *Outcome) Report() ([]byte, error) {
 	if o.Stream == nil || o.Stream.Result == nil {
 		return nil, ErrNoTerminalEvent
 	}
+	if structured := o.Stream.Result.StructuredOutput; !emptyJSON(structured) {
+		return structured, nil
+	}
 	return o.Stream.Result.Result, nil
+}
+
+// emptyJSON reports whether a raw field carries nothing to read. An absent field decodes
+// to a nil slice and a present-but-empty one to a literal null, and neither is an answer.
+func emptyJSON(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) == 0 || string(trimmed) == "null"
 }

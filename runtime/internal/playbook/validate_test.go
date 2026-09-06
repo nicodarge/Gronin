@@ -16,6 +16,13 @@ func deployment() playbook.Deployment {
 		MCPServers:    []string{"grafana"},
 		SinkTypes:     []string{"discord", "slack", "github"},
 		CreatingSinks: []string{"github"},
+		// The keys the corpora reference. Listed rather than derived: what a deployment
+		// holds is half of whether a playbook is accepted, so a corpus that assumes a key
+		// exists should have to say so.
+		ConfigKeys: []string{
+			"audit_repo", "github_token", "kb_collection", "loft", "ops_channel",
+			"ops_webhook", "fleet", "w",
+		},
 	}
 }
 
@@ -53,6 +60,8 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		"bare-interpolation.yaml":            {"sinks[0].discord.webhook", "does not name its source"},
 		"unrestricted-without-a-reason.yaml": {"agent.restricted", "no description saying why"},
 		"missing-prompt-file.yaml":           {"agent.prompt_file", "is not there"},
+		"quoted-reference-in-gather.yaml":    {"gather[0].run", "sits inside quotes"},
+		"unconfigured-reference.yaml":        {"sinks[0].discord.webhook", "is not configured"},
 		// Refused by the published schema before the semantic gate sees them, which is
 		// the same rule at an earlier layer. The gate's own version is tested below,
 		// against a document the schema never reads.

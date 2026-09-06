@@ -36,6 +36,11 @@ type Event struct {
 	StopReason     string          `json:"stop_reason"`
 	TerminalReason string          `json:"terminal_reason"`
 	Result         json.RawMessage `json:"result"`
+	// StructuredOutput is the answer as an object, present when the run was given
+	// --json-schema. `result` carries the same answer encoded as a JSON string, so
+	// validating that against the declared schema reports "got string, want object" —
+	// which is what every real run did before this field was read.
+	StructuredOutput json.RawMessage `json:"structured_output"`
 
 	// assistant and user events carry the tool calls, as content blocks rather than as
 	// events of their own.
@@ -65,9 +70,18 @@ func (u Usage) Total() int64 {
 // PermissionDenial is one action the bounds refused. Every one of them is recorded: a
 // run that succeeds while repeatedly reaching for something it cannot have is telling
 // you its declared tool set is wrong, or that its prompt is steering somewhere else.
+//
+// The field names are the executable's, read off a real run's terminal event rather than
+// guessed: it emits `tool_name` and `tool_input`, and there is no `reason` at all. Named
+// `tool` and `reason` here, both decoded empty and `gronin show` printed a bare
+// "refused   : " — the one section that only ever appears when something went wrong was
+// the one saying nothing.
 type PermissionDenial struct {
-	Tool   string `json:"tool"`
-	Reason string `json:"reason"`
+	Tool string `json:"tool_name"`
+	// Input is what the agent asked for, which is the whole of what makes a refusal
+	// actionable: the pattern or path it reached for says whether the playbook's tool set
+	// is wrong or its prompt is steering somewhere it should not.
+	Input json.RawMessage `json:"tool_input"`
 }
 
 // RefusedByCallback is what Decode returns when onEvent refused the run, so a caller can

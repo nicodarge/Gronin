@@ -1,0 +1,40 @@
+name: doc-check
+description: Report documentation that no longer describes the code.
+
+trigger:
+  type: cron
+  schedule: "0 6 * * *"
+
+gather:
+  - run: git -C ${config.checkout} log --oneline -n 200
+    as: recent-commits.txt
+  - run: git -C ${config.checkout} ls-files 'docs/*.md' '*.md'
+    as: documents.txt
+
+agent:
+  model: claude-sonnet-5
+  prompt_file: doc-check.prompt
+  restricted: true
+  tools: [Read, Grep, Glob]
+  allow:
+    - "Read(./**)"
+    - "Grep(./**)"
+    - "Glob(./**)"
+  output_schema:
+    type: object
+    required: [findings]
+    properties:
+      findings:
+        type: array
+        items:
+          type: object
+          required: [title, body]
+          properties:
+            title: {type: string}
+            body: {type: string}
+  timeout: 30m
+
+sinks:
+  - github:
+      repo: ${config.repo}
+      cap: 5

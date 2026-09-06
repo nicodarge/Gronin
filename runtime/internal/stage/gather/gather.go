@@ -43,6 +43,10 @@ type Result struct {
 type Step struct {
 	Run string
 	As  string
+	// Env is what this step alone adds to the stage's environment: the values its own
+	// references resolved to. Per step rather than per stage, so a step is never handed
+	// a value it did not name.
+	Env []string
 }
 
 // Options bound the stage.
@@ -120,7 +124,7 @@ func runStep(ctx context.Context, step Step, opts Options) (Result, error) {
 	// is a shell line by contract.
 	cmd := exec.CommandContext(stepCtx, "/bin/sh", "-c", step.Run) //nolint:gosec
 	cmd.Dir = opts.WorkDir
-	cmd.Env = opts.Env
+	cmd.Env = append(append([]string(nil), opts.Env...), step.Env...)
 	// The step is a shell line, so what has to be killed is the group, not the shell.
 	proc.Isolate(cmd)
 

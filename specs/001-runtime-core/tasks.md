@@ -288,8 +288,15 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
 
 ## Phase 7: Polish
 
-- [ ] T063 Ship the example playbook and prompt that `quickstart.md` walks through, and follow that
-      walkthrough end to end on a clean machine (SC-001)
+- [x] T063 Ship the example playbook and prompt that `quickstart.md` walks through, and follow that
+      walkthrough end to end on a clean machine (SC-001). Driven with a locally built binary rather
+      than a release, because no tag exists yet; every step below the install is the shipped path.
+      The walkthrough found three defects no test could: the receipt check refused every real run
+      over `StructuredOutput`, which the executable adds in answer to the `--json-schema` the
+      runtime itself passes; the report was read from `result`, which carries the answer encoded as
+      a string, rather than from `structured_output`; and a refusal decoded from field names the
+      executable does not write, so the one section an operator reads only when something went
+      wrong printed nothing
 - [ ] T064 Retire one existing scheduled workflow and replace it with a playbook (SC-006). This is
       the only success criterion that cannot be satisfied by the test suite
 - [x] T065 [P] Release workflow: signed cross-compiled binaries and a container image — on a

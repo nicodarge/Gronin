@@ -1,0 +1,12 @@
+name: unconfigured-reference
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.a_key_this_deployment_does_not_hold}

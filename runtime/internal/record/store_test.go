@@ -199,7 +199,7 @@ func TestTheChildTablesRecordAndReadBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.AddRefusedAction(ctx, "run-1", record.RefusedAction{
-		Sequence: 1, Tool: "Bash", Reason: "not in the declared tool set",
+		Sequence: 1, Tool: "Bash", Asked: `{"command":"rm -rf /"}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
