@@ -203,9 +203,9 @@ func VerifyCredential(
 		// a rate limit and a bad minute upstream included. Refusing all of those with
 		// "found no credential" sends an operator to check a credential that is fine.
 		//
-		// Nothing logged in comes back with api_error_status null — present, and empty,
-		// because the executable never reached the API. A credential the API refused comes
-		// back with 401. Both
+		// Nothing logged in comes back with api_error_status present and null, because
+		// the executable never reached the API. A credential the API refused comes back
+		// with 401. Both
 		// are credential problems; anything else is not, and says so as itself.
 		status := strings.Trim(string(outcome.Stream.Result.APIErrorStatus), `"`)
 		if status == "" || status == "null" || status == "401" {
