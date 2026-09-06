@@ -114,19 +114,18 @@ def survives(mutation: Mutation) -> bool:
             )
         target.write_text(text.replace(mutation.find, mutation.replace))
 
-        # A mutant that does not compile is reported killed by the line below, because a
-        # build failure exits non-zero exactly like a failing test — so it proves nothing
-        # about whether any test would have caught the defect, while counting towards a
-        # number that says they all would. Thirteen of the declared mutants were in that
-        # state when this check was added, every one of them Go refusing an import or a
-        # variable the mutation had left unused.
+        # A mutant that does not compile exits non-zero exactly like a failing test, so
+        # the command below would count it killed without ever running the defect.
+        # Refused instead, the way a moved target and a broken baseline already are.
         #
-        # Refused rather than counted, the same way a moved target and a broken baseline
-        # are: a harness that cannot tell a green from a mutant it never ran is decoration.
-        # Only where there is something to compile. The self-test's subject is a shell
-        # script, and a build gate that assumed Go would have refused it.
+        # `go test -run=^$` builds every test binary and runs none of them. `go build`
+        # does not compile _test.go at all, and `go vet` refuses on its own diagnostics —
+        # measured, it calls one legitimate mutant here unreachable code. Skipped where
+        # there is no go.mod, because the self-test's subject is a shell script.
         built = (
-            run(["go", "build", "./..."], work) if (work / "go.mod").is_file() else None
+            run(["go", "test", "-run=^$", "-count=1", "./..."], work)
+            if (work / "go.mod").is_file()
+            else None
         )
         if built is not None and built.returncode != 0:
             raise ConfigError(
@@ -167,6 +166,34 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 
 SELF_TEST_BROKEN = """#!/bin/sh
 exit 1
+"""
+
+# A Go module, because the compile refusal only applies where there is something to
+# compile, and the shell subjects above have nothing. One package, one test, and a
+# mutation that leaves an import unused — which is the shape every one of the thirteen
+# mutants this refusal was written for had.
+SELF_TEST_GO_MOD = """module example.com/selftest
+
+go 1.24
+"""
+
+SELF_TEST_GO_SUBJECT = """package selftest
+
+import "strings"
+
+// Answer is what the test below checks, and strings is what the mutation orphans.
+func Answer() string { return strings.TrimSpace(" 42 ") }
+"""
+
+SELF_TEST_GO_TEST = """package selftest
+
+import "testing"
+
+func TestAnswer(t *testing.T) {
+	if Answer() != "42" {
+		t.Fatal("wrong")
+	}
+}
 """
 
 
@@ -231,6 +258,24 @@ def self_test() -> int:
                 command=["./test.sh"],
             ),
         }
+
+        # The compile refusal. Without a case here the harness's newest branch is the one
+        # piece of it nothing exercises, which is the shape of defect it exists to catch.
+        gomod = root / "gomod"
+        gomod.mkdir()
+        (gomod / "go.mod").write_text(SELF_TEST_GO_MOD)
+        (gomod / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
+        (gomod / "subject_test.go").write_text(SELF_TEST_GO_TEST)
+        refusals["a mutant that does not compile"] = Mutation(
+            name="uncompilable mutant",
+            tree=gomod,
+            file="subject.go",
+            # Orphans the strings import, exactly as the thirteen did.
+            find='return strings.TrimSpace(" 42 ")',
+            replace='return "41"',
+            command=["go", "test", "./...", "-count=1"],
+        )
+
         for description, mutation in refusals.items():
             try:
                 check([mutation], quiet=True)
@@ -272,7 +317,7 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, and refuses a broken "
-        "baseline, an absent target and a missing tree"
+        "baseline, an absent target, a mutant that does not compile and a missing tree"
     )
     return 0
 
