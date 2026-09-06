@@ -294,23 +294,23 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
       binary, then in full from the v0.1.0 release — downloaded, checksum verified against the
       signed SHA256SUMS, confirmed statically linked, reporting its own version and the agent it
       found, then validate, run against the real agent, show, replay, resume and serve. Step 1 was
-      the one part that could not be exercised before a tag existed, and serve was the one verb no
-      earlier pass had run — it refused every deployment authenticated by an OAuth session, which
-      is a fourth defect this walkthrough found and no test could.
-      The walkthrough found three defects no test could: the receipt check refused every real run
+      the one part that could not be exercised before a tag existed, and serve the one verb no
+      earlier pass had run.
+      The walkthrough found four defects no test could: the receipt check refused every real run
       over `StructuredOutput`, which the executable adds in answer to the `--json-schema` the
       runtime itself passes; the report was read from `result`, which carries the answer encoded as
       a string, rather than from `structured_output`; and a refusal decoded from field names the
       executable does not write, so the one section an operator reads only when something went
-      wrong printed nothing
+      wrong printed nothing; and `serve` refused to start on every deployment authenticated by an
+      OAuth session, because it read a field that says the same thing for that and for nothing
+      being logged in at all
 - [ ] T064 Retire one existing scheduled workflow and replace it with a playbook (SC-006). This is
       the only success criterion that cannot be satisfied by the test suite, and the only task here
       that is not the runtime's to close. SC-006 says the operator judges the output equivalent, and
       the workflow to retire lives in the fleet this runtime is not yet deployed to. Gronin is
       developed here and stays here until its owner decides to run it in production; an attempt to
-      satisfy this by rewiring that fleet was closed unmerged, never applied, for exactly that reason.
-      It stays
-      open on purpose, and it is a deployment decision rather than remaining work
+      satisfy this by rewiring that fleet was closed unmerged, never applied, for exactly that
+      reason. It stays open on purpose, and it is a deployment decision rather than remaining work
 - [x] T065 [P] Release workflow: signed cross-compiled binaries and a container image — on a
       distroless base rather than `FROM scratch`, because the agent it drives is dynamically
       linked and cannot start on scratch at all. The binary is still static and still checked

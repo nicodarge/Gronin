@@ -123,8 +123,12 @@ var ErrStartupProbeFailed = errors.New("the agent process could not complete a s
 
 // CredentialProbeTimeout bounds the startup turn. The stage default is sized for a
 // playbook and is half an hour; a credential the API refuses drives the executable
-// through its own retry ladder, so without a bound of its own `gronin serve` hangs for
-// minutes on a mistyped key — measured past ninety seconds and still going.
+// through its own retry ladder — about three minutes on 2.1.263, ten attempts each
+// answered 401 — so without a bound of its own `gronin serve` hangs on a mistyped key.
+//
+// Deliberately shorter than that ladder. Waiting it out would classify the failure
+// precisely and cost the operator three minutes to be told what a bounded refusal can
+// tell them in one: the turn did not finish, and here is where a credential comes from.
 const CredentialProbeTimeout = 60 * time.Second
 
 // CredentialSources are the places the executable's own documentation says a credential
@@ -158,16 +162,33 @@ const SourceNotNamed = "not named by the agent"
 // What does separate them is the terminal event: unauthenticated, it comes back with
 // is_error set and the assistant saying it is not logged in. Reading that means letting
 // one turn finish, which is why the prompt is a word and the tool set is empty.
-func VerifyCredential(ctx context.Context, executable string, env []string, workDir string) (string, error) {
+// The bound is a parameter rather than read from the constant here, so a test can prove
+// the timeout path without waiting a minute for it. serve passes CredentialProbeTimeout.
+func VerifyCredential(
+	ctx context.Context, executable string, env []string, workDir string, within time.Duration,
+) (string, error) {
+	if within <= 0 {
+		within = CredentialProbeTimeout
+	}
 	outcome, err := Run(ctx, Declaration{Restricted: true}, Options{
 		Executable: executable,
 		WorkDir:    workDir,
 		Prompt:     "hello",
 		Env:        env,
-		Timeout:    CredentialProbeTimeout,
+		Timeout:    within,
 	})
 	if err != nil {
 		return "", err
+	}
+	// The bound, before anything reads the stream. A credential the API keeps refusing
+	// drives the executable through its own retry ladder — measured at about three
+	// minutes on 2.1.263 — so the commonest real failure arrives here rather than as a
+	// classified terminal event, and saying "no terminal event" for it would name
+	// neither the bound nor the likeliest cause.
+	if outcome.TimedOut {
+		return "", fmt.Errorf("%w: it did not finish one trivial turn within %s, which is "+
+			"most often a credential the API keeps refusing; it consults: %s",
+			ErrStartupProbeFailed, within, strings.Join(CredentialSources, ", "))
 	}
 	if outcome.Stream.Init == nil {
 		return "", fmt.Errorf("%s produced no startup event; its stderr was: %s",
@@ -182,8 +203,9 @@ func VerifyCredential(ctx context.Context, executable string, env []string, work
 		// a rate limit and a bad minute upstream included. Refusing all of those with
 		// "found no credential" sends an operator to check a credential that is fine.
 		//
-		// Nothing logged in comes back with no api_error_status at all: the executable
-		// never reached the API. A credential the API refused comes back with 401. Both
+		// Nothing logged in comes back with api_error_status null — present, and empty,
+		// because the executable never reached the API. A credential the API refused comes
+		// back with 401. Both
 		// are credential problems; anything else is not, and says so as itself.
 		status := strings.Trim(string(outcome.Stream.Result.APIErrorStatus), `"`)
 		if status == "" || status == "null" || status == "401" {

@@ -93,7 +93,7 @@ verification run rather than by the runtime asserting anything it has not observ
 an authorised OAuth session and for nothing being logged in alike — the same string, carrying no
 information — so a check that refused on `none` refused every deployment authenticated the ordinary
 way. What separates them is the terminal event: unauthenticated it comes back with `is_error` set
-and no `api_error_status`, because the API was never reached. `is_error` alone is not enough either,
+and `api_error_status` present but null, because the API was never reached. `is_error` alone is not enough either,
 being set for any failed turn, so the status beside it decides: absent or `401` is the credential,
 anything else is the agent having a bad minute and says so as itself. FR-032's "which source" is
 still read off `apiKeySource`, and reports that the agent named none when it does.

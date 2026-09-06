@@ -439,7 +439,7 @@ func TestVersionComparisonIsNotLexical(t *testing.T) {
 func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 	t.Run("a configured source is reported", func(t *testing.T) {
 		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-			[]string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=not-a-real-key"}, t.TempDir())
+			[]string{"PATH=/usr/bin:/bin", "ANTHROPIC_API_KEY=not-a-real-key"}, t.TempDir(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,7 +450,7 @@ func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 
 	t.Run("another configured source is reported as itself", func(t *testing.T) {
 		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-			[]string{"PATH=/usr/bin:/bin", fakeagent.KeySourceVar + "=keychain"}, t.TempDir())
+			[]string{"PATH=/usr/bin:/bin", fakeagent.KeySourceVar + "=keychain"}, t.TempDir(), 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -464,7 +464,7 @@ func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 	// run authenticating is what separates them.
 	t.Run("an unnamed source is reported as such, not refused", func(t *testing.T) {
 		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-			[]string{"PATH=/usr/bin:/bin"}, t.TempDir())
+			[]string{"PATH=/usr/bin:/bin"}, t.TempDir(), 0)
 		if err != nil {
 			t.Fatalf("an authorised run with no named source was refused: %v", err)
 		}
@@ -475,7 +475,7 @@ func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 
 	t.Run("nothing logged in refuses and names where it looked", func(t *testing.T) {
 		_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-			[]string{"PATH=/usr/bin:/bin", fakeagent.NoCredentialVar + "=1"}, t.TempDir())
+			[]string{"PATH=/usr/bin:/bin", fakeagent.NoCredentialVar + "=1"}, t.TempDir(), 0)
 		if !errors.Is(err, agent.ErrNoCredential) {
 			t.Fatalf("err = %v, want ErrNoCredential", err)
 		}
@@ -667,7 +667,7 @@ func TestTheTerminalEventDecodesAsTheExecutableWritesIt(t *testing.T) {
 // an operator to check something that is fine — so the status beside it decides.
 func TestAFailedTurnIsNotAlwaysAMissingCredential(t *testing.T) {
 	_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=529"}, t.TempDir())
+		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=529"}, t.TempDir(), 0)
 
 	if errors.Is(err, agent.ErrNoCredential) {
 		t.Fatalf("an upstream failure was reported as a missing credential: %v", err)
@@ -681,8 +681,30 @@ func TestAFailedTurnIsNotAlwaysAMissingCredential(t *testing.T) {
 
 	// A credential the API refused is still a credential problem, and says so.
 	_, err = agent.VerifyCredential(t.Context(), fakeagent.Build(t),
-		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=401"}, t.TempDir())
+		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=401"}, t.TempDir(), 0)
 	if !errors.Is(err, agent.ErrNoCredential) {
 		t.Fatalf("a 401 was not read as a credential problem: %v", err)
+	}
+}
+
+// The probe's own bound is shorter than the executable's retry ladder, so the commonest
+// real failure — a credential the API keeps refusing — arrives as a timeout rather than
+// as a classified terminal event. Saying "no terminal event" for that names neither the
+// bound nor the likeliest cause, which is what an operator needs at that moment.
+func TestAProbeThatNeverFinishesNamesTheBoundAndWhereToLook(t *testing.T) {
+	_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+		[]string{"PATH=/usr/bin:/bin", fakeagent.ModeVar + "=" + fakeagent.ModeTimeout},
+		t.TempDir(), 300*time.Millisecond)
+
+	if !errors.Is(err, agent.ErrStartupProbeFailed) {
+		t.Fatalf("err = %v, want ErrStartupProbeFailed", err)
+	}
+	if strings.Contains(err.Error(), "no terminal event") {
+		t.Errorf("a timeout was reported as a missing event: %v", err)
+	}
+	for _, wanted := range []string{"ANTHROPIC_API_KEY", "keychain"} {
+		if !strings.Contains(err.Error(), wanted) {
+			t.Errorf("the refusal does not say where a credential comes from: %v", err)
+		}
 	}
 }

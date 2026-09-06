@@ -53,7 +53,8 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 			source, err := agent.VerifyCredential(cmd.Context(), deployment.agentExecutable,
-				deployment.executor.AgentEnv, deployment.stateDir)
+				deployment.executor.AgentEnv, deployment.stateDir,
+				agent.CredentialProbeTimeout)
 			if err != nil {
 				return err
 			}

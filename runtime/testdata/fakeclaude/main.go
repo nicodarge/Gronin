@@ -171,13 +171,17 @@ func main() {
 		result["is_error"] = true
 		result["stop_reason"] = "error"
 		result["result"] = "Not logged in · Please run /login"
+		// Present and null, which is what the real executable emits when it never
+		// reached the API — not absent, as this stub had it.
+		result["api_error_status"] = nil
 	}
 	// A failed turn that is not about the credential: the API was reached and answered.
 	// is_error is set for this too, which is why the runtime reads the status beside it.
 	if status := os.Getenv("FAKECLAUDE_API_ERROR_STATUS"); status != "" {
 		result["is_error"] = true
 		result["stop_reason"] = "error"
-		result["api_error_status"] = status
+		// A bare JSON number, as the executable emits it, rather than a string.
+		result["api_error_status"] = json.Number(status)
 		result["result"] = "the API answered " + status
 	}
 	emit(result)
