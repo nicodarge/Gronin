@@ -661,3 +661,28 @@ func TestTheTerminalEventDecodesAsTheExecutableWritesIt(t *testing.T) {
 		t.Errorf("the report does not satisfy an object schema: %v", err)
 	}
 }
+
+// A turn can fail without the credential being the reason, and is_error is set either
+// way. Refusing a rate limit or a bad minute upstream with "found no credential" sends
+// an operator to check something that is fine — so the status beside it decides.
+func TestAFailedTurnIsNotAlwaysAMissingCredential(t *testing.T) {
+	_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=529"}, t.TempDir())
+
+	if errors.Is(err, agent.ErrNoCredential) {
+		t.Fatalf("an upstream failure was reported as a missing credential: %v", err)
+	}
+	if !errors.Is(err, agent.ErrStartupProbeFailed) {
+		t.Fatalf("err = %v, want ErrStartupProbeFailed", err)
+	}
+	if !strings.Contains(err.Error(), "529") {
+		t.Errorf("the refusal does not name what came back: %v", err)
+	}
+
+	// A credential the API refused is still a credential problem, and says so.
+	_, err = agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+		[]string{"PATH=/usr/bin:/bin", fakeagent.APIErrorStatusVar + "=401"}, t.TempDir())
+	if !errors.Is(err, agent.ErrNoCredential) {
+		t.Fatalf("a 401 was not read as a credential problem: %v", err)
+	}
+}

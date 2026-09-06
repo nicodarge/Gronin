@@ -51,6 +51,11 @@ const (
 	// reads "none" for an authorised OAuth session too — measured — so the source alone
 	// cannot express this.
 	NoCredentialVar = "FAKECLAUDE_NO_CREDENTIAL"
+	// APIErrorStatusVar makes it fail a turn the way a reached-but-unhappy API does,
+	// which is is_error set WITH a status beside it. The credential check has to tell
+	// that apart from nothing being logged in, or it sends an operator to look at a
+	// credential that is fine.
+	APIErrorStatusVar = "FAKECLAUDE_API_ERROR_STATUS"
 )
 
 var (

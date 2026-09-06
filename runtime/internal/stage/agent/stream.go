@@ -28,11 +28,15 @@ type Event struct {
 	Tools             []string    `json:"tools"`
 
 	// result — the terminal event.
-	TotalCostUSD   float64         `json:"total_cost_usd"`
-	Usage          Usage           `json:"usage"`
-	NumTurns       int             `json:"num_turns"`
-	DurationMS     int64           `json:"duration_ms"`
-	IsError        bool            `json:"is_error"`
+	TotalCostUSD float64 `json:"total_cost_usd"`
+	Usage        Usage   `json:"usage"`
+	NumTurns     int     `json:"num_turns"`
+	DurationMS   int64   `json:"duration_ms"`
+	IsError      bool    `json:"is_error"`
+	// APIErrorStatus is the HTTP status behind a failed turn, when one was reached. It
+	// is what separates a credential the API refused from a credential that is simply
+	// not there, and both from an upstream having a bad minute.
+	APIErrorStatus json.RawMessage `json:"api_error_status"`
 	StopReason     string          `json:"stop_reason"`
 	TerminalReason string          `json:"terminal_reason"`
 	Result         json.RawMessage `json:"result"`

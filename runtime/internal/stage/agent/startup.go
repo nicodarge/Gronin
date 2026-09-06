@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/proc"
 )
@@ -116,6 +117,16 @@ func at2(values []int, at int) int {
 // no credential.
 var ErrNoCredential = errors.New("the agent process found no credential")
 
+// ErrStartupProbeFailed is what refuses to start when the probe failed for a reason that
+// is not the credential. Separate so an operator is not sent to check one.
+var ErrStartupProbeFailed = errors.New("the agent process could not complete a startup turn")
+
+// CredentialProbeTimeout bounds the startup turn. The stage default is sized for a
+// playbook and is half an hour; a credential the API refuses drives the executable
+// through its own retry ladder, so without a bound of its own `gronin serve` hangs for
+// minutes on a mistyped key — measured past ninety seconds and still going.
+const CredentialProbeTimeout = 60 * time.Second
+
 // CredentialSources are the places the executable's own documentation says a credential
 // can come from. The runtime does not reimplement the resolution — their order is the
 // CLI's and was deliberately not established — it names them in a refusal so an operator
@@ -153,6 +164,7 @@ func VerifyCredential(ctx context.Context, executable string, env []string, work
 		WorkDir:    workDir,
 		Prompt:     "hello",
 		Env:        env,
+		Timeout:    CredentialProbeTimeout,
 	})
 	if err != nil {
 		return "", err
@@ -166,8 +178,20 @@ func VerifyCredential(ctx context.Context, executable string, env []string, work
 			executable, strings.TrimSpace(string(outcome.Stderr)))
 	}
 	if outcome.Stream.Result.IsError {
-		return "", fmt.Errorf("%w; it consults: %s",
-			ErrNoCredential, strings.Join(CredentialSources, ", "))
+		// is_error alone does not mean unauthenticated — it is set for any failed turn,
+		// a rate limit and a bad minute upstream included. Refusing all of those with
+		// "found no credential" sends an operator to check a credential that is fine.
+		//
+		// Nothing logged in comes back with no api_error_status at all: the executable
+		// never reached the API. A credential the API refused comes back with 401. Both
+		// are credential problems; anything else is not, and says so as itself.
+		status := strings.Trim(string(outcome.Stream.Result.APIErrorStatus), `"`)
+		if status == "" || status == "null" || status == "401" {
+			return "", fmt.Errorf("%w; it consults: %s",
+				ErrNoCredential, strings.Join(CredentialSources, ", "))
+		}
+		return "", fmt.Errorf("%w: the agent process answered with status %s",
+			ErrStartupProbeFailed, status)
 	}
 
 	source := outcome.Stream.Init.APIKeySource

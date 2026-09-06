@@ -172,6 +172,14 @@ func main() {
 		result["stop_reason"] = "error"
 		result["result"] = "Not logged in · Please run /login"
 	}
+	// A failed turn that is not about the credential: the API was reached and answered.
+	// is_error is set for this too, which is why the runtime reads the status beside it.
+	if status := os.Getenv("FAKECLAUDE_API_ERROR_STATUS"); status != "" {
+		result["is_error"] = true
+		result["stop_reason"] = "error"
+		result["api_error_status"] = status
+		result["result"] = "the API answered " + status
+	}
 	emit(result)
 
 	if mode == modeExitError {
