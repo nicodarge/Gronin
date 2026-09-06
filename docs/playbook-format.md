@@ -123,6 +123,11 @@ sinks:
       cap: 5
 ```
 
+A label naming `${trigger.…}` is refused. Whatever names the label chooses the bucket the ceiling
+applies to, so a trigger naming it would make the cap per-trigger rather than per-repository: a
+payload varying the label would mint a fresh empty bucket every run, each respecting its own
+ceiling while the repository filled up. `${config.…}` is fine — the deployment names it.
+
 A label holding a comma is refused. GitHub reads `labels=` as a list, so `a,b` would count the
 issues carrying *both* while creating issues whose single label is the literal `a,b` — the count
 and the creation would name different things, and the cap would be measured against a set the sink
@@ -141,7 +146,7 @@ The runtime rejects a playbook at load time, before any trigger is armed, when:
   path-scopes a file tool to a path outside the run's working directory.
 - `agent.mcp` names a server that is not configured on this deployment.
 - A sink that creates things omits its `cap`.
-- A creating sink's `label` holds a comma, or resolves to nothing — see above.
+- A creating sink's `label` holds a comma, resolves to nothing, or names `${trigger.…}` — see above.
 - A `guard` or `retrieve` block is present while the runtime does not yet apply it. A declared
   bound the runtime ignores is worse than an absent one, so it is refused rather than dropped.
 - An interpolation omits its namespace. `${repo}` is refused; `${config.repo}` is not.

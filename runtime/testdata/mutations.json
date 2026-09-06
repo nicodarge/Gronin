@@ -1016,6 +1016,19 @@
         "./internal/sink",
         "-count=1"
       ]
+    },
+    {
+      "name": "the gate lets the trigger choose the bucket its cap is counted against",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif strings.Contains(text, \"${trigger.\") {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1"
+      ]
     }
   ]
 }

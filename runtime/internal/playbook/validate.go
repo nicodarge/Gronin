@@ -612,6 +612,17 @@ func labelProblems(field string, config map[string]any) []Problem {
 			Accepted: "a label name, e.g. doc-drift",
 		}}
 	}
+	// Empty first, then the comma, matching the order the sink applies them so the two
+	// halves of one rule cannot drift into disagreeing about which refusal comes out.
+	//
+	// A reference resolves to a value this gate cannot see, so only a written label is
+	// judged empty here.
+	if !strings.Contains(text, "${") && strings.TrimSpace(text) == "" {
+		return []Problem{{
+			Field: field, Found: "is empty, which counts every open issue in the repository",
+			Accepted: "a label name, or remove the field to use the default",
+		}}
+	}
 	if strings.Contains(text, ",") {
 		return []Problem{{
 			Field: field,
@@ -620,12 +631,19 @@ func labelProblems(field string, config map[string]any) []Problem {
 				"would count issues the sink never creates",
 		}}
 	}
-	// A reference resolves to a value this gate cannot see, so only a written label is
-	// judged empty here.
-	if !strings.Contains(text, "${") && strings.TrimSpace(text) == "" {
+	// The cap is counted against the label, so whatever names the label chooses the
+	// bucket the ceiling applies to. A trigger must not: it would make the cap
+	// per-trigger rather than per-repository, and a payload that varied the label would
+	// mint a fresh empty bucket every run — each respecting its own ceiling while the
+	// repository filled up. No trigger source needs to name a label, so this costs
+	// nothing, and it is refused now rather than when a trigger arrives that is written
+	// by whoever sent the request.
+	if strings.Contains(text, "${trigger.") {
 		return []Problem{{
-			Field: field, Found: "is empty, which counts every open issue in the repository",
-			Accepted: "a label name, or remove the field to use the default",
+			Field: field,
+			Found: "resolves through the trigger, which would let what fires the run choose " +
+				"the bucket its cap is counted against",
+			Accepted: "a label name, or ${config.x}; the deployment names it, not the trigger",
 		}}
 	}
 	return nil
