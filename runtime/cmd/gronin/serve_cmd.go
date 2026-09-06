@@ -57,7 +57,14 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cmd.Printf("agent %s, credential from %s\n", version, source)
+			// Phrased around the source rather than "credential from <source>", because
+			// the ordinary answer for an OAuth session is that the executable names
+			// none, and "credential from not named by the agent" reads as a fault.
+			if source == agent.SourceNotNamed {
+				cmd.Printf("agent %s, authenticated; the agent named no credential source\n", version)
+			} else {
+				cmd.Printf("agent %s, credential from %s\n", version, source)
+			}
 
 			// FR-031: a run the record still calls running cannot be, because this
 			// process has just started. It is marked interrupted and left alone —

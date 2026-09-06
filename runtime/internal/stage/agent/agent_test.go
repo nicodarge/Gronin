@@ -459,9 +459,23 @@ func TestTheCredentialSourceIsReadFromTheProcess(t *testing.T) {
 		}
 	})
 
-	t.Run("none configured refuses and names where it looked", func(t *testing.T) {
-		_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+	// An OAuth session is the ordinary case and the executable names no source for it —
+	// measured, apiKeySource reads "none" for that and for no credential alike, so the
+	// run authenticating is what separates them.
+	t.Run("an unnamed source is reported as such, not refused", func(t *testing.T) {
+		source, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
 			[]string{"PATH=/usr/bin:/bin"}, t.TempDir())
+		if err != nil {
+			t.Fatalf("an authorised run with no named source was refused: %v", err)
+		}
+		if source != agent.SourceNotNamed {
+			t.Fatalf("source = %q", source)
+		}
+	})
+
+	t.Run("nothing logged in refuses and names where it looked", func(t *testing.T) {
+		_, err := agent.VerifyCredential(t.Context(), fakeagent.Build(t),
+			[]string{"PATH=/usr/bin:/bin", fakeagent.NoCredentialVar + "=1"}, t.TempDir())
 		if !errors.Is(err, agent.ErrNoCredential) {
 			t.Fatalf("err = %v, want ErrNoCredential", err)
 		}

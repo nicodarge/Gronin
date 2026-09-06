@@ -45,6 +45,12 @@ const (
 	ResultVar = "FAKECLAUDE_RESULT"
 	// KeySourceVar is the credential source it should claim.
 	KeySourceVar = "FAKECLAUDE_KEY_SOURCE"
+	// NoCredentialVar makes it answer the way the shipped executable does when nothing
+	// has logged in: an init event like any other, and a terminal event with is_error
+	// set saying so. It is a separate switch from KeySourceVar because apiKeySource
+	// reads "none" for an authorised OAuth session too — measured — so the source alone
+	// cannot express this.
+	NoCredentialVar = "FAKECLAUDE_NO_CREDENTIAL"
 )
 
 var (

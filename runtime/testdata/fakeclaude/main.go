@@ -145,8 +145,15 @@ func main() {
 		"stop_reason":     "end_turn",
 		"terminal_reason": "done",
 		"result":          resultPayload(),
+		// The field names the shipped executable really writes. It emits tool_name and
+		// tool_input and no reason at all; named tool and reason here, both decoded
+		// empty in the runtime and `gronin show` printed a refusal with nothing in it.
 		"permission_denials": []any{
-			map[string]any{"tool": "Bash", "reason": "not in the declared tool set"},
+			map[string]any{
+				"tool_name":   "Bash",
+				"tool_use_id": "toolu_fake0001",
+				"tool_input":  map[string]any{"command": "id"},
+			},
 		},
 	}
 	if mode == modeExitError {
@@ -154,6 +161,16 @@ func main() {
 		result["is_error"] = true
 		result["stop_reason"] = "error"
 		result["result"] = "the agent failed"
+	}
+	// Unauthenticated, the shipped executable still emits an init event carrying
+	// apiKeySource "none" — the same string it emits for an authorised OAuth session —
+	// and then answers with is_error set and the assistant saying it is not logged in.
+	// The credential check reads that, because apiKeySource cannot tell the two apart,
+	// which is why this is its own switch rather than a value of the source.
+	if os.Getenv("FAKECLAUDE_NO_CREDENTIAL") != "" {
+		result["is_error"] = true
+		result["stop_reason"] = "error"
+		result["result"] = "Not logged in · Please run /login"
 	}
 	emit(result)
 
