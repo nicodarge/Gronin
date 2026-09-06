@@ -266,6 +266,14 @@ func TestACreatingSinkWithoutACapIsRefused(t *testing.T) {
 	if err := sink.CheckCap(creating{declared: false}); !errors.Is(err, sink.ErrNoCap) {
 		t.Fatalf("err = %v, want ErrNoCap", err)
 	}
+	// A ceiling that was never declared, which is the only case the "not declared" branch
+	// answers on its own: every other undeclared cap is also zero, so the ceiling check
+	// below answers those and this branch could be deleted without a test noticing. It
+	// was — a mutant disabling it survived, and this is the case that kills it. A sink
+	// whose own default ceiling is not zero is exactly what it guards against.
+	if err := sink.CheckCap(creating{cap: 3, declared: false}); !errors.Is(err, sink.ErrNoCap) {
+		t.Fatalf("a ceiling nobody declared was accepted: %v", err)
+	}
 	if err := sink.CheckCap(creating{cap: 0, declared: true}); !errors.Is(err, sink.ErrNoCap) {
 		t.Fatalf("a ceiling of zero was accepted: %v", err)
 	}

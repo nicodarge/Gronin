@@ -114,6 +114,27 @@ def survives(mutation: Mutation) -> bool:
             )
         target.write_text(text.replace(mutation.find, mutation.replace))
 
+        # A mutant that does not compile is reported killed by the line below, because a
+        # build failure exits non-zero exactly like a failing test — so it proves nothing
+        # about whether any test would have caught the defect, while counting towards a
+        # number that says they all would. Thirteen of the declared mutants were in that
+        # state when this check was added, every one of them Go refusing an import or a
+        # variable the mutation had left unused.
+        #
+        # Refused rather than counted, the same way a moved target and a broken baseline
+        # are: a harness that cannot tell a green from a mutant it never ran is decoration.
+        # Only where there is something to compile. The self-test's subject is a shell
+        # script, and a build gate that assumed Go would have refused it.
+        built = (
+            run(["go", "build", "./..."], work) if (work / "go.mod").is_file() else None
+        )
+        if built is not None and built.returncode != 0:
+            raise ConfigError(
+                f"{mutation.name}: the mutated tree does not compile, so the command "
+                f"below would report it killed without ever running the defect:\n"
+                f"{built.stdout}{built.stderr}"
+            )
+
         return run(mutation.command, work).returncode == 0
 
 

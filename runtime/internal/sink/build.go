@@ -178,7 +178,15 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 	if declared && ceiling <= 0 {
 		return nil, fmt.Errorf("%w: %d creates nothing, which is not a ceiling", ErrNoCap, ceiling)
 	}
-	api, _ := decl.Config["api"].(string)
+	// Resolved like every other value a playbook holds. It was read raw, so a playbook
+	// writing `api: ${config.github_api}` passed the gate — which walks the field and
+	// checks the key exists — and then sent its request to a URL still spelling the
+	// reference. The sink is built before the agent, but the endpoint is only used at
+	// delivery, so the failure landed after the run had been paid for.
+	api, err := opts.interpolate(stringAt(decl, "api"))
+	if err != nil {
+		return nil, err
+	}
 	return NewGitHub(repo, token, label, ceiling, declared, api, opts.Client), nil
 }
 
@@ -235,4 +243,11 @@ func (o BuildOptions) interpolate(raw string) (string, error) {
 		return raw, nil
 	}
 	return o.Interpolate(raw)
+}
+
+// stringAt reads an optional string field, absent or wrongly typed reading as empty —
+// which is what the sink already treated a missing endpoint as.
+func stringAt(decl Declaration, key string) string {
+	text, _ := decl.Config[key].(string)
+	return text
 }
