@@ -17,7 +17,11 @@ func newRunCommand() *cobra.Command {
 		Short: "Invoke a playbook immediately",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			loaded, err := loadPlaybooks(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -26,7 +30,7 @@ func newRunCommand() *cobra.Command {
 				return fmt.Errorf("no playbook named %q; loaded: %v", args[0], loaded.Names())
 			}
 
-			deployment, err := openDeployment(cmd)
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}

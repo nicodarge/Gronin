@@ -29,12 +29,16 @@ func newServeCommand() *cobra.Command {
 		Short: "Load and validate every playbook, arm the schedules, and run",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			loaded, err := loadPlaybooks(cmd)
+			cfg, err := openConfig(cmd)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg)
 			if err != nil {
 				return err
 			}
 
-			deployment, err := openDeployment(cmd)
+			deployment, err := openDeployment(cmd, cfg)
 			if err != nil {
 				return err
 			}

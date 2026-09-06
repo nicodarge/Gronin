@@ -964,6 +964,19 @@
         "./internal/stage/agent",
         "-count=1"
       ]
+    },
+    {
+      "name": "validate silences the reason it cannot read the configuration",
+      "tree": "..",
+      "file": "cmd/gronin/validate_cmd.go",
+      "find": "\t\t\tcfg, err := openConfig(cmd)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}",
+      "replace": "\t\t\tcfg, err := openConfig(cmd)\n\t\t\tif err != nil {\n\t\t\t\treturn errSilent{err}\n\t\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
     }
   ]
 }

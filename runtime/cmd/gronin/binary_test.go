@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -100,4 +102,35 @@ func TestTheStateDirectoryResolvesInOrder(t *testing.T) {
 			t.Fatal("no state directory was resolved at all")
 		}
 	})
+}
+
+// A configuration the deployment cannot read is a refusal an operator has to be able to
+// act on, and `validate` used to exit non-zero with nothing on either stream.
+//
+// It happened because `validate` wraps what the gate returns in errSilent — the gate has
+// already printed the playbook, the field and what would be accepted, so main must not
+// print it again — and reading the configuration used to happen inside the gate. A
+// failure that the gate never printed was silenced by the wrapper meant for the ones it
+// had. Written as a binary-level test because the silence was main's, not the gate's.
+func TestValidateSaysWhyItCannotReadTheConfiguration(t *testing.T) {
+	state := t.TempDir()
+	if err := os.WriteFile(filepath.Join(state, "config.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	playbooks := filepath.Join(state, "playbooks")
+	if err := os.MkdirAll(playbooks, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	got := bintest.Run(t, "--state-dir", state, "validate", playbooks)
+
+	if got.ExitCode == 0 {
+		t.Fatalf("exit code = 0 on a configuration that does not parse; stdout = %q", got.Stdout)
+	}
+	if strings.TrimSpace(got.Stderr) == "" {
+		t.Fatal("exited non-zero and said nothing; an operator has no way to know why")
+	}
+	if !strings.Contains(got.Stderr, "configuration") {
+		t.Errorf("the refusal does not name what it could not read: %q", got.Stderr)
+	}
 }
