@@ -61,6 +61,8 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		"unrestricted-without-a-reason.yaml": {"agent.restricted", "no description saying why"},
 		"missing-prompt-file.yaml":           {"agent.prompt_file", "is not there"},
 		"quoted-reference-in-gather.yaml":    {"gather[0].run", "sits inside quotes"},
+		"label-with-a-comma.yaml":            {"sinks[0].github.label", "holds a comma"},
+		"empty-label.yaml":                   {"sinks[0].github.label", "is empty"},
 		"unconfigured-reference.yaml":        {"sinks[0].discord.webhook", "is not configured"},
 		// Refused by the published schema before the semantic gate sees them, which is
 		// the same rule at an earlier layer. The gate's own version is tested below,

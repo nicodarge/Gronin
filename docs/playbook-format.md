@@ -107,6 +107,28 @@ literal text; inside double quotes it would nest and split on whitespace. Both a
 why they are refused instead. A value is one word: a reference is not a way to pass several
 arguments.
 
+### A creating sink counts against its own label
+
+The `github` sink puts a label on every issue it opens, and counts the open ones carrying that
+label to decide whether there is room under the `cap`. The label is therefore what the cap is
+measured against, not decoration: a playbook naming none gets `gronin`, and two playbooks opening
+issues on one repository want two labels, or they share a cap and the busier of them silences the
+other.
+
+```yaml
+sinks:
+  - github:
+      repo: ${config.repo}
+      label: doc-drift
+      cap: 5
+```
+
+A label holding a comma is refused. GitHub reads `labels=` as a list, so `a,b` would count the
+issues carrying *both* while creating issues whose single label is the literal `a,b` — the count
+and the creation would name different things, and the cap would be measured against a set the sink
+never adds to. A label declared as empty is refused for the neighbouring reason: it drops the
+filter and counts every open issue in the repository.
+
 ## Fields that are refused rather than warned about
 
 The runtime rejects a playbook at load time, before any trigger is armed, when:
@@ -119,6 +141,7 @@ The runtime rejects a playbook at load time, before any trigger is armed, when:
   path-scopes a file tool to a path outside the run's working directory.
 - `agent.mcp` names a server that is not configured on this deployment.
 - A sink that creates things omits its `cap`.
+- A creating sink's `label` holds a comma, or resolves to nothing — see above.
 - A `guard` or `retrieve` block is present while the runtime does not yet apply it. A declared
   bound the runtime ignores is worse than an absent one, so it is refused rather than dropped.
 - An interpolation omits its namespace. `${repo}` is refused; `${config.repo}` is not.

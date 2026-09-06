@@ -373,6 +373,7 @@ func validateSinks(book *Playbook, dep Deployment) []Problem {
 					Accepted: "an integer; a sink that creates things must declare its ceiling",
 				})
 			}
+			problems = append(problems, labelProblems(field+"."+name+".label", config)...)
 		}
 	}
 	return problems
@@ -589,4 +590,43 @@ func configured(dep Deployment) map[string]bool {
 		known[key] = true
 	}
 	return known
+}
+
+// labelProblems applies the label rule where it is cheap: the cap is counted against the
+// label, so a label the sink cannot use is a cap measured against nothing.
+//
+// The sink refuses these too, when it is built. Here as well because there the run has
+// already been triggered, and this gate exists so a playbook that cannot work is refused
+// before anything is armed. What this cannot judge is a reference — the deployment holds
+// that value and the gate holds no values — so a resolved label is checked by the sink,
+// and a written one is checked twice.
+func labelProblems(field string, config map[string]any) []Problem {
+	raw, declared := config["label"]
+	if !declared {
+		return nil
+	}
+	text, ok := raw.(string)
+	if !ok {
+		return []Problem{{
+			Field: field, Found: "is not a string",
+			Accepted: "a label name, e.g. doc-drift",
+		}}
+	}
+	if strings.Contains(text, ",") {
+		return []Problem{{
+			Field: field,
+			Found: fmt.Sprintf("%q holds a comma, which GitHub reads as two labels", text),
+			Accepted: "one label name; the cap counts the issues carrying it, and a list " +
+				"would count issues the sink never creates",
+		}}
+	}
+	// A reference resolves to a value this gate cannot see, so only a written label is
+	// judged empty here.
+	if !strings.Contains(text, "${") && strings.TrimSpace(text) == "" {
+		return []Problem{{
+			Field: field, Found: "is empty, which counts every open issue in the repository",
+			Accepted: "a label name, or remove the field to use the default",
+		}}
+	}
+	return nil
 }

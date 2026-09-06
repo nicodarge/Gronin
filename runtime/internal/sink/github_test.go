@@ -24,6 +24,16 @@ type forge struct {
 	failAfter int
 	listCode  int
 	pages     int
+	// label is what this forge expects the sink to list and create against. Empty means
+	// the Marker, which is what a playbook naming no label gets.
+	label string
+}
+
+func (f *forge) wants() string {
+	if f.label == "" {
+		return sink.Marker
+	}
+	return f.label
 }
 
 func (f *forge) handler() http.Handler {
@@ -38,7 +48,7 @@ func (f *forge) handler() http.Handler {
 				return
 			}
 			// The cap counts what this runtime opened, which is what the label is for.
-			if r.URL.Query().Get("labels") != sink.Marker {
+			if r.URL.Query().Get("labels") != f.wants() {
 				http.Error(w, "the sink listed issues it did not label", http.StatusBadRequest)
 				return
 			}
@@ -71,7 +81,7 @@ func (f *forge) handler() http.Handler {
 				Labels []string `json:"labels"`
 			}
 			_ = json.Unmarshal(body, &issue)
-			if len(issue.Labels) == 0 || issue.Labels[0] != sink.Marker {
+			if len(issue.Labels) == 0 || issue.Labels[0] != f.wants() {
 				http.Error(w, "an issue was created without the marker", http.StatusBadRequest)
 				return
 			}
@@ -100,7 +110,8 @@ func issueSink(t *testing.T, ceiling int, prepare func(*forge)) (*forge, sink.Si
 	}
 	server := httptest.NewServer(got.handler())
 	t.Cleanup(server.Close)
-	return got, sink.NewGitHub("owner/repo", "t0ken", ceiling, true, server.URL, server.Client())
+	return got, sink.NewGitHub("owner/repo", "t0ken", got.label, ceiling, true,
+		server.URL, server.Client())
 }
 
 func findings(count int) []byte {
@@ -531,5 +542,118 @@ func TestExactlyAsManyOpenAsTheWalkCoversIsStillCounted(t *testing.T) {
 	}
 	if len(got.createdTitles()) != 5 {
 		t.Fatalf("the forge saw %d", len(got.createdTitles()))
+	}
+}
+
+// A playbook names the label its issues carry, and the cap is counted against that label
+// rather than against a constant. Two playbooks opening issues on one repository
+// otherwise share one cap, and the busier of them silences the other.
+//
+// The forge refuses a listing or a creation carrying any other label, so this fails if
+// the sink counts one set and creates into another.
+func TestTheCapIsCountedAgainstTheDeclaredLabel(t *testing.T) {
+	forge, issues := issueSink(t, 3, func(f *forge) {
+		f.label = "doc-drift"
+		f.open = []string{"already open"}
+	})
+
+	outcome, err := issues.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "doc-check", RunID: "run-1", Report: findings(4),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One is already open against a cap of three, so two rooms are left.
+	if outcome.ItemsCreated != 2 {
+		t.Fatalf("created %d, and two rooms were left under the cap: %+v",
+			outcome.ItemsCreated, outcome)
+	}
+	if got := len(forge.createdTitles()); got != 2 {
+		t.Fatalf("the forge saw %d creations", got)
+	}
+}
+
+// A playbook naming no label gets the Marker, which is what every playbook written before
+// the field existed relies on.
+func TestNoDeclaredLabelIsTheMarker(t *testing.T) {
+	forge, issues := issueSink(t, 2, nil)
+
+	if _, err := issues.Deliver(t.Context(), sink.Delivery{
+		PlaybookName: "p", RunID: "r", Report: findings(1),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(forge.createdTitles()); got != 1 {
+		t.Fatalf("the forge, which refuses anything but the marker, saw %d creations", got)
+	}
+}
+
+// The refusing half. A label is interpolated into a URL query and into the created
+// issue's labels, and the two have to name the same thing — so the shapes where they
+// would not are refused rather than escaped.
+func TestBuildRefusesALabelThatWouldSplitTheCap(t *testing.T) {
+	for name, declared := range map[string]any{
+		"a comma is two labels to GitHub": "doc-drift,urgent",
+		"empty drops the filter entirely": "",
+		"whitespace is empty":             "   ",
+		"not a string":                    42,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, problems := sink.Build([]sink.Declaration{{
+				Type: "github",
+				Config: map[string]any{
+					"repo": "owner/repo", "cap": 1, "label": declared,
+				},
+			}}, sink.BuildOptions{})
+
+			if len(problems) != 1 {
+				t.Fatalf("problems = %v, and this label is meant to be refused", problems)
+			}
+			if !strings.Contains(problems[0].Error(), "label") {
+				t.Errorf("the refusal does not name the field: %v", problems[0])
+			}
+		})
+	}
+}
+
+// The accepting half, so the refusal above is not an allowlist of one.
+func TestBuildAcceptsALabelAPlaybookMayReasonablyWant(t *testing.T) {
+	for _, label := range []string{"doc-drift", "puppet-drift", "area/docs", "P1: urgent"} {
+		built, problems := sink.Build([]sink.Declaration{{
+			Type:   "github",
+			Config: map[string]any{"repo": "owner/repo", "cap": 1, "label": label},
+		}}, sink.BuildOptions{})
+		if len(problems) != 0 {
+			t.Errorf("label %q was refused: %v", label, problems)
+		}
+		if len(built) != 1 {
+			t.Errorf("label %q built no sink", label)
+		}
+	}
+}
+
+// A label is a reference like every other value a playbook holds, so the deployment is
+// what supplies it.
+func TestALabelResolvesThroughTheDeployment(t *testing.T) {
+	built, problems := sink.Build([]sink.Declaration{{
+		Type: "github",
+		Config: map[string]any{
+			"repo": "owner/repo", "cap": 1, "label": "${config.drift_label}",
+		},
+	}}, sink.BuildOptions{
+		// Only the reference resolves. A resolver answering the same value for every
+		// input made this fail on the repo rather than pass on the label.
+		Interpolate: func(raw string) (string, error) {
+			if raw == "${config.drift_label}" {
+				return "doc-drift", nil
+			}
+			return raw, nil
+		},
+	})
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	if len(built) != 1 {
+		t.Fatal("no sink was built")
 	}
 }
