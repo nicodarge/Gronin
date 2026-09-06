@@ -11,6 +11,11 @@ import (
 // The value a deployment holds is data the playbook cannot see, so the containment has to
 // hold for any byte string. Each of these is a value that, substituted into the command's
 // text, would run something the playbook never declared.
+//
+// Driven through both namespaces rather than only ${config.x}. They bind through the same
+// mechanism, and a trigger payload is the one this repository elsewhere describes as
+// written by whoever sent the request — so it is the half that most needs probing, and it
+// was the half with no coverage.
 func TestABoundValueCannotBecomeACommand(t *testing.T) {
 	hostile := []string{
 		"; touch pwned",
@@ -26,27 +31,39 @@ func TestABoundValueCannotBecomeACommand(t *testing.T) {
 		"a b c",
 	}
 
-	for _, value := range hostile {
-		t.Run(value, func(t *testing.T) {
-			cfg := configWith(t, map[string]config.Value{"target": {Value: value}})
-			bound, err := cfg.BindShell("printf %s ${config.target}", nil)
-			if err != nil {
-				t.Fatalf("binding refused a legitimate line: %v", err)
-			}
+	for _, namespace := range []string{"config", "trigger"} {
+		for _, value := range hostile {
+			t.Run(namespace+"/"+value, func(t *testing.T) {
+				var (
+					cfg     *config.Config
+					trigger map[string]string
+				)
+				if namespace == "config" {
+					cfg = configWith(t, map[string]config.Value{"target": {Value: value}})
+				} else {
+					cfg = configWith(t, nil)
+					trigger = map[string]string{"target": value}
+				}
 
-			// Run it. A claim that a quoting scheme contains something is exactly the
-			// claim that is wrong when it is only read.
-			cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", bound.Line)
-			cmd.Env = bound.Env
-			cmd.Dir = t.TempDir()
-			out, err := cmd.Output()
-			if err != nil {
-				t.Fatalf("the bound line did not run: %v", err)
-			}
-			if string(out) != value {
-				t.Errorf("the step saw %q, and the configured value is %q", out, value)
-			}
-		})
+				bound, err := cfg.BindShell("printf %s ${"+namespace+".target}", trigger)
+				if err != nil {
+					t.Fatalf("binding refused a legitimate line: %v", err)
+				}
+
+				// Run it. A claim that a quoting scheme contains something is exactly the
+				// claim that is wrong when it is only read.
+				cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", bound.Line)
+				cmd.Env = bound.Env
+				cmd.Dir = t.TempDir()
+				out, err := cmd.Output()
+				if err != nil {
+					t.Fatalf("the bound line did not run: %v", err)
+				}
+				if string(out) != value {
+					t.Errorf("the step saw %q, and the value is %q", out, value)
+				}
+			})
+		}
 	}
 }
 

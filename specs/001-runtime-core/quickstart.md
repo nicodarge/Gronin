@@ -31,7 +31,8 @@ cp examples/doc-check.{yaml,prompt} ~/.gronin/playbooks/
 
 ## 3. Change two things
 
-In `doc-check.yaml`, the schedule and the destination:
+In `doc-check.yaml`, the schedule, and the destination — replacing the `sinks:` block the
+example ships with rather than adding a second sink beside it:
 
 ```yaml
 trigger:

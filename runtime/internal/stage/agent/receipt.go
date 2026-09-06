@@ -49,7 +49,7 @@ func CheckReceipt(decl Declaration) func(Event) error {
 	//
 	// Folded in only when the flag is actually passed, so a receipt naming it without the
 	// runtime having asked is still a mismatch. This is the one name folded in, for the
-	// reason the comment below gives about the allowlist: every extra name here widens
+	// reason the comment above gives about the allowlist: every extra name here widens
 	// what the check accepts.
 	structured := []string{}
 	if decl.OutputSchema != nil {
