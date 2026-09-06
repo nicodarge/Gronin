@@ -593,10 +593,12 @@ func TestNoDeclaredLabelIsTheMarker(t *testing.T) {
 // would not are refused rather than escaped.
 func TestBuildRefusesALabelThatWouldSplitTheCap(t *testing.T) {
 	for name, declared := range map[string]any{
-		"a comma is two labels to GitHub": "doc-drift,urgent",
-		"empty drops the filter entirely": "",
-		"whitespace is empty":             "   ",
-		"not a string":                    42,
+		"a comma is two labels to GitHub":     "doc-drift,urgent",
+		"empty drops the filter entirely":     "",
+		"whitespace is empty":                 "   ",
+		"not a string":                        42,
+		"named by the trigger":                "${trigger.bucket}",
+		"a config label with a trigger in it": "${config.prefix}-${trigger.bucket}",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, problems := sink.Build([]sink.Declaration{{
@@ -632,8 +634,9 @@ func TestBuildAcceptsALabelAPlaybookMayReasonablyWant(t *testing.T) {
 	}
 }
 
-// A label is a reference like every other value a playbook holds, so the deployment is
-// what supplies it.
+// A label is a reference like every other value a playbook holds, so the DEPLOYMENT is
+// what supplies it — which is the half that stays accepted while the trigger half above
+// is refused.
 func TestALabelResolvesThroughTheDeployment(t *testing.T) {
 	built, problems := sink.Build([]sink.Declaration{{
 		Type: "github",

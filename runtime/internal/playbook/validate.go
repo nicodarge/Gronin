@@ -595,11 +595,11 @@ func configured(dep Deployment) map[string]bool {
 // labelProblems applies the label rule where it is cheap: the cap is counted against the
 // label, so a label the sink cannot use is a cap measured against nothing.
 //
-// The sink refuses these too, when it is built. Here as well because there the run has
-// already been triggered, and this gate exists so a playbook that cannot work is refused
-// before anything is armed. What this cannot judge is a reference — the deployment holds
-// that value and the gate holds no values — so a resolved label is checked by the sink,
-// and a written one is checked twice.
+// The sink refuses all of these too, when it is built. Here as well because there the run
+// has already been triggered, and this gate exists so a playbook that cannot work is
+// refused before anything is armed. What this cannot judge is what a reference resolves
+// to — the deployment holds that value and the gate holds no values — so a written label
+// is refused twice and a resolved one is refused by the sink.
 func labelProblems(field string, config map[string]any) []Problem {
 	raw, declared := config["label"]
 	if !declared {

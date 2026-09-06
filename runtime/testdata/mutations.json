@@ -1029,6 +1029,19 @@
         "./internal/playbook",
         "-count=1"
       ]
+    },
+    {
+      "name": "the sink accepts a label the trigger names",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif strings.Contains(text, \"${trigger.\") {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1"
+      ]
     }
   ]
 }

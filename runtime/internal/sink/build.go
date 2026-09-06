@@ -149,6 +149,17 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 		if !ok {
 			return nil, fmt.Errorf("label is not a string; accepted: a label name, e.g. %q", Marker)
 		}
+		// Checked on the written text, before it resolves: the cap is counted against the
+		// label, so whatever names it chooses the bucket the ceiling applies to, and a
+		// trigger naming it makes the cap per-trigger rather than per-repository. The
+		// load gate refuses this too — it is duplicated here for the same reason the
+		// comma and the empty label are, so the sink holds the rule even when it is
+		// reached by something that did not come through the gate.
+		if strings.Contains(text, "${trigger.") {
+			return nil, fmt.Errorf("label %q resolves through the trigger, which would let "+
+				"what fires the run choose the bucket its cap is counted against; accepted: "+
+				"a label name, or ${config.x}", text)
+		}
 		label, err = opts.interpolate(text)
 		if err != nil {
 			return nil, err
