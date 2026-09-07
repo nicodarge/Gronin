@@ -288,3 +288,31 @@ func TestFinishRecordsWhatTheRunProduced(t *testing.T) {
 		t.Fatalf("trigger kind = %q", got.TriggerKind)
 	}
 }
+
+// A lock that cannot be taken for a reason other than contention must not be reported as
+// contention: a read-only or full filesystem answered "held by another process" would
+// send an operator looking for a concurrent run that does not exist.
+func TestAFailureThatIsNotContentionIsNotReportedAsAnotherRun(t *testing.T) {
+	dir := t.TempDir()
+	store, err := record.Open(t.Context(), filepath.Join(dir, "record"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	// A regular file where the locks directory has to be: MkdirAll fails with ENOTDIR
+	// whatever the caller's privileges, which a permissions-based fixture cannot promise.
+	locks := filepath.Join(dir, "locks")
+	if err := os.WriteFile(locks, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := run.NewManager(store, filepath.Join(dir, "work"), locks)
+	_, err = manager.Begin(t.Context(), "daily-drift", record.TriggerManual, "")
+	if err == nil {
+		t.Fatal("a run began although its lock could not be taken")
+	}
+	if errors.Is(err, run.ErrAlreadyRunning) {
+		t.Fatalf("a filesystem failure was reported as a concurrent run: %v", err)
+	}
+}

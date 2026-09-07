@@ -86,7 +86,7 @@ func (m *Manager) Begin(
 	lockFile, err := m.acquireLock(playbookName)
 	if err != nil {
 		m.release(playbookName)
-		return nil, fmt.Errorf("%w: held by another process", ErrAlreadyRunning)
+		return nil, err
 	}
 
 	run := &Run{
@@ -127,7 +127,13 @@ func (m *Manager) acquireLock(playbookName string) (*os.File, error) {
 	}
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = file.Close()
-		return nil, err
+		// Only contention is another process holding it. A read-only or full filesystem
+		// reaches here too, and reporting that as a concurrent run sends an operator
+		// looking for one that does not exist.
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w: held by another process", ErrAlreadyRunning)
+		}
+		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
 	return file, nil
 }

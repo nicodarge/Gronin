@@ -1185,6 +1185,32 @@
         "./internal/run",
         "-count=1"
       ]
+    },
+    {
+      "name": "a filesystem failure is reported as a concurrent run",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\tm.release(playbookName)\n\t\treturn nil, err\n\t}",
+      "replace": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\tm.release(playbookName)\n\t\treturn nil, fmt.Errorf(\"%w: held by another process\", ErrAlreadyRunning)\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "contention is not classified as a run already in flight",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\t\tif errors.Is(err, syscall.EWOULDBLOCK) {",
+      "replace": "\t\tif errors.Is(err, syscall.EWOULDBLOCK) && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
     }
   ]
 }
