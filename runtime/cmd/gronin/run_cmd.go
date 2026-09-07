@@ -21,7 +21,11 @@ func newRunCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			loaded, err := loadPlaybooks(cmd, cfg)
+			catalog, err := openResolvableCatalog(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}
@@ -30,7 +34,7 @@ func newRunCommand() *cobra.Command {
 				return fmt.Errorf("no playbook named %q; loaded: %v", args[0], loaded.Names())
 			}
 
-			deployment, err := openDeployment(cmd, cfg)
+			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}

@@ -34,6 +34,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newStateDirCommand())
 	root.AddCommand(newConfigCommand())
+	root.AddCommand(newMCPCommand())
 	root.AddCommand(newValidateCommand())
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newServeCommand())

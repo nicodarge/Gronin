@@ -214,6 +214,13 @@ func (e *Executor) agentAndSinks(
 		return e.finished(started.ID, outcome, incomplete)
 	}
 
+	servers, err := e.serversOf(book)
+	if err != nil {
+		outcome.Status = record.StatusRefused
+		outcome.Error = err.Error()
+		return e.finished(started.ID, outcome, incomplete)
+	}
+
 	declaration := declarationOf(book)
 	stage, err := agent.Run(ctx, declaration, agent.Options{
 		Executable: e.AgentExecutable,
@@ -221,7 +228,7 @@ func (e *Executor) agentAndSinks(
 		Prompt:     prompt,
 		Timeout:    timeout,
 		Env:        e.AgentEnv,
-		MCPServers: serversOf(book),
+		MCPServers: servers,
 		OnEvent:    agent.CheckReceipt(declaration),
 	})
 	if err != nil {

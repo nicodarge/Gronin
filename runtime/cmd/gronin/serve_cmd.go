@@ -33,12 +33,16 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			loaded, err := loadPlaybooks(cmd, cfg)
+			catalog, err := openResolvableCatalog(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}
 
-			deployment, err := openDeployment(cmd, cfg)
+			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}

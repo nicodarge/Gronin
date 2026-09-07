@@ -1081,6 +1081,71 @@
         "./internal/stage/agent",
         "-count=1"
       ]
+    },
+    {
+      "name": "an mcp catalogue entry naming both transports is accepted",
+      "tree": "..",
+      "file": "internal/mcpcatalog/mcpcatalog.go",
+      "find": "\tcase e.isStdio() && e.isHTTP():",
+      "replace": "\tcase e.isStdio() && e.isHTTP() && false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/mcpcatalog",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an mcp catalogue entry naming neither transport is accepted",
+      "tree": "..",
+      "file": "internal/mcpcatalog/mcpcatalog.go",
+      "find": "\tcase !e.isStdio() && !e.isHTTP():",
+      "replace": "\tcase !e.isStdio() && !e.isHTTP() && false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/mcpcatalog",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an unresolvable mcp catalogue reference is accepted",
+      "tree": "..",
+      "file": "internal/mcpcatalog/mcpcatalog.go",
+      "find": "\t\tresolved, err := interpolate(values[key])\n\t\tif err != nil {",
+      "replace": "\t\tresolved, err := interpolate(values[key])\n\t\tif err != nil && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/mcpcatalog",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a catalogued mcp server that no playbook names reaches the child",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tfor _, name := range book.Agent.MCP {",
+      "replace": "\tfor _, name := range e.Catalog.Names() {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "an mcp catalogue reference to an unconfigured key is accepted at load",
+      "tree": "..",
+      "file": "internal/mcpcatalog/mcpcatalog.go",
+      "find": "\t\tif _, err := resolveAll(name, \"env\", entry.Env, interpolate); err != nil {",
+      "replace": "\t\tif _, err := resolveAll(name, \"env\", entry.Env, interpolate); err != nil && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/mcpcatalog",
+        "-count=1"
+      ]
     }
   ]
 }

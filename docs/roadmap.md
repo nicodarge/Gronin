@@ -18,10 +18,11 @@ stays inside Gronin. A playbook already names the servers it needs through
 `agent.mcp`, and `agent.allow` already names individual tools rather than a
 whole server; the runtime already refuses an entry that names a whole server,
 and every agent run is already bounded to exactly its declared servers through
-`--strict-mcp-config`. What is still missing is the deployment's own half of
-that contract: a catalogue that turns a name like `postgresql` into a working
-server definition, so a playbook can activate a server à la carte — a server no
-playbook names is never configured and never launched.
+`--strict-mcp-config`. The deployment's own half of that contract is the
+catalogue: it turns a name into a working server definition, held beside the
+deployment configuration rather than in a playbook or in this repository, so a
+playbook activates a server à la carte — a server no playbook names is never
+configured and never launched.
 
 ## Phase 2 — The runtime core
 

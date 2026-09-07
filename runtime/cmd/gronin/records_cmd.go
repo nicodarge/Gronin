@@ -22,7 +22,11 @@ func newRunsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deployment, err := openDeployment(cmd, cfg)
+			catalog, err := openCatalog(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}
@@ -61,7 +65,11 @@ func newShowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deployment, err := openDeployment(cmd, cfg)
+			catalog, err := openCatalog(cmd)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}
@@ -185,7 +193,11 @@ func fromRecord(
 		if err != nil {
 			return err
 		}
-		deployment, err := openDeployment(cmd, cfg)
+		catalog, err := openCatalog(cmd)
+		if err != nil {
+			return err
+		}
+		deployment, err := openDeployment(cmd, cfg, catalog)
 		if err != nil {
 			return err
 		}
@@ -196,7 +208,7 @@ func fromRecord(
 			return err
 		}
 
-		loaded, err := loadPlaybooks(cmd, cfg)
+		loaded, err := loadPlaybooks(cmd, cfg, catalog)
 		if err != nil {
 			return errSilent{err}
 		}
