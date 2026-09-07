@@ -24,8 +24,8 @@ mutation` runs them through the hook definitions rather than around them.
 
 The harness builds in a cache of its own, thrown away when it finishes. Each mutant is a
 fresh copy of the tree at a fresh path, so the compiler writes a distinct set of entries
-for each; against the developer's own cache a day of runs took it to 46 GB, and Go trims
-on five days of disuse rather than on size. The first mutant of every run therefore
+for each; against the developer's own cache a day of runs took it to 46 GB on 2026-09-06,
+and Go trims on five days of disuse rather than on size. The first mutant of every run therefore
 compiles the standard library and the dependencies cold.
 
 The mutations live in [testdata/mutations.json](testdata/mutations.json). Add one when
