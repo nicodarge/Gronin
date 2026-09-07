@@ -180,10 +180,9 @@ func VerifyCredential(
 	if err != nil {
 		return "", err
 	}
-	// The bound, before anything reads the stream. A credential the API keeps refusing
-	// drives the executable through its own retry ladder — measured at about three
-	// minutes on 2.1.263 — so the commonest real failure arrives here rather than as a
-	// classified terminal event, and saying "no terminal event" for it would name
+	// The bound, before anything reads the stream. The retry ladder recorded on
+	// CredentialProbeTimeout means the commonest real failure arrives here rather than
+	// as a classified terminal event, and saying "no terminal event" for it would name
 	// neither the bound nor the likeliest cause.
 	if outcome.TimedOut {
 		return "", fmt.Errorf("%w: it did not finish one trivial turn within %s, which is "+

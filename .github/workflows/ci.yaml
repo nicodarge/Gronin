@@ -12,8 +12,9 @@ permissions:
 jobs:
   # Every static hook, from the file that already pins them. A second pin in this
   # workflow would be a second thing to bump, and the one that drifts is the copy.
-  # The two heavy hooks have jobs of their own below; no-commit-to-branch is a local
-  # guard and refuses the production checkout this job does on a push.
+  # The two heavy hooks are `manual` there and have jobs of their own below;
+  # no-commit-to-branch is a local guard and refuses the production checkout this job
+  # does on a push.
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +24,7 @@ jobs:
           go-version-file: runtime/go.mod
       - run: pipx install pre-commit
       - env:
-          SKIP: go-suite,mutation,no-commit-to-branch
+          SKIP: no-commit-to-branch
         run: pre-commit run --all-files --show-diff-on-failure
 
   suite:

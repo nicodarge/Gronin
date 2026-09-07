@@ -17,6 +17,17 @@ scripts/check-mutation.py   # break each declared line and confirm something not
 refuses to run at all if it cannot. Everything that runs the tests — pre-commit, CI, a
 developer — goes through it, so a green suite means one thing rather than three.
 
+Neither runs on a commit or a push. They are the merge gate and CI is where a merge gate
+belongs; run before every push they cost minutes, long enough that git's own SSH
+connection idles out and the push fails. `pre-commit run --hook-stage manual go-suite
+mutation` runs them through the hook definitions rather than around them.
+
+The harness builds in a cache of its own, thrown away when it finishes. Each mutant is a
+fresh copy of the tree at a fresh path, so the compiler writes a distinct set of entries
+for each; against the developer's own cache a day of runs took it to 46 GB, and Go trims
+on five days of disuse rather than on size. The first mutant of every run therefore
+compiles the standard library and the dependencies cold.
+
 The mutations live in [testdata/mutations.json](testdata/mutations.json). Add one when
 you add a guard: a test that has never been watched failing is not evidence of anything.
 `scripts/check-mutation.py --self-test` shows the harness reporting zero, which is what
