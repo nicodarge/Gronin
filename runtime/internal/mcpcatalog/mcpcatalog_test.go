@@ -290,3 +290,29 @@ func TestAnUnterminatedReferenceIsRefused(t *testing.T) {
 		t.Fatal("an unterminated reference was accepted")
 	}
 }
+
+// The stdio side of the same check. Without this the env branch is unexercised, which the
+// mutation harness caught: neutralising it changed nothing, because every other case here
+// is an http entry carrying its reference in a header.
+func TestAnEnvReferenceToAnUnconfiguredKeyIsRefusedAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"netbox": {"command": "netbox-mcp",
+		"env": {"NETBOX_TOKEN": "${config.netbox_token}"}}}`)
+	catalog, err := mcpcatalog.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := catalog.CheckReferences(resolver(t, "netbox_token")); err != nil {
+		t.Fatalf("a configured key was refused: %v", err)
+	}
+	err = catalog.CheckReferences(resolver(t, "something_else"))
+	if err == nil {
+		t.Fatal("an env reference to an unconfigured key was accepted")
+	}
+	for _, want := range []string{"netbox", "NETBOX_TOKEN", "netbox_token"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+}
