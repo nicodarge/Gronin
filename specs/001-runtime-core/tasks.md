@@ -318,8 +318,8 @@ first tag**: US1, US2 and US3 together are the smallest thing that satisfies the
       false
 - [x] T067 [P] Publish `playbook.schema.json` at a stable URL so editors can resolve it —
       <https://nicodarge.github.io/Gronin/playbook.schema.json>, assembled from the contract at
-      publish time rather than committed a third time. It answers once the repository is public,
-      which is the deadline the constitution already names
+      publish time rather than committed a third time. It has answered since 2026-09-07, when
+      GitHub Pages was enabled — while the repository itself is still private
 
 ---
 

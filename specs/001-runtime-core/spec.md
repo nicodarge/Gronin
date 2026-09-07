@@ -15,7 +15,7 @@
 - Q: Which language and execution model for the agent stage? → A: Go. The Claude Agent SDK exists only for Python and TypeScript, so the runtime drives the Claude Code CLI directly over its documented `--print --output-format stream-json` contract — the same contract the SDK wraps, and the same one the containment flags belong to. Distribution as a single static binary was judged worth more than a language-specific SDK wrapper.
 - Q: What does replaying a run mean? → A: Two distinct verbs. `replay` re-runs the agent stage against the recorded inputs; `resume` re-runs only the sinks against the report already produced. Different costs, different purposes, no ambiguity.
 - Q: How does an operator invoke a playbook manually and inspect a run? → A: One binary that is both daemon and client. `gronin serve` runs the scheduler and a local API; `gronin run`, `gronin runs`, `gronin show`, `gronin replay` and `gronin resume` are clients of that API. A web dashboard is deferred to a later feature and will be served by the same API.
-- Q: Which concrete sinks ship first? → A: Three — Discord, Slack, and GitHub issues. Two messaging implementations validate the sink interface properly, and nothing is left to build before the repository goes public.
+- Q: Which concrete sinks ship first? → A: Three — Discord, Slack, and GitHub issues. Two messaging implementations validate the sink interface properly, and nothing is left to build before the repository goes public. (Superseded 2026-09-07: phase 1 no longer means the repository goes public — see docs/roadmap.md. The sink answer itself stands.)
 
 ## User Scenarios & Testing *(mandatory)*
 

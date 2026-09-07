@@ -5,17 +5,23 @@ Phases are ordered by dependency, and the riskiest is deliberately last.
 ## Phase 0 — Foundation
 
 This repository, its licence, its hygiene rules, and a secret-scanning hook that
-runs before every commit. The repository is private and becomes public in phase
-1, so the rule that nothing from a real fleet enters it is enforced from the
-first commit rather than cleaned up before the switch.
+runs before every commit. The repository already serves a public surface — GitHub
+Pages has published the playbook schema since 2026-09-07 — and its own switch to
+fully public can come at any time, so the rule that nothing from a real fleet
+enters it is enforced from the first commit rather than from a date.
 
-## Phase 1 — MCP servers in public
+## Phase 1 — The deployment's MCP server catalogue
 
-The infrastructure MCP servers move out of their private home and into the open,
-with published container images and an installation guide. They stand alone:
-they are useful to anyone running Claude Code against infrastructure, with or
-without the rest of this project. This is also the cheapest possible test of
-whether the subject interests anyone.
+The infrastructure MCP servers will probably never be public: publishing them,
+with container images and an installation guide, is dropped. What replaces it
+stays inside Gronin. A playbook already names the servers it needs through
+`agent.mcp`, and `agent.allow` already names individual tools rather than a
+whole server; the runtime already refuses an entry that names a whole server,
+and every agent run is already bounded to exactly its declared servers through
+`--strict-mcp-config`. What is still missing is the deployment's own half of
+that contract: a catalogue that turns a name like `postgresql` into a working
+server definition, so a playbook can activate a server à la carte — a server no
+playbook names is never configured and never launched.
 
 ## Phase 2 — The runtime core
 
