@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
+	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
@@ -28,6 +29,9 @@ type Executor struct {
 	Manager *Manager
 	Store   *record.Store
 	Config  *config.Config
+	// Catalog is the MCP servers this deployment provides. A playbook names a server; the
+	// catalogue supplies what it is. Nil is treated as an empty catalogue.
+	Catalog *mcpcatalog.Catalog
 
 	// AgentExecutable is the CLI this deployment drives, named rather than searched.
 	AgentExecutable string
@@ -300,14 +304,23 @@ func declarationsOf(book *playbook.Playbook) []sink.Declaration {
 }
 
 // serversOf is the strict MCP configuration this run is bounded by. A playbook names
-// servers; the deployment supplies what they are. Until the deployment's own server
-// catalogue exists (the load gate refuses an unknown name), a named server contributes
-// an empty entry — the file still exists, which is what makes --strict-mcp-config mean
-// "these and no others".
-func serversOf(book *playbook.Playbook) map[string]any {
+// servers; the catalogue supplies what they are.
+//
+// It iterates book.Agent.MCP and nothing else, which is the whole of what keeps a
+// catalogued server that no playbook names from ever reaching the child: unreferenced
+// here, it is never written to the file --strict-mcp-config bounds the run to.
+func (e *Executor) serversOf(book *playbook.Playbook) (map[string]any, error) {
 	servers := map[string]any{}
-	for _, name := range book.Agent.MCP {
-		servers[name] = map[string]any{}
+	if e.Catalog == nil {
+		return servers, nil
 	}
-	return servers
+	interpolate := func(text string) (string, error) { return e.Config.Interpolate(text, nil) }
+	for _, name := range book.Agent.MCP {
+		resolved, err := e.Catalog.Resolve(name, interpolate)
+		if err != nil {
+			return nil, err
+		}
+		servers[name] = resolved
+	}
+	return servers, nil
 }

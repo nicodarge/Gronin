@@ -11,6 +11,7 @@ import (
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
 	"github.com/nicodarge/Gronin/runtime/internal/logging"
+	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
@@ -21,6 +22,7 @@ import (
 // what it knows about itself, and the record it writes to.
 type deployment struct {
 	config          *config.Config
+	catalog         *mcpcatalog.Catalog
 	store           *record.Store
 	manager         *run.Manager
 	executor        *run.Executor
@@ -56,6 +58,11 @@ var agentEnvVars = []string{
 func openDeployment(cmd *cobra.Command, cfg *config.Config) (*deployment, error) {
 	stateDir := stateDirOf(cmd)
 
+	catalog, err := mcpcatalog.Load(stateDir)
+	if err != nil {
+		return nil, err
+	}
+
 	store, err := record.Open(cmd.Context(), filepath.Join(stateDir, "record"),
 		record.NewRedactor(cfg.Secrets()))
 	if err != nil {
@@ -75,6 +82,7 @@ func openDeployment(cmd *cobra.Command, cfg *config.Config) (*deployment, error)
 	manager := run.NewManager(store, filepath.Join(stateDir, "work"))
 	return &deployment{
 		config:          cfg,
+		catalog:         catalog,
 		store:           store,
 		manager:         manager,
 		log:             log,
@@ -84,6 +92,7 @@ func openDeployment(cmd *cobra.Command, cfg *config.Config) (*deployment, error)
 			Manager:         manager,
 			Store:           store,
 			Config:          cfg,
+			Catalog:         catalog,
 			AgentExecutable: executable,
 			AgentEnv:        inheritedEnv(agentEnvVars),
 			// A gather step gets a path and nothing else. It is a command a playbook
@@ -108,20 +117,23 @@ func inheritedEnv(names []string) []string {
 // capabilities is what this deployment can do, which is half of whether a playbook is
 // safe. A name the gate cannot resolve is refused here rather than at delivery, after a
 // full agent run has been paid for.
-func capabilities(cfg *config.Config) playbook.Deployment {
+func capabilities(cfg *config.Config, catalog *mcpcatalog.Catalog) playbook.Deployment {
 	var keys []string
 	if cfg != nil {
 		keys = cfg.Keys()
+	}
+	var servers []string
+	if catalog != nil {
+		servers = catalog.Names()
 	}
 	return playbook.Deployment{
 		// What the deployment can resolve. spec.md asks for a reference that resolves to
 		// nothing to be refused at load rather than at trigger time, and the gate cannot
 		// answer that without knowing which keys exist.
 		ConfigKeys: keys,
-		// No MCP server is wired yet. An empty list is the honest answer and it refuses
-		// every playbook naming one, which is the right direction: a server the runtime
-		// does not pass to the child is a bound the playbook thinks it has.
-		MCPServers:    nil,
+		// The servers this deployment's own catalogue provides. A name outside it is
+		// refused here rather than at delivery, after a full agent run has been paid for.
+		MCPServers:    servers,
 		SinkTypes:     sink.Types(),
 		CreatingSinks: sink.CreatingTypes(),
 	}
@@ -139,8 +151,13 @@ func playbooksDir(cmd *cobra.Command) string {
 // The last line is deliberate: a gate that refuses two out of six and starts anyway is
 // the failure the design exists to prevent, so the output says nothing was armed.
 func loadPlaybooks(cmd *cobra.Command, cfg *config.Config) (playbook.Loaded, error) {
+	catalog, err := mcpcatalog.Load(stateDirOf(cmd))
+	if err != nil {
+		return playbook.Loaded{}, err
+	}
+
 	dir := playbooksDir(cmd)
-	loaded, err := playbook.Load(dir, capabilities(cfg))
+	loaded, err := playbook.Load(dir, capabilities(cfg, catalog))
 	if err != nil {
 		return loaded, err
 	}
