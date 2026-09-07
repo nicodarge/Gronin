@@ -98,8 +98,10 @@ a commit message. Examples MUST use documentation-reserved values.
 Automated secret scanning MUST run before every commit. It is a belt and not the rule: it
 catches shapes it already knows, and an infrastructure hostname is not one of them.
 
-Rationale: this repository is private and becomes public at a known phase. That is a deadline,
-not a grace period — removing something from history later is expensive and unreliable.
+Rationale: this repository already serves a public surface — GitHub Pages has published the
+playbook schema since 2026-09-07 — and its own switch to fully public can come at any time, with
+no date attached. The rule holds now, not from a future deadline: removing something from history
+later is expensive and unreliable.
 
 ### VI. The Suite Is the Gate
 

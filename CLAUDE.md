@@ -5,12 +5,14 @@
 Everything in this repository is written in English: code, comments,
 documentation, commit messages, pull request titles and bodies, branch names.
 
-## This repository is going public
+## Part of this repository is already public
 
-It is private today and becomes public in phase 1. That is a deadline, not a
-grace period: anything committed here now is committed to something that will
-be readable by everyone, and rewriting history to remove it is expensive and
-unreliable.
+It is private today, but GitHub Pages has served the playbook schema publicly
+since 2026-09-07, and the repository's own switch to fully public can come at
+any time, with no date attached. So the rule below is not a grace period
+waiting for a deadline — it holds now: anything committed here is committed to
+something that can be read by everyone, and rewriting history to remove it is
+expensive and unreliable.
 
 So the rule is absolute and has no exception for convenience:
 
