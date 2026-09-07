@@ -2,19 +2,16 @@ package run
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 )
 
 // The pattern Begin checks a name against before it becomes a path is a copy of the
-// contract's. Nothing but this keeps the copy honest.
+// contract's. This asserts it against the embedded schema rather than the contract file:
+// the contract is not beside this module when the mutation harness copies it, and
+// playbook.TestTheEmbeddedSchemaIsTheContract already holds the embedded copy to it.
 func TestTheLockNamePatternMatchesTheContract(t *testing.T) {
-	document, err := os.ReadFile(filepath.Join(
-		"..", "..", "..", "specs", "001-runtime-core", "contracts", "playbook.schema.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	var schema struct {
 		Properties struct {
 			Name struct {
@@ -22,7 +19,7 @@ func TestTheLockNamePatternMatchesTheContract(t *testing.T) {
 			} `json:"name"`
 		} `json:"properties"`
 	}
-	if err := json.Unmarshal(document, &schema); err != nil {
+	if err := json.Unmarshal(playbook.Schema, &schema); err != nil {
 		t.Fatal(err)
 	}
 	if got := playbookNamePattern.String(); got != schema.Properties.Name.Pattern {
