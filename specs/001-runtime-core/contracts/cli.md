@@ -28,7 +28,9 @@ contract rather than a convenience.
 `gronin mcp` is read-only. The catalogue an operator maintains — which server a playbook's
 `agent.mcp` may name, and how to reach it — lives in a file beside the deployment configuration,
 never in a playbook and never in this repository; `list` is here so it can be inspected without
-opening it by hand.
+opening it by hand. Only an entry's env and header values are references resolved at run time and
+hidden by `list`; its command, arguments and url are printed as written, so a credential must never
+be one of them.
 
 `gronin validate` exists because the load gate is the thing most worth running in CI, and requiring
 a credential to check a playbook's shape would put it out of reach there. It is the same code path

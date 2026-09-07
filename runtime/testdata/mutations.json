@@ -1133,6 +1133,19 @@
         "./internal/run",
         "-count=1"
       ]
+    },
+    {
+      "name": "an mcp catalogue reference to an unconfigured key is accepted at load",
+      "tree": "..",
+      "file": "internal/mcpcatalog/mcpcatalog.go",
+      "find": "\t\tcase !held[name]:",
+      "replace": "\t\tcase !held[name] && false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/mcpcatalog",
+        "-count=1"
+      ]
     }
   ]
 }

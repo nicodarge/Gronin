@@ -24,7 +24,11 @@ func newMCPCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deployment, err := openDeployment(cmd, cfg)
+			catalog, err := openCatalog(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
 				return err
 			}

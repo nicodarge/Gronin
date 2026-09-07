@@ -55,13 +55,10 @@ var agentEnvVars = []string{
 // configuration. It takes the configuration rather than reading it because the gate needs
 // the same one — and a command that read it twice would read the same file twice per
 // invocation.
-func openDeployment(cmd *cobra.Command, cfg *config.Config) (*deployment, error) {
+func openDeployment(
+	cmd *cobra.Command, cfg *config.Config, catalog *mcpcatalog.Catalog,
+) (*deployment, error) {
 	stateDir := stateDirOf(cmd)
-
-	catalog, err := mcpcatalog.Load(stateDir)
-	if err != nil {
-		return nil, err
-	}
 
 	store, err := record.Open(cmd.Context(), filepath.Join(stateDir, "record"),
 		record.NewRedactor(cfg.Secrets()))
@@ -150,12 +147,9 @@ func playbooksDir(cmd *cobra.Command) string {
 // loadPlaybooks reads the directory and refuses the whole set if any of it is refused.
 // The last line is deliberate: a gate that refuses two out of six and starts anyway is
 // the failure the design exists to prevent, so the output says nothing was armed.
-func loadPlaybooks(cmd *cobra.Command, cfg *config.Config) (playbook.Loaded, error) {
-	catalog, err := mcpcatalog.Load(stateDirOf(cmd))
-	if err != nil {
-		return playbook.Loaded{}, err
-	}
-
+func loadPlaybooks(
+	cmd *cobra.Command, cfg *config.Config, catalog *mcpcatalog.Catalog,
+) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
 	loaded, err := playbook.Load(dir, capabilities(cfg, catalog))
 	if err != nil {
@@ -196,6 +190,23 @@ func logLevel(cmd *cobra.Command) slog.Level {
 
 // openConfig reads the deployment's configuration. Every command that needs it reads it
 // once here and hands it on, so the gate and the deployment share one read of one file.
+// openCatalog reads the MCP server catalogue once per invocation, the way openConfig
+// reads config.json, and refuses one whose references this deployment cannot resolve.
+func openCatalog(cmd *cobra.Command, cfg *config.Config) (*mcpcatalog.Catalog, error) {
+	catalog, err := mcpcatalog.Load(stateDirOf(cmd))
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	if cfg != nil {
+		keys = cfg.Keys()
+	}
+	if err := catalog.CheckReferences(keys); err != nil {
+		return nil, err
+	}
+	return catalog, nil
+}
+
 func openConfig(cmd *cobra.Command) (*config.Config, error) {
 	return config.Load(stateDirOf(cmd))
 }

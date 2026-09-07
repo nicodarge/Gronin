@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,7 @@ func TestMCPListNamesTheProvidedServersWithoutResolvingReferences(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(state, "mcp_servers.json"), []byte(document), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	configure(t, state, "grafana_token", "netbox_token")
 
 	got := bintest.Run(t, "--state-dir", state, "mcp", "list")
 
@@ -105,5 +107,44 @@ sinks:
 	}
 	if !strings.Contains(got.Stdout, "1 playbook(s) accepted") {
 		t.Fatalf("stdout = %q", got.Stdout)
+	}
+}
+
+// configure writes a deployment configuration holding each key, so a catalogue naming it
+// loads. The values are documentation-reserved placeholders: nothing here resolves them.
+func configure(t *testing.T, stateDir string, keys ...string) {
+	t.Helper()
+	values := map[string]map[string]any{}
+	for _, key := range keys {
+		values[key] = map[string]any{"value": "REPLACE_ME", "secret": true}
+	}
+	document, err := json.Marshal(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "config.json"), document, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A catalogue reference to a key the deployment does not hold is refused when the
+// catalogue loads, not at the first run — which for a scheduled playbook is at night.
+func TestACatalogueReferenceToAnUnconfiguredKeyRefusesTheCommand(t *testing.T) {
+	state := t.TempDir()
+	document := `{"grafana": {"url": "https://grafana.example.com/mcp",
+		"headers": {"Authorization": "Bearer ${config.grafana_token}"}}}`
+	if err := os.WriteFile(filepath.Join(state, "mcp_servers.json"), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := bintest.Run(t, "--state-dir", state, "mcp", "list")
+
+	if got.ExitCode == 0 {
+		t.Fatalf("the command succeeded against an unresolvable catalogue: %q", got.Stdout)
+	}
+	for _, want := range []string{"grafana", "grafana_token", "gronin config set"} {
+		if !strings.Contains(got.Stderr, want) {
+			t.Errorf("stderr does not name %q: %q", want, got.Stderr)
+		}
 	}
 }

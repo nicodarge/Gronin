@@ -198,3 +198,61 @@ func TestSummaryNeverPrintsAResolvedValueOrTheRawReference(t *testing.T) {
 		t.Errorf("summary prints a resolved value: %q", summary)
 	}
 }
+
+// The gate already refuses a playbook's own ${config.x} that resolves to nothing. A
+// catalogue reference is the same kind of reference, and without this it would be the one
+// class that surfaces at the first run instead — possibly a scheduled one, at night.
+func TestAReferenceToAnUnconfiguredKeyIsRefusedAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{
+		"grafana": {"url": "https://grafana.example.com/mcp",
+			"headers": {"Authorization": "Bearer ${config.grafana_token}"}}
+	}`)
+	catalog, err := mcpcatalog.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := catalog.CheckReferences([]string{"grafana_token"}); err != nil {
+		t.Fatalf("a configured key was refused: %v", err)
+	}
+
+	err = catalog.CheckReferences([]string{"something_else"})
+	if err == nil {
+		t.Fatal("a reference to an unconfigured key was accepted")
+	}
+	for _, want := range []string{"grafana", "Authorization", "grafana_token"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+}
+
+func TestAReferenceNamingNoSourceOrTheWrongOneIsRefused(t *testing.T) {
+	for name, value := range map[string]string{
+		"no source":    "Bearer ${grafana_token}",
+		"wrong source": "Bearer ${trigger.grafana_token}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			write(t, dir, `{"grafana": {"url": "https://grafana.example.com/mcp",
+				"headers": {"Authorization": "`+value+`"}}}`)
+			catalog, err := mcpcatalog.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := catalog.CheckReferences([]string{"grafana_token"}); err == nil {
+				t.Fatalf("%s was accepted", name)
+			}
+		})
+	}
+}
+
+// The other half of json.Unmarshal's error path: a file that is not JSON at all.
+func TestACatalogueThatIsNotJSONIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "this is not json")
+	if _, err := mcpcatalog.Load(dir); err == nil {
+		t.Fatal("a catalogue that is not JSON was accepted")
+	}
+}
