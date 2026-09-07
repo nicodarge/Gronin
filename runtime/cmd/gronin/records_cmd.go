@@ -22,7 +22,7 @@ func newRunsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			catalog, err := openCatalog(cmd, cfg)
+			catalog, err := openCatalog(cmd)
 			if err != nil {
 				return err
 			}
@@ -65,7 +65,7 @@ func newShowCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			catalog, err := openCatalog(cmd, cfg)
+			catalog, err := openCatalog(cmd)
 			if err != nil {
 				return err
 			}
@@ -193,7 +193,7 @@ func fromRecord(
 		if err != nil {
 			return err
 		}
-		catalog, err := openCatalog(cmd, cfg)
+		catalog, err := openCatalog(cmd)
 		if err != nil {
 			return err
 		}

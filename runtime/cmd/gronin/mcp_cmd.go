@@ -24,7 +24,7 @@ func newMCPCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			catalog, err := openCatalog(cmd, cfg)
+			catalog, err := openResolvableCatalog(cmd, cfg)
 			if err != nil {
 				return err
 			}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nicodarge/Gronin/runtime/internal/config"
 	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 )
 
@@ -213,11 +214,11 @@ func TestAReferenceToAnUnconfiguredKeyIsRefusedAtLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := catalog.CheckReferences([]string{"grafana_token"}); err != nil {
+	if err := catalog.CheckReferences(resolver(t, "grafana_token")); err != nil {
 		t.Fatalf("a configured key was refused: %v", err)
 	}
 
-	err = catalog.CheckReferences([]string{"something_else"})
+	err = catalog.CheckReferences(resolver(t, "something_else"))
 	if err == nil {
 		t.Fatal("a reference to an unconfigured key was accepted")
 	}
@@ -241,7 +242,7 @@ func TestAReferenceNamingNoSourceOrTheWrongOneIsRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := catalog.CheckReferences([]string{"grafana_token"}); err == nil {
+			if err := catalog.CheckReferences(resolver(t, "grafana_token")); err == nil {
 				t.Fatalf("%s was accepted", name)
 			}
 		})
@@ -254,5 +255,38 @@ func TestACatalogueThatIsNotJSONIsRefused(t *testing.T) {
 	write(t, dir, "this is not json")
 	if _, err := mcpcatalog.Load(dir); err == nil {
 		t.Fatal("a catalogue that is not JSON was accepted")
+	}
+}
+
+// resolver is the deployment configuration the catalogue is checked against, holding each
+// key with a documentation-reserved value nothing here reads.
+func resolver(t *testing.T, keys ...string) func(string) (string, error) {
+	t.Helper()
+	// Its own directory per call: a shared one would carry a key from one case into the
+	// next, and the case that must refuse would pass because an earlier one configured it.
+	cfg, err := config.Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		if err := cfg.Set(key, config.Value{Value: "REPLACE_ME", Secret: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func(text string) (string, error) { return cfg.Interpolate(text, nil) }
+}
+
+// An unterminated reference is refused too. The bespoke regexp this check used to carry
+// never matched one, so it passed at load and was only caught when a run resolved it.
+func TestAnUnterminatedReferenceIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"grafana": {"url": "https://grafana.example.com/mcp",
+		"headers": {"Authorization": "Bearer ${config.grafana_token"}}}`)
+	catalog, err := mcpcatalog.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.CheckReferences(resolver(t, "grafana_token")); err == nil {
+		t.Fatal("an unterminated reference was accepted")
 	}
 }

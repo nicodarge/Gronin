@@ -190,23 +190,36 @@ func logLevel(cmd *cobra.Command) slog.Level {
 
 // openConfig reads the deployment's configuration. Every command that needs it reads it
 // once here and hands it on, so the gate and the deployment share one read of one file.
+func openConfig(cmd *cobra.Command) (*config.Config, error) {
+	return config.Load(stateDirOf(cmd))
+}
+
 // openCatalog reads the MCP server catalogue once per invocation, the way openConfig
-// reads config.json, and refuses one whose references this deployment cannot resolve.
-func openCatalog(cmd *cobra.Command, cfg *config.Config) (*mcpcatalog.Catalog, error) {
-	catalog, err := mcpcatalog.Load(stateDirOf(cmd))
+// reads config.json.
+func openCatalog(cmd *cobra.Command) (*mcpcatalog.Catalog, error) {
+	return mcpcatalog.Load(stateDirOf(cmd))
+}
+
+// openResolvableCatalog also refuses a catalogue this deployment cannot resolve, so a
+// mistyped key is found at load rather than at the first trigger.
+//
+// Only a command that can reach an agent takes this path. `gronin config set` must not:
+// it is how a missing key gets set, and refusing it because a key is missing leaves an
+// operator told to run the command that just failed. Reading run history must not
+// either — that is most wanted right after something broke, and an unrelated catalogue
+// fault is no reason to withhold it.
+func openResolvableCatalog(cmd *cobra.Command, cfg *config.Config) (*mcpcatalog.Catalog, error) {
+	catalog, err := openCatalog(cmd)
 	if err != nil {
 		return nil, err
 	}
-	var keys []string
-	if cfg != nil {
-		keys = cfg.Keys()
+	if cfg == nil {
+		return catalog, nil
 	}
-	if err := catalog.CheckReferences(keys); err != nil {
+	if err := catalog.CheckReferences(func(text string) (string, error) {
+		return cfg.Interpolate(text, nil)
+	}); err != nil {
 		return nil, err
 	}
 	return catalog, nil
-}
-
-func openConfig(cmd *cobra.Command) (*config.Config, error) {
-	return config.Load(stateDirOf(cmd))
 }

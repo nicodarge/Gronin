@@ -29,7 +29,7 @@ func newConfigCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			catalog, err := openCatalog(cmd, cfg)
+			catalog, err := openCatalog(cmd)
 			if err != nil {
 				return err
 			}
@@ -66,7 +66,7 @@ func newConfigCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			catalog, err := openCatalog(cmd, cfg)
+			catalog, err := openCatalog(cmd)
 			if err != nil {
 				return err
 			}

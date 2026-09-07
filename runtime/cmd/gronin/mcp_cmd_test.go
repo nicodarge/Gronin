@@ -148,3 +148,37 @@ func TestACatalogueReferenceToAnUnconfiguredKeyRefusesTheCommand(t *testing.T) {
 		}
 	}
 }
+
+// `config set` is how a missing key gets set. Refusing it because the catalogue names a
+// key that is missing told the operator to run the command that had just failed.
+func TestConfigSetIsNotBlockedByACatalogueItWouldFix(t *testing.T) {
+	state := t.TempDir()
+	document := `{"grafana": {"url": "https://grafana.example.com/mcp",
+		"headers": {"Authorization": "Bearer ${config.grafana_token}"}}}`
+	if err := os.WriteFile(filepath.Join(state, "mcp_servers.json"), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := bintest.Run(t, "--state-dir", state, "config", "set", "grafana_token", "REPLACE_ME")
+
+	if got.ExitCode != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", got.ExitCode, got.Stderr)
+	}
+}
+
+// Reading run history is most wanted right after something broke, and an unrelated
+// catalogue fault is no reason to withhold it.
+func TestRunHistoryIsNotBlockedByAnUnresolvableCatalogue(t *testing.T) {
+	state := t.TempDir()
+	document := `{"grafana": {"url": "https://grafana.example.com/mcp",
+		"headers": {"Authorization": "Bearer ${config.never_set}"}}}`
+	if err := os.WriteFile(filepath.Join(state, "mcp_servers.json"), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := bintest.Run(t, "--state-dir", state, "runs")
+
+	if got.ExitCode != 0 {
+		t.Fatalf("exit code = %d, stderr = %q", got.ExitCode, got.Stderr)
+	}
+}

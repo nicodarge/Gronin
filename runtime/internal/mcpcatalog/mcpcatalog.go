@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -201,60 +200,24 @@ func keysOf(label string, values map[string]string) string {
 	return fmt.Sprintf(" (%s: %s)", label, strings.Join(keys, ", "))
 }
 
-// anyReference matches an interpolation the way internal/config's resolver does, so a
-// value this refuses is one that would have failed at run time.
-var anyReference = regexp.MustCompile(`\$\{([^}]*)\}`)
-
-// CheckReferences refuses a catalogue whose env or header values name a configuration key
-// this deployment does not hold, or a source other than config.
+// CheckReferences refuses a catalogue whose env or header values this deployment cannot
+// resolve, using the same resolver a run uses rather than a second reading of the
+// reference syntax — a copy would drift, and the run-time path is what an operator
+// eventually meets.
 //
 // Without it this is the one class of ${config.x} that surfaces at the first run rather
 // than at load: the gate already checks a playbook's own references against the same key
 // set, and a catalogue reference is the same kind of reference.
-func (c *Catalog) CheckReferences(known []string) error {
-	held := make(map[string]bool, len(known))
-	for _, key := range known {
-		held[key] = true
-	}
-
+func (c *Catalog) CheckReferences(interpolate func(string) (string, error)) error {
 	var problems []error
 	for _, name := range c.Names() {
 		entry := c.entries[name]
-		for _, kind := range []struct {
-			label  string
-			values map[string]string
-		}{{"env", entry.Env}, {"headers", entry.Headers}} {
-			keys := make([]string, 0, len(kind.values))
-			for key := range kind.values {
-				keys = append(keys, key)
-			}
-			sort.Strings(keys)
-			for _, key := range keys {
-				problems = append(problems, referenceProblems(name, kind.label, key, kind.values[key], held)...)
-			}
+		if _, err := resolveAll(name, "env", entry.Env, interpolate); err != nil {
+			problems = append(problems, err)
+		}
+		if _, err := resolveAll(name, "header", entry.Headers, interpolate); err != nil {
+			problems = append(problems, err)
 		}
 	}
 	return errors.Join(problems...)
-}
-
-func referenceProblems(server, kind, key, text string, held map[string]bool) []error {
-	var problems []error
-	for _, match := range anyReference.FindAllStringSubmatch(text, -1) {
-		namespace, name, found := strings.Cut(match[1], ".")
-		switch {
-		case !found:
-			problems = append(problems, fmt.Errorf(
-				"mcp server %q: %s %q: ${%s} does not name its source; accepted: ${config.%s}",
-				server, kind, key, match[1], match[1]))
-		case namespace != "config":
-			problems = append(problems, fmt.Errorf(
-				"mcp server %q: %s %q: ${%s} names %q, which a catalogue entry cannot resolve; "+
-					"accepted: config", server, kind, key, match[1], namespace))
-		case !held[name]:
-			problems = append(problems, fmt.Errorf(
-				"mcp server %q: %s %q: ${config.%s} is not configured; set it with "+
-					"`gronin config set %s <value>`", server, kind, key, name, name))
-		}
-	}
-	return problems
 }
