@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/record"
@@ -30,6 +32,8 @@ type Run struct {
 	WorkDir      string
 	TriggerKind  record.TriggerKind
 	StartedAt    time.Time
+
+	lockFile *os.File
 }
 
 // Manager creates runs, keeps one playbook from running twice at once, and makes sure a
@@ -37,15 +41,22 @@ type Run struct {
 type Manager struct {
 	store    *record.Store
 	workRoot string
+	locksDir string
 
 	mu       sync.Mutex
 	inFlight map[string]string // playbook name -> the run holding it
 }
 
-// NewManager returns a manager writing working directories under workRoot.
-func NewManager(store *record.Store, workRoot string) *Manager {
-	return &Manager{store: store, workRoot: workRoot, inFlight: map[string]string{}}
+// NewManager returns a manager writing working directories under workRoot and holding
+// its cross-process locks under locksDir.
+func NewManager(store *record.Store, workRoot, locksDir string) *Manager {
+	return &Manager{store: store, workRoot: workRoot, locksDir: locksDir, inFlight: map[string]string{}}
 }
+
+// playbookNamePattern mirrors the contract's constraint on a playbook name
+// (specs/001-runtime-core/contracts/playbook.schema.json). A name is placed into a lock
+// file path below, so the constraint is asserted here rather than trusted silently.
+var playbookNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // Begin claims the playbook, creates the working directory and records the run as
 // running. The claim is taken before anything is created, so two triggers racing cannot
@@ -53,6 +64,10 @@ func NewManager(store *record.Store, workRoot string) *Manager {
 func (m *Manager) Begin(
 	ctx context.Context, playbookName string, kind record.TriggerKind, parentRunID string,
 ) (*Run, error) {
+	if !playbookNamePattern.MatchString(playbookName) {
+		return nil, fmt.Errorf("playbook name %q does not match %s", playbookName, playbookNamePattern)
+	}
+
 	id, err := newID(time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -66,14 +81,22 @@ func (m *Manager) Begin(
 	m.inFlight[playbookName] = id
 	m.mu.Unlock()
 
+	// From here every failure has to release the claim, or the playbook is wedged until
+	// the process restarts.
+	lockFile, err := m.acquireLock(playbookName)
+	if err != nil {
+		m.release(playbookName)
+		return nil, fmt.Errorf("%w: held by another process", ErrAlreadyRunning)
+	}
+
 	run := &Run{
 		ID: id, PlaybookName: playbookName, TriggerKind: kind,
 		StartedAt: time.Now().UTC(), WorkDir: filepath.Join(m.workRoot, id),
+		lockFile: lockFile,
 	}
 
-	// From here every failure has to release the claim, or the playbook is wedged until
-	// the process restarts.
 	if err := os.MkdirAll(run.WorkDir, 0o700); err != nil {
+		m.releaseLock(lockFile)
 		m.release(playbookName)
 		return nil, fmt.Errorf("creating the working directory: %w", err)
 	}
@@ -82,10 +105,38 @@ func (m *Manager) Begin(
 		Status: record.StatusRunning, StartedAt: run.StartedAt,
 	}); err != nil {
 		_ = os.RemoveAll(run.WorkDir)
+		m.releaseLock(lockFile)
 		m.release(playbookName)
 		return nil, err
 	}
 	return run, nil
+}
+
+// acquireLock takes the advisory file lock that makes the claim visible across
+// processes. It is held for the life of the run and released in Finish or on any
+// failure path in Begin — the kernel drops it on its own if the holding process dies,
+// including on SIGKILL, so there is nothing to clean up by hand and no lease to expire.
+func (m *Manager) acquireLock(playbookName string) (*os.File, error) {
+	if err := os.MkdirAll(m.locksDir, 0o700); err != nil {
+		return nil, fmt.Errorf("creating the locks directory: %w", err)
+	}
+	path := filepath.Join(m.locksDir, playbookName+".lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // playbookName is checked against playbookNamePattern above
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+// releaseLock unlocks and closes the file. Closing matters as much as unlocking: an
+// unclosed descriptor keeps the lock held by this process even after Flock(LOCK_UN).
+func (m *Manager) releaseLock(file *os.File) {
+	_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	_ = file.Close()
 }
 
 // Finish records the run's terminal state, removes its working directory and releases
@@ -104,6 +155,7 @@ func (m *Manager) Finish(ctx context.Context, run *Run, outcome record.Run) erro
 
 	recordErr := m.store.FinishRun(ctx, outcome)
 	removeErr := os.RemoveAll(run.WorkDir)
+	m.releaseLock(run.lockFile)
 	m.release(run.PlaybookName)
 
 	return errors.Join(recordErr, removeErr)

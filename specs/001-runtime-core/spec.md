@@ -347,9 +347,12 @@ only the cap is created, then run it again unchanged and confirm nothing further
 
 ## Assumptions
 
-- **Guard is out of scope.** Cross-process locking, rate limiting and deduplication are specified
-  separately. This feature provides only the single-process guarantee that one playbook does not
-  run twice concurrently (FR-016). A playbook declaring a `guard` block is refused, per FR-034.
+- **Guard is out of scope.** Rate limiting and deduplication are specified separately. This
+  feature provides the guarantee that one playbook does not run twice concurrently on the same
+  host (FR-016) — an in-memory claim plus an advisory file lock held for the life of the run, so
+  two `gronin` processes sharing a state directory are covered as well as two triggers racing
+  within one. It does not extend across hosts; that is phase 3's guard specification. A playbook
+  declaring a `guard` block is refused, per FR-034.
 - **Retrieve is out of scope.** Semantic retrieval is specified separately. A playbook declaring a
   `retrieve` block is refused on the same terms, per FR-034.
 - **Webhook triggers are out of scope.** Only schedule and manual invocation are in scope.

@@ -76,7 +76,7 @@ func openDeployment(
 	// failed to authenticate.
 	log := logging.New(cmd.ErrOrStderr(), record.NewRedactor(cfg.Secrets()), logLevel(cmd))
 
-	manager := run.NewManager(store, filepath.Join(stateDir, "work"))
+	manager := run.NewManager(store, filepath.Join(stateDir, "work"), filepath.Join(stateDir, "locks"))
 	return &deployment{
 		config:          cfg,
 		catalog:         catalog,

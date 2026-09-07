@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +22,22 @@ func newManager(t *testing.T) (*run.Manager, *record.Store, string) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	work := filepath.Join(dir, "work")
-	return run.NewManager(store, work), store, work
+	return run.NewManager(store, work, filepath.Join(dir, "locks")), store, work
+}
+
+// A playbook name is placed into a lock file path, and the contract that constrains it
+// (specs/001-runtime-core/contracts/playbook.schema.json) is enforced elsewhere, at
+// load. Begin asserts it again rather than trusting that a caller always went through
+// the gate first.
+func TestBeginRefusesAPlaybookNameUnsafeAsAFileName(t *testing.T) {
+	manager, _, _ := newManager(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"../escape", "UPPER", "", "with/slash", "a."} {
+		if _, err := manager.Begin(ctx, name, record.TriggerManual, ""); err == nil {
+			t.Fatalf("playbook name %q was accepted", name)
+		}
+	}
 }
 
 // FR-016. The guard is what stops a schedule that fires faster than its playbook
@@ -38,6 +54,12 @@ func TestASecondRunOfTheSamePlaybookIsRefused(t *testing.T) {
 	_, err = manager.Begin(ctx, "drift-check", record.TriggerManual, "")
 	if !errors.Is(err, run.ErrAlreadyRunning) {
 		t.Fatalf("the second run began: %v", err)
+	}
+	// The in-memory claim is what names the holder — the file lock alone cannot, since
+	// two racing calls within one process would already be refused by it regardless of
+	// whether the map still holds the claim.
+	if !strings.Contains(err.Error(), first.ID) {
+		t.Fatalf("the refusal does not name the run holding the playbook: %v", err)
 	}
 
 	// A different playbook is not blocked by it.
@@ -56,6 +78,49 @@ func TestASecondRunOfTheSamePlaybookIsRefused(t *testing.T) {
 	}
 	_ = manager.Finish(ctx, other, record.Run{Status: record.StatusSucceeded})
 	_ = manager.Finish(ctx, third, record.Run{Status: record.StatusSucceeded})
+}
+
+// FR-016 across processes. Two Managers over one state directory is what two `gronin`
+// processes sharing a deployment look like — a `serve` running a schedule and a `run`
+// invoked by hand, each with its own in-memory claim. The in-memory map alone cannot see
+// across that boundary; the file lock is what does.
+func TestASecondManagerOverTheSameStateDirIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	locksDir := filepath.Join(dir, "locks")
+	ctx := t.Context()
+
+	storeA, err := record.Open(ctx, filepath.Join(dir, "record"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storeA.Close() })
+	managerA := run.NewManager(storeA, filepath.Join(dir, "work"), locksDir)
+
+	storeB, err := record.Open(ctx, filepath.Join(dir, "record"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = storeB.Close() })
+	managerB := run.NewManager(storeB, filepath.Join(dir, "work"), locksDir)
+
+	first, err := managerA.Begin(ctx, "drift-check", record.TriggerSchedule, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := managerB.Begin(ctx, "drift-check", record.TriggerManual, ""); !errors.Is(err, run.ErrAlreadyRunning) {
+		t.Fatalf("a second manager over the same state directory began the run: %v", err)
+	}
+
+	if err := managerA.Finish(ctx, first, record.Run{Status: record.StatusSucceeded}); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := managerB.Begin(ctx, "drift-check", record.TriggerManual, "")
+	if err != nil {
+		t.Fatalf("the playbook stayed claimed after the holding manager finished: %v", err)
+	}
+	_ = managerB.Finish(ctx, second, record.Run{Status: record.StatusSucceeded})
 }
 
 // The guard is a claim taken before anything is created, so a race cannot leave two
@@ -160,7 +225,7 @@ func TestAFailureToBeginDoesNotWedgeThePlaybook(t *testing.T) {
 	if err := os.WriteFile(blocked, []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manager := run.NewManager(store, blocked)
+	manager := run.NewManager(store, blocked, filepath.Join(dir, "locks"))
 
 	if _, err := manager.Begin(t.Context(), "drift-check", record.TriggerManual, ""); err == nil {
 		t.Fatal("beginning a run succeeded with no writable work root")

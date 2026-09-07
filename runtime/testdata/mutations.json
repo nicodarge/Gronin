@@ -1146,6 +1146,45 @@
         "./internal/mcpcatalog",
         "-count=1"
       ]
+    },
+    {
+      "name": "an unsafe playbook name reaches the lock file path",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tif !playbookNamePattern.MatchString(playbookName) {",
+      "replace": "\tif !playbookNamePattern.MatchString(playbookName) && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a second process is allowed to begin the same playbook",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tif err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {",
+      "replace": "\tif err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "finishing a run does not release its cross-process lock",
+      "tree": "..",
+      "file": "internal/run/run.go",
+      "find": "\tm.releaseLock(run.lockFile)\n\tm.release(run.PlaybookName)",
+      "replace": "\tm.release(run.PlaybookName)",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1"
+      ]
     }
   ]
 }
