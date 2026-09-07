@@ -86,6 +86,14 @@ def run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def enclosing_module(tree: Path) -> Path | None:
+    """The root of the Go module the tree sits under, or None if it sits under none."""
+    for candidate in tree.parents:
+        if (candidate / "go.mod").is_file():
+            return candidate
+    return None
+
+
 def survives(mutation: Mutation) -> bool:
     """Apply the mutation to a copy and report whether the command still passed."""
     with tempfile.TemporaryDirectory(prefix="gronin-mutation-") as tmp:
@@ -122,18 +130,21 @@ def survives(mutation: Mutation) -> bool:
         # does not compile _test.go at all, and `go vet` refuses on its own diagnostics —
         # measured, it calls one legitimate mutant here unreachable code.
         #
-        # Skipped only for a tree holding no Go at all, which is the self-test's shell
-        # subject. Go without a go.mod at the root is refused rather than skipped: a
-        # mutation scoped to a package directory would otherwise walk past this check in
-        # silence and be counted killed again, which is the whole defect above.
+        # Skipped only for a tree that is not Go, which is the self-test's shell
+        # subject. A tree inside a module but not at its root is refused rather than
+        # skipped: a mutation scoped to a package directory would otherwise walk past
+        # this check in silence and be counted killed again, which is the whole defect
+        # above. The question asked is whether a module encloses the tree, not whether
+        # the tree holds a .go file — the second answers yes for Go stored as data,
+        # which is a fixture rather than something to compile.
         built = None
         if (work / "go.mod").is_file():
             built = run(["go", "test", "-run=^$", "-count=1", "./..."], work)
-        elif any(work.rglob("*.go")):
+        elif enclosing_module(mutation.tree) is not None:
             raise ConfigError(
-                f"{mutation.name}: {mutation.tree} holds Go but no go.mod at its root, "
-                f"so the mutated tree cannot be compiled before the command runs; point "
-                f"the mutation's tree at the module root"
+                f"{mutation.name}: {mutation.tree} is inside a Go module but is not its "
+                f"root, so the mutated tree cannot be compiled before the command runs; "
+                f"point the mutation's tree at the module root"
             )
         if built is not None and built.returncode != 0:
             raise ConfigError(
@@ -284,20 +295,46 @@ def self_test() -> int:
             command=["go", "test", "./...", "-count=1"],
         )
 
-        # Go with no module root. The compile gate can only run where `go test ./...`
-        # resolves, and skipping silently there is how the defect above would come back
-        # for a mutation scoped to a package directory rather than the module.
-        nomod = root / "nomod"
-        nomod.mkdir()
-        (nomod / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
-        refusals["Go with no go.mod at the tree root"] = Mutation(
-            name="no module root",
-            tree=nomod,
+        # A tree inside a module but below its root. The compile gate can only run
+        # where `go test ./...` resolves, and skipping silently there is how the defect
+        # above would come back for a mutation scoped to a package directory rather
+        # than the module.
+        package = root / "belowroot" / "pkg"
+        package.mkdir(parents=True)
+        (package.parent / "go.mod").write_text(SELF_TEST_GO_MOD)
+        (package / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
+        refusals["a tree inside a module but below its root"] = Mutation(
+            name="below the module root",
+            tree=package,
             file="subject.go",
             find='return strings.TrimSpace(" 42 ")',
             replace='return "41"',
             command=["true"],
         )
+
+        # And the other side of it: Go under no module at all is a fixture, not
+        # something to compile, and is skipped rather than refused. Probed here because
+        # a refusal tested only on what it refuses is an allowlist in disguise — this
+        # is the case the previous "does the tree hold a .go file" test got wrong.
+        fixture = root / "fixture"
+        fixture.mkdir()
+        (fixture / "subject.go").write_text(SELF_TEST_GO_SUBJECT)
+        try:
+            check(
+                [
+                    Mutation(
+                        name="go under no module",
+                        tree=fixture,
+                        file="subject.go",
+                        find='return strings.TrimSpace(" 42 ")',
+                        replace='return "41"',
+                        command=["true"],
+                    )
+                ],
+                quiet=True,
+            )
+        except ConfigError:
+            failures.append("Go under no module at all was refused rather than skipped")
 
         for description, mutation in refusals.items():
             try:
@@ -340,8 +377,8 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, and refuses a broken "
-        "baseline, an absent target, a mutant that does not compile, Go with no module "
-        "root and a missing tree"
+        "baseline, an absent target, a mutant that does not compile, a tree below its "
+        "module root and a missing tree"
     )
     return 0
 
@@ -352,13 +389,22 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
-    try:
-        if args.self_test:
-            return self_test()
-        return 1 if check(load(args.config)) else 0
-    except ConfigError as err:
-        print(f"check-mutation: {err}", file=sys.stderr)
-        return 2
+    # A build cache of its own, thrown away when the run ends. Every mutant is a fresh
+    # copy of the tree at a fresh path, so the compiler treats it as a distinct source
+    # tree and writes a distinct set of entries; a day of runs against the developer's
+    # own cache took it to 46 GB, and Go trims on five days of disuse rather than on
+    # size. Shared across the mutants of one run, so the standard library and the
+    # dependencies are compiled once here rather than once per mutant, and cold at the
+    # first mutant of every run — that warmth is what this trades away.
+    with tempfile.TemporaryDirectory(prefix="gronin-mutation-cache-") as cache:
+        os.environ["GOCACHE"] = cache
+        try:
+            if args.self_test:
+                return self_test()
+            return 1 if check(load(args.config)) else 0
+        except ConfigError as err:
+            print(f"check-mutation: {err}", file=sys.stderr)
+            return 2
 
 
 if __name__ == "__main__":
