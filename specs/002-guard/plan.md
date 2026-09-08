@@ -155,9 +155,14 @@ test that asserts "no second run started" passes just as well when nothing start
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
 SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114 and SC-115 needs a
 mutant, and the mutation harness has to report zero on an unmodified tree for any of their counts
-to mean anything. The two bounds are the exception: FR-108's decision bound and FR-126's stop bound
-both fail loudly on their own, because an unenforced bound lets something run long and a test
-waiting on it times out rather than passing quietly.
+to mean anything. FR-108's decision bound is the exception, and it is the only one: it has no
+success criterion of its own because any test that exercises the guard's decision hangs when the
+bound is missing, so a missing bound cannot pass quietly.
+
+FR-126's stop bound looks like the same shape and is not, which is worth stating because the
+symmetry invites the mistake. Its enforcement is only exposed by a run that refuses to stop, and
+nothing forces a test to use one — against a cooperative run, an implementation that never enforces
+the bound passes silently. That is why it has SC-115 and FR-108 does not.
 
 Five of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
 claim to lapse, so a test whose expiry is shorter than it believes passes without the recovery ever

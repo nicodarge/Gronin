@@ -70,9 +70,9 @@ to exist.
 6. **Given** a deployment whose renewal interval, renewal bound and stop bound do not fit inside
    its claim expiry, **When** the runtime starts, **Then** it refuses to start and names the
    durations it rejected, rather than running with a margin that cannot hold.
-7. **Given** a run that has been told to stop and does not end on its own, **When** the declared
-   stop bound elapses, **Then** the runtime ends it anyway within that bound. A bound the runtime
-   only measures is not a bound the margin can be computed from.
+7. **Given** a run that has been told to stop, **When** it does not end on its own, **Then** the
+   runtime ends it no later than the declared stop bound. A bound the runtime only measures is not
+   a bound the margin can be computed from.
 
 ---
 
