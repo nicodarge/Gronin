@@ -305,7 +305,7 @@ recorded.
   executes its own body passes forever, and this feature's guarantees are all of the kind that look
   satisfied when nothing is happening. The guard's whole job is to make something *not* happen, so
   a test asserting one is indistinguishable from a broken test until a mutant proves otherwise.
-  There is no exception to this, the two time bounds included: a bound is only exercised by a
+  There is no exception to this, the time bounds included: a bound is only exercised by a
   subject that exceeds it, so against a prompt one an unenforced bound is invisible.
 
 ## Assumptions
