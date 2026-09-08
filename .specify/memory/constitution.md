@@ -1,19 +1,19 @@
 <!--
 Sync Impact Report
-Version change: 1.0.0 → 1.1.0
-Bump rationale: a new principle (VI) is added; MINOR per the versioning rule below. Nothing
-existing is removed or redefined. Principle VI states what Principles I and III already assumed
-without saying: that the suite asserting a bound is itself trustworthy, and that the gate runs on
-the artifact that ships.
-Modified principles: none redefined. Development Workflow's "A test MUST be able to fail"
-  paragraph moves into Principle VI, where the rest of the discipline now lives.
-Added sections:
-  - Core Principle VI — The Suite Is the Gate
+Version change: 1.1.0 → 1.2.0
+Bump rationale: Development Workflow's merge clause is materially changed, not clarified — a
+per-pull-request approval becomes a standing conditional one — so MINOR per the versioning rule
+below. No principle is added, removed or redefined.
+Modified principles: none.
+Modified sections:
+  - Development Workflow — the merge gate is now every required check being green, under a
+    standing approval the owner gave on 2026-09-08. The condition is the whole of it: what
+    replaces the owner's per-pull-request judgement is `gate`, so the clause names it and says
+    that no checks reported is not green.
+Added sections: none
 Removed sections: none
 Templates requiring review:
-  - .specify/templates/plan-template.md — its Constitution Check gate is an unfilled
-    placeholder; it SHOULD be filled with Principles I, II, V and VI when a plan is written,
-    matching the Governance clause this amendment edits
+  - .specify/templates/plan-template.md — no change required by this amendment
   - .specify/templates/spec-template.md — no change required
   - .specify/templates/tasks-template.md — no change required
 Follow-up TODOs: none
@@ -156,7 +156,11 @@ anyone else.
 ## Development Workflow
 
 Work happens on a feature branch; the default branch refuses direct commits. Pull requests are
-squash-merged, and only with the explicit approval of the repository owner.
+squash-merged once every required check is green — a standing approval the repository owner gave
+on 2026-09-08, for this repository. `gate` is the required check and it needs all the others, so
+`gh pr checks` reporting nothing is not green: it cannot distinguish runs held in
+`action_required` from no run at all. It is approval to merge, not to skip the review that
+precedes it.
 
 `pre-commit run` MUST pass on every changed file before a push. Run the hook set, never the
 underlying tool: a hook can load plugins the bare command does not.
@@ -181,4 +185,4 @@ the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-05
+**Version**: 1.2.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-08

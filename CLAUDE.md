@@ -39,7 +39,9 @@ infrastructure hostname is not one of them.
 - Branch naming: `add_<feature>`, `fix_<issue>`, `update_<component>`, `remove_<item>`
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`
 - Squash merge only: `gh pr merge --squash`
-- Never merge without explicit approval from the repository owner.
+- Merge once every required check is green — standing approval, given 2026-09-08, for this
+  repository. `gate` is the required check and it needs all the others; no checks reported is
+  not green. This is approval to merge, not to skip the review that precedes it.
 
 ## Validation
 
