@@ -27,13 +27,23 @@ limit is evaluated first (FR-115), because a trigger it refuses must never take 
 one would make another host wait on a run that was never going to happen. The claim is second. The
 waiting slot is last, because there is nothing to wait for until a claim has been refused. A
 trigger that waits resolves the playbook again when it finally runs (FR-121), so an edit made
-during the wait is not silently skipped for one run.
+during the wait is not silently skipped for one run — and it is judged against the rate limit again
+at that moment (FR-124), because other triggers can fill the window while it waits and a limit that
+bounds acceptances rather than runs is not the limit the operator declared.
 
 **An expiring claim brings a failure mode a file lock does not have.** A file lock dies with the
 process holding it; a lease does not. That gap is where a second run gets in, and closing it is
 what FR-105 and FR-106 are for: the holder ends its own run when it cannot renew, and the backend
 rather than either host judges when a claim has lapsed. Neither is optional, and together they are
 the hardest part of this feature to test — see Phase 0.
+
+Saying those two must not hold at once does not make it so, which is why FR-122 and FR-123 exist. A
+renewal that hangs is not a renewal that failed: it looks like one still in flight right up to the
+moment the claim lapses, so the attempt needs its own time bound and exceeding it has to count as
+failure. And the durations need a stated relationship, or a renewal interval equal to the expiry
+satisfies every other requirement here while leaving no margin at all to act in. The runtime
+refuses such a configuration rather than starting under it, which is what makes the relationship
+checkable instead of aspirational (SC-112).
 
 ## Technical Context
 
@@ -93,6 +103,13 @@ nothing to read. Every refusal names its playbook, its trigger, the mechanism th
 when — and SC-108 requires that to be readable through the operator's existing surface rather than
 only in a log.
 
+FR-125 and SC-114 close the other half. A run that started long after its schedule is
+indistinguishable from a late one unless it says it waited, and a trigger that waited and then ran
+must not leave a refusal record behind — it was deferred, not refused, and FR-117 says so
+explicitly rather than leaving the two entities to be conflated. SC-113 covers the clause of FR-113
+that was otherwise measured by nothing: that an operator can *see* a waiting trigger was dropped by
+a restart, which no absence-shaped criterion can establish.
+
 FR-118 is the trap this repository has already been bitten by, stated as a requirement: anchor on
 the runtime's own wall clock, never on a timestamp the trigger carried. It matters most for the
 deduplication this feature does *not* specify, but the rate window (FR-114) and the waiting
@@ -144,6 +161,12 @@ started. SC-109 asserts a refusal at load, which the runtime already produces to
 shape is never actually validated: it has to distinguish an implemented key from an unimplemented
 one, not merely observe a refusal. SC-105 and SC-107 are the counting ones, and a count is the one
 shape here that fails honestly when it is wrong.
+
+SC-110 is the hardest mutant of the set and the easiest to fake. It has to prove the *edited*
+playbook ran, not that a run happened, so its test needs the edit to be observable in the run's own
+output — two versions that differ in what they produce, not two versions that differ only in a
+field nothing reads. A test that edits the playbook and then asserts a run occurred passes against
+an implementation that resolved the playbook once, at trigger time, and never looked again.
 
 ### Operational Constraints — one is directly relevant
 
@@ -201,7 +224,10 @@ Not started. Four questions, and the first two gate the rest.
 3. **What are the durations?** The claim's expiry (FR-104), the renewal interval beneath it
    (FR-103), the guard's own decision bound (FR-108), and how long a trigger may wait (FR-112).
    Each is a chosen threshold rather than a derived one, so each gets a stated reason and a date,
-   not a number that looks measured.
+   not a number that looks measured. FR-123 constrains them jointly rather than individually, so
+   Phase 0 picks a set that fits, and the runtime refuses one that does not — which means the
+   startup refusal has to name what it rejected, or an operator is left guessing which of four
+   durations to change.
 
 4. **What happens across a rename?** The spec's edge cases raise it: the playbook name is the
    claim's identity, so renaming a playbook mid-run leaves a claim nobody will release. The load

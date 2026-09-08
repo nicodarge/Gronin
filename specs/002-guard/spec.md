@@ -138,7 +138,10 @@ recorded.
   host with a skewed clock cannot take a claim another host still holds.
 - **A run longer than the claim's expiry.** Renewal is what covers it, and renewal failing is what
   triggers scenario 3 of User Story 1. A run that cannot renew must end; a claim that is not
-  renewed must expire. The two must not be able to hold at once.
+  renewed must expire. Saying the two must not hold at once is not enough to make it so — the
+  durations have to be in a stated relationship, which is FR-123, and a renewal that hangs has to
+  count as one that failed, which is FR-122. Without both, an implementation can satisfy every
+  other requirement here and still leave the window open.
 - **The backend is reachable but slow.** A trigger cannot wait indefinitely for a decision about
   whether it may run — the decision itself needs a bound, and exceeding it is a refusal, not a
   pass.
@@ -184,14 +187,33 @@ recorded.
 - **FR-113**: A waiting trigger MUST NOT survive the process holding it. Waiting is local to the
   process that accepted the trigger, and the operator MUST be able to see that a waiting trigger
   was dropped by a restart.
+- **FR-122**: A renewal attempt MUST be bounded in time, and exceeding that bound MUST count as a
+  failed renewal rather than as one still outstanding. A renewal that hangs is indistinguishable
+  from one that succeeded until the claim lapses, which is precisely the window FR-105 exists to
+  close.
+- **FR-123**: The renewal interval, plus FR-122's bound, plus the time a run needs to stop, MUST
+  fit within the claim's expiry with margin left over, and the runtime MUST refuse a configuration
+  in which they do not. Without this, FR-103 and FR-104 are both satisfied by setting the renewal
+  interval equal to the expiry, which leaves a single missed renewal no time at all to act on and
+  makes FR-105 unsatisfiable while every stated requirement reads as met.
 - **FR-114**: A playbook MUST be able to declare a rate limit: at most a stated number of runs
   within a stated window, keyed on the playbook name alone.
 - **FR-115**: The rate limit MUST be evaluated before a claim is taken, so that a trigger the
   limit refuses never makes another host wait on a claim.
 - **FR-116**: A trigger refused by the rate limit MUST be discarded rather than made to wait.
   Waiting would replay the burst the limit exists to refuse.
+- **FR-124**: A waiting trigger MUST be judged against the rate limit again at the moment it
+  attempts to run, and MUST be discarded under FR-116 if the limit refuses it then. The limit
+  bounds runs, not acceptances: other triggers can consume the window while one waits, and a
+  waiting trigger admitted on the strength of a check made before the wait would carry the playbook
+  past its declared limit.
 - **FR-117**: Every refusal MUST produce a record naming the playbook, the trigger that was
-  refused, which mechanism refused it, and when.
+  refused, which mechanism refused it, and when. A refusal here means a terminal one — discarded,
+  expired while waiting, or rate-limited. A trigger that collides with a run and then runs after
+  waiting is not refused and MUST NOT be recorded as one.
+- **FR-125**: A run started from a trigger that waited MUST record that it waited and how long. An
+  operator reading a run that started well after its schedule has otherwise no way to tell a
+  deferred run from a late one.
 - **FR-118**: Every time recorded or compared by the guard MUST be anchored on the runtime's own
   wall clock, never on a timestamp carried by the trigger. A payload timestamp can be frozen at an
   event's first activation and resent unchanged, which makes every repeat look new — or, worse,
@@ -234,12 +256,23 @@ recorded.
 - **SC-106**: A trigger that waits past its declared expiry produces no run, and a waiting trigger
   produces no run after a restart — FR-112 and FR-113.
 - **SC-107**: A playbook limited to N runs per window, triggered N+2 times inside one window,
-  produces N runs and two refusals, none of which waits — FR-114, FR-115 and FR-116.
+  produces N runs and two refusals, none of which waits — FR-114, FR-115 and FR-116. A trigger
+  that waits while the window fills produces no run either — FR-124.
 - **SC-108**: Every refusal in the scenarios above is readable afterwards through the operator's
   own command surface, naming its mechanism — FR-117 and FR-118.
 - **SC-109**: A playbook declaring a `guard` key the runtime does not implement is refused at load,
   and one declaring no `guard` block is still held to non-concurrency — FR-119 and FR-120.
 - **SC-110**: A playbook edited while a trigger waits runs in its edited form — FR-121.
+- **SC-112**: A deployment whose renewal interval, renewal bound and stop time do not fit inside
+  its claim expiry is refused at startup, naming the three durations and the expiry they exceed —
+  FR-123. And a run whose renewal attempts hang rather than fail ends before its claim can lapse,
+  demonstrated by holding the backend's responses rather than by severing it — FR-122.
+- **SC-113**: After a restart that drops a waiting trigger, the drop is readable through the
+  operator's own command surface, naming the trigger and when it arrived — FR-113. Measured by
+  reading the record, not by observing that no run happened: the absence is already SC-106's, and
+  an absence is satisfied by a runtime that never started.
+- **SC-114**: A trigger that waits and then runs produces no refusal record, and its run says it
+  waited and for how long — FR-117 and FR-125.
 - **SC-111**: Each of the above has at least one test that fails when the behaviour it asserts is
   removed, shown by the mutation harness rather than by the suite passing. A test that never
   executes its own body passes forever, and this feature's guarantees are all of the kind that look
