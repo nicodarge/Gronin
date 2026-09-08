@@ -153,18 +153,22 @@ than leaving it to discipline. Every guarantee here is that something does *not*
 asserting a non-event is indistinguishable from a broken test until a mutant proves otherwise: a
 test that asserts "no second run started" passes just as well when nothing started at all, when the
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
-SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114 and SC-115 needs a
+SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114, SC-115 and SC-116
+needs a
 mutant, and the mutation harness has to report zero on an unmodified tree for any of their counts
-to mean anything. FR-108's decision bound is the exception, and it is the only one: it has no
-success criterion of its own because any test that exercises the guard's decision hangs when the
-bound is missing, so a missing bound cannot pass quietly.
+to mean anything, SC-116 included.
 
-FR-126's stop bound looks like the same shape and is not, which is worth stating because the
-symmetry invites the mistake. Its enforcement is only exposed by a run that refuses to stop, and
-nothing forces a test to use one — against a cooperative run, an implementation that never enforces
-the bound passes silently. That is why it has SC-115 and FR-108 does not.
+Earlier drafts of this plan claimed one guarantee here escaped that — a time bound, it was argued,
+fails loudly on its own, because something runs long and a test waiting on it times out. It does
+not, and the reasoning is worth keeping because the mistake is an easy one. A bound is exercised
+only by a subject that exceeds it. Against a backend that answers promptly, or a run that stops
+when asked, an implementation enforcing no bound at all behaves identically to one that does, and
+every test passes. This is why FR-122's renewal bound needed SC-112 built on a backend that holds
+its response, why FR-126's stop bound needs SC-115 built on a run that will not stop, and why
+FR-108's decision bound — structurally the same as both — needed SC-116, which it did not have
+until this was noticed.
 
-Five of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
+Some of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
 claim to lapse, so a test whose expiry is shorter than it believes passes without the recovery ever
 being exercised. SC-106 asserts two absences at once — a trigger that waited too long, and one
 dropped by a restart — and an assertion that no run happened is satisfied by a runtime that never

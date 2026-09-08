@@ -281,6 +281,10 @@ recorded.
 - **SC-109**: A playbook declaring a `guard` key the runtime does not implement is refused at load,
   and one declaring no `guard` block is still held to non-concurrency — FR-119 and FR-120.
 - **SC-110**: A playbook edited while a trigger waits runs in its edited form — FR-121.
+- **SC-116**: A trigger whose guard decision cannot be reached in time is refused within the
+  decision bound — FR-108. Measured against a backend that holds its response rather than one that
+  refuses promptly, for the same reason SC-112 is: a backend that answers quickly satisfies the
+  criterion whether or not any bound is enforced.
 - **SC-115**: A run that does not end when told to is over within the declared stop bound, ended by
   the runtime rather than by itself — FR-126. Measured against a run built not to stop, because a
   run that stops promptly satisfies the criterion without the enforcement ever running.
@@ -300,8 +304,9 @@ recorded.
   removed, shown by the mutation harness rather than by the suite passing. A test that never
   executes its own body passes forever, and this feature's guarantees are all of the kind that look
   satisfied when nothing is happening. The guard's whole job is to make something *not* happen, so
-  a test asserting one is indistinguishable from a broken test until a mutant proves otherwise —
-  and FR-108's bound is the only one here that fails loudly on its own.
+  a test asserting one is indistinguishable from a broken test until a mutant proves otherwise.
+  There is no exception to this, the two time bounds included: a bound is only exercised by a
+  subject that exceeds it, so against a prompt one an unenforced bound is invisible.
 
 ## Assumptions
 
