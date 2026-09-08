@@ -13,7 +13,8 @@ Modified sections:
 Added sections: none
 Removed sections: none
 Templates requiring review:
-  - .specify/templates/plan-template.md — no change required by this amendment
+  - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
+    Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
   - .specify/templates/spec-template.md — no change required
   - .specify/templates/tasks-template.md — no change required
 Follow-up TODOs: none
