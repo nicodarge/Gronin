@@ -70,6 +70,9 @@ to exist.
 6. **Given** a deployment whose renewal interval, renewal bound and stop bound do not fit inside
    its claim expiry, **When** the runtime starts, **Then** it refuses to start and names the
    durations it rejected, rather than running with a margin that cannot hold.
+7. **Given** a run that has been told to stop and does not end on its own, **When** the declared
+   stop bound elapses, **Then** the runtime ends it anyway within that bound. A bound the runtime
+   only measures is not a bound the margin can be computed from.
 
 ---
 
@@ -278,7 +281,10 @@ recorded.
 - **SC-109**: A playbook declaring a `guard` key the runtime does not implement is refused at load,
   and one declaring no `guard` block is still held to non-concurrency — FR-119 and FR-120.
 - **SC-110**: A playbook edited while a trigger waits runs in its edited form — FR-121.
-- **SC-112**: A deployment whose renewal interval, renewal bound and stop time do not fit inside
+- **SC-115**: A run that does not end when told to is over within the declared stop bound, ended by
+  the runtime rather than by itself — FR-126. Measured against a run built not to stop, because a
+  run that stops promptly satisfies the criterion without the enforcement ever running.
+- **SC-112**: A deployment whose renewal interval, renewal bound and stop bound do not fit inside
   its claim expiry is refused at startup, naming the three durations and the expiry they exceed —
   FR-123. And a run whose renewal attempts hang rather than fail ends before its claim can lapse,
   demonstrated by holding the backend's responses rather than by severing it — FR-122.

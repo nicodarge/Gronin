@@ -111,8 +111,9 @@ FR-125 and SC-114 close the other half. A run that started long after its schedu
 indistinguishable from a late one unless it says it waited, and a trigger that waited and then ran
 must not leave a refusal record behind — it was deferred, not refused, and FR-117 says so
 explicitly rather than leaving the two entities to be conflated. SC-113 covers the clause of FR-113
-that was otherwise measured by nothing: that an operator can *see* a waiting trigger was dropped by
-a restart, which no absence-shaped criterion can establish.
+that was otherwise measured by nothing: that an operator can *see* a waiting trigger was dropped
+when the process was killed, which no absence-shaped criterion can establish — and which is why
+FR-127 puts the record in at acceptance rather than on the way out.
 
 FR-118 is the trap this repository has already been bitten by, stated as a requirement: anchor on
 the runtime's own wall clock, never on a timestamp the trigger carried. It matters most for the
@@ -152,9 +153,11 @@ than leaving it to discipline. Every guarantee here is that something does *not*
 asserting a non-event is indistinguishable from a broken test until a mutant proves otherwise: a
 test that asserts "no second run started" passes just as well when nothing started at all, when the
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
-SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113 and SC-114 needs a mutant,
-and the mutation harness has to report zero on an unmodified tree for any of their counts to mean
-anything. FR-108's bound is the single guarantee in this feature that fails loudly on its own.
+SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114 and SC-115 needs a
+mutant, and the mutation harness has to report zero on an unmodified tree for any of their counts
+to mean anything. The two bounds are the exception: FR-108's decision bound and FR-126's stop bound
+both fail loudly on their own, because an unenforced bound lets something run long and a test
+waiting on it times out rather than passing quietly.
 
 Five of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
 claim to lapse, so a test whose expiry is shorter than it believes passes without the recovery ever
@@ -169,7 +172,9 @@ a test that cuts the link proves the easy half and leaves the hang untested. SC-
 process rather than stop it, because a record written on the way out satisfies a graceful stop and
 is exactly the implementation FR-127 refuses. SC-105 and SC-107 are the counting ones, and a count
 is the one shape here that fails honestly when it is wrong; SC-114 counts too, downward, to zero
-refusal records.
+refusal records. SC-115 is the one that needs a subject built to misbehave: a run that stops when
+asked satisfies it without the enforcement in FR-126 ever executing, so the test needs a run that
+does not stop on its own.
 
 SC-110 is the hardest mutant of the set and the easiest to fake. It has to prove the *edited*
 playbook ran, not that a run happened, so its test needs the edit to be observable in the run's own
