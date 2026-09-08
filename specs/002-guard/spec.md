@@ -67,6 +67,9 @@ to exist.
 5. **Given** a deployment configured with no coordination backend, **When** a trigger fires,
    **Then** the run proceeds under a single-host guarantee, and the deployment's own status output
    says that is the guarantee it has.
+6. **Given** a deployment whose renewal interval, renewal bound and stop bound do not fit inside
+   its claim expiry, **When** the runtime starts, **Then** it refuses to start and names the
+   durations it rejected, rather than running with a margin that cannot hold.
 
 ---
 
@@ -95,9 +98,9 @@ confirm exactly one further run happens, with the extra invocation recorded as r
    runs.
 3. **Given** a trigger that has waited longer than the playbook's declared limit on waiting,
    **When** the run in progress ends, **Then** no run starts from it and its expiry is recorded.
-4. **Given** a trigger waiting for a run to end, **When** the runtime process stops, **Then**
-   nothing runs from that trigger when the process starts again, and the operator can see it was
-   dropped rather than silently forgotten.
+4. **Given** a trigger waiting for a run to end, **When** the runtime process stops — gracefully
+   or killed outright — **Then** nothing runs from that trigger when the process starts again, and
+   the operator can see it was dropped rather than silently forgotten.
 
 ---
 
@@ -126,6 +129,9 @@ recorded.
    **Then** it runs.
 4. **Given** a playbook declaring no limit, **When** triggers fire, **Then** none is refused for
    rate, and the non-concurrency guarantee still applies.
+5. **Given** a trigger waiting for a run to end, **When** other triggers fill the playbook's rate
+   window while it waits, **Then** it is discarded when the run ends rather than run, and the
+   discard is recorded — the limit bounds runs, not acceptances.
 
 ---
 
@@ -178,7 +184,7 @@ recorded.
   within one host, and MUST state that single-host reach in its own status output rather than
   leaving the operator to infer which guarantee they have.
 - **FR-110**: A trigger refused because its playbook is already running MUST wait for that run to
-  end and then run once.
+  end and then run once, unless FR-112 or FR-124 has discarded it in the meantime.
 - **FR-111**: At most one trigger per playbook MUST wait at a time. A trigger arriving while one
   is already waiting MUST be refused rather than queued behind it.
 - **FR-112**: A waiting trigger MUST expire after a declared duration, and MUST NOT produce a run
@@ -186,14 +192,22 @@ recorded.
   has changed.
 - **FR-113**: A waiting trigger MUST NOT survive the process holding it. Waiting is local to the
   process that accepted the trigger, and the operator MUST be able to see that a waiting trigger
-  was dropped by a restart.
+  was dropped when the process stopped — whether it stopped gracefully or was killed.
+- **FR-127**: Accepting a trigger into the waiting slot MUST be recorded durably at the moment it
+  is accepted, not when it runs and not when it is dropped. The wait itself is in memory and dies
+  with the process by FR-113; a record written only on the way out is written by a process that may
+  not get the chance, which would leave FR-113's drop visible after a graceful stop and invisible
+  after exactly the kill an operator is trying to understand.
 - **FR-122**: A renewal attempt MUST be bounded in time, and exceeding that bound MUST count as a
   failed renewal rather than as one still outstanding. A renewal that hangs is indistinguishable
   from one that succeeded until the claim lapses, which is precisely the window FR-105 exists to
   close.
-- **FR-123**: The renewal interval, plus FR-122's bound, plus the time a run needs to stop, MUST
-  fit within the claim's expiry with margin left over, and the runtime MUST refuse a configuration
-  in which they do not. Without this, FR-103 and FR-104 are both satisfied by setting the renewal
+- **FR-126**: The runtime MUST have a declared bound on how long stopping a run may take, counted
+  from the decision to stop it to the run being over, and MUST enforce it when it terminates a run.
+  Without a stated stop bound, FR-123's margin has no third term and cannot be computed at all.
+- **FR-123**: The renewal interval, plus FR-122's bound, plus FR-126's stop bound, MUST fit within
+  the claim's expiry with margin left over, and the runtime MUST refuse a configuration in which
+  they do not, naming the durations it rejected and the expiry they exceed. Without this, FR-103 and FR-104 are both satisfied by setting the renewal
   interval equal to the expiry, which leaves a single missed renewal no time at all to act on and
   makes FR-105 unsatisfiable while every stated requirement reads as met.
 - **FR-114**: A playbook MUST be able to declare a rate limit: at most a stated number of runs
@@ -229,7 +243,8 @@ recorded.
 ### Key Entities
 
 - **Claim**: the right to run one named playbook, held by exactly one run at a time across the
-  deployment. Has a holder, an expiry judged by the backend, and a renewal.
+  deployment. Has a holder, an expiry judged by the backend, and a renewal that is itself bounded
+  (FR-122) and spaced far enough beneath the expiry to leave room to act (FR-123).
 - **Waiting trigger**: at most one per playbook, held by a single process, carrying what invoked it
   and when it arrived, and expiring on its own.
 - **Rate window**: the record of a playbook's recent runs against which a declared limit is judged,
@@ -267,10 +282,12 @@ recorded.
   its claim expiry is refused at startup, naming the three durations and the expiry they exceed —
   FR-123. And a run whose renewal attempts hang rather than fail ends before its claim can lapse,
   demonstrated by holding the backend's responses rather than by severing it — FR-122.
-- **SC-113**: After a restart that drops a waiting trigger, the drop is readable through the
-  operator's own command surface, naming the trigger and when it arrived — FR-113. Measured by
-  reading the record, not by observing that no run happened: the absence is already SC-106's, and
-  an absence is satisfied by a runtime that never started.
+- **SC-113**: After a process is killed while a trigger waits, the drop is readable through the
+  operator's own command surface, naming the trigger and when it arrived — FR-113 and FR-127.
+  Measured by reading the record, not by observing that no run happened: the absence is already
+  SC-106's, and an absence is satisfied by a runtime that never started. The kill is what makes it
+  meaningful — a graceful stop would pass against a record written on the way out, which is the
+  implementation FR-127 exists to refuse.
 - **SC-114**: A trigger that waits and then runs produces no refusal record, and its run says it
   waited and for how long — FR-117 and FR-125.
 - **SC-111**: Each of the above has at least one test that fails when the behaviour it asserts is

@@ -55,7 +55,11 @@ selects. It is bound by the constraint that already governs every dependency in 
 that check is not negotiable for a client library.
 
 **Storage**: the existing record store gains the refusal records of FR-117. Refusals are not runs
-and must not be counted as runs, but they are read through the same operator surface (SC-108).
+and must not be counted as runs, but they are read through the same operator surface (SC-108). Two
+further writes: a waiting trigger is recorded when it is accepted (FR-127), which is what makes a
+drop reconstructible after a kill, and the Run entity the runtime core defines gains the fact that
+a run waited and for how long (FR-125) — a field its current description does not carry, so the
+runtime core's own data model changes here rather than only this feature's.
 
 **Testing**: the existing suite, under the hermeticity and mutation obligations of Principle VI.
 This is the feature's hardest constraint and it is unresolved — see Phase 0.
@@ -148,19 +152,24 @@ than leaving it to discipline. Every guarantee here is that something does *not*
 asserting a non-event is indistinguishable from a broken test until a mutant proves otherwise: a
 test that asserts "no second run started" passes just as well when nothing started at all, when the
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
-SC-104, SC-105, SC-106, SC-107, SC-108, SC-109 and SC-110 needs a mutant, and the mutation harness
-has to report zero on an unmodified tree for any of their counts to mean anything. FR-108's bound
-is the single guarantee in this feature that fails loudly on its own.
+SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113 and SC-114 needs a mutant,
+and the mutation harness has to report zero on an unmodified tree for any of their counts to mean
+anything. FR-108's bound is the single guarantee in this feature that fails loudly on its own.
 
-Three of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
+Five of those deserve naming for how easily they pass while asserting nothing. SC-102 waits for a
 claim to lapse, so a test whose expiry is shorter than it believes passes without the recovery ever
 being exercised. SC-106 asserts two absences at once — a trigger that waited too long, and one
 dropped by a restart — and an assertion that no run happened is satisfied by a runtime that never
 started. SC-109 asserts a refusal at load, which the runtime already produces today for the whole
 `guard` block, so its test passes before the feature is written and keeps passing if the block's
 shape is never actually validated: it has to distinguish an implemented key from an unimplemented
-one, not merely observe a refusal. SC-105 and SC-107 are the counting ones, and a count is the one
-shape here that fails honestly when it is wrong.
+one, not merely observe a refusal. SC-112 has to hold the backend's responses rather than sever the
+connection, because a severed connection fails fast and a held one is the case FR-122 exists for —
+a test that cuts the link proves the easy half and leaves the hang untested. SC-113 has to kill the
+process rather than stop it, because a record written on the way out satisfies a graceful stop and
+is exactly the implementation FR-127 refuses. SC-105 and SC-107 are the counting ones, and a count
+is the one shape here that fails honestly when it is wrong; SC-114 counts too, downward, to zero
+refusal records.
 
 SC-110 is the hardest mutant of the set and the easiest to fake. It has to prove the *edited*
 playbook ran, not that a run happened, so its test needs the edit to be observable in the run's own
@@ -221,13 +230,20 @@ Not started. Four questions, and the first two gate the rest.
    time to stop, which is a property of the client's failure signalling, not of the store. And the
    no-cgo constraint rules out any client that needs a C toolchain.
 
-3. **What are the durations?** The claim's expiry (FR-104), the renewal interval beneath it
-   (FR-103), the guard's own decision bound (FR-108), and how long a trigger may wait (FR-112).
-   Each is a chosen threshold rather than a derived one, so each gets a stated reason and a date,
-   not a number that looks measured. FR-123 constrains them jointly rather than individually, so
-   Phase 0 picks a set that fits, and the runtime refuses one that does not — which means the
-   startup refusal has to name what it rejected, or an operator is left guessing which of four
-   durations to change.
+3. **What are the durations?** Two disjoint sets, and conflating them is how the margin gets
+   mis-computed.
+
+   The first set is bound together by FR-123: the renewal interval (FR-103), the bound on a single
+   renewal attempt (FR-122), and the bound on stopping a run (FR-126) must fit inside the claim's
+   expiry (FR-104) with margin. Phase 0 picks these four as a set rather than one at a time,
+   because a value that is reasonable alone can be impossible alongside the others, and the runtime
+   refuses a set that does not fit.
+
+   The second set is independent of that arithmetic: the guard's own decision bound (FR-108) and
+   how long a trigger may wait (FR-112). Neither enters FR-123's margin.
+
+   Every one of them is a chosen threshold rather than a derived one, so each gets a stated reason
+   and a date, not a number that looks measured.
 
 4. **What happens across a rename?** The spec's edge cases raise it: the playbook name is the
    claim's identity, so renaming a playbook mid-run leaves a claim nobody will release. The load
