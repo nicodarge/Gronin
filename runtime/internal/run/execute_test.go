@@ -79,7 +79,7 @@ func newHarness(t *testing.T, mode string) *harness {
 		dir:    dir,
 		posted: got,
 		executor: &run.Executor{
-			Manager:         run.NewManager(store, filepath.Join(dir, "work")),
+			Manager:         run.NewManager(store, filepath.Join(dir, "work"), filepath.Join(dir, "locks")),
 			Store:           store,
 			Config:          cfg,
 			AgentExecutable: fakeagent.Build(t),
