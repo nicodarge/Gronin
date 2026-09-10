@@ -26,7 +26,7 @@ held to non-concurrency (FR-120) and gets the default waiting expiry.
 | ----- | ---- | ----- |
 | `rate.runs` | integer ≥ 1 | At most this many runs start within any window of `rate.per` (FR-114) |
 | `rate.per` | duration, minutes or hours | Keyed on the playbook name alone |
-| `wait` | duration | How long a waiting trigger may wait (FR-112). Default 30 m, per [research.md](./research.md) §3. `0s` means the playbook's triggers never wait: they are refused with `claim_held` and no waiting trigger is written |
+| `wait` | duration | How long a waiting trigger may wait (FR-112). Default 30 m, per [research.md](./research.md) §3. A zero duration still enters the waiting slot and expires at once, as `wait_expired` |
 
 No backend address, credential or duration of the claim set appears here. Those belong to the
 deployment (Principle IV), and a playbook declaring a rate limit stays portable to a deployment that

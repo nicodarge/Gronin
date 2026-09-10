@@ -267,7 +267,7 @@ rather than reading about them; the durations are chosen thresholds, each with i
    new names are different claims. A waiting trigger whose file no longer declares its name is
    discarded rather than run under the new one.
 
-Two findings reach back into the specification, and both are the owner's to decide rather than a
+Three findings reach back into the specification, and each is the owner's to decide rather than a
 plan's.
 
 - **FR-110 contradicts User Story 1 on two hosts**: a cron tick that waits behind the same tick's
@@ -276,6 +276,9 @@ plan's.
 - **A run shorter than the hosts' clock offset can let one tick run twice**, one host after the
   other. Recommended but not adopted: the backend records the last scheduled instant that ran. The
   coordination interface already carries that instant, so adopting it later changes an adapter.
+- **"Wall clock" in FR-118 and the constitution, read literally, covers the stop deadline**, where a
+  backward time step would lengthen it. The design uses the monotonic reading of the host's clock
+  and recommends the wording change.
 
 `tasks.md` can be written against the design as it stands.
 
@@ -319,5 +322,5 @@ it".
 | The file lock is kept, not replaced | FR-109 needs it, and it is already proven with a mutant | Deleting it once the backend exists would make the backend mandatory, which forces the dependency on deployments that never needed it |
 | The rate window lives in the backend when there is one | Counted per host, a deployment of two hosts allows twice the declared runs | A count of the local record store's runs is one query and no new keys, and delivers FR-114 at half its declared strength on the deployments this feature exists for |
 | The runtime drives its own renewals | The client library's keep-alive signals loss at the expiry, measured at 5.001 s for a 5 s claim, which leaves FR-105 no time to act | The library's `KeepAlive` and `concurrency.Session` are a few lines each, and would satisfy every requirement except the one the lease exists for |
-| The process exits when a run outlives the stop bound | Cancelling a context cannot end work that ignores it, and a run still going when the claim lapses breaks FR-101. The cost is every other run in that `serve` process, and its schedules until it restarts | Logging the overrun and carrying on is what every other stop path does, and makes FR-126's bound a measurement rather than a bound |
+| The process exits when a run outlives the stop bound | Cancelling a context cannot end work that ignores it, and a run still going when the claim lapses breaks FR-101. The cost is every other run in that `serve` process, and every schedule on that host, until it restarts | Logging the overrun and carrying on is what every other stop path does, and makes FR-126's bound a measurement rather than a bound |
 | The waiting slot is counted in the record store | `gronin run` is a process of its own, so a slot counted in memory would let every manual invocation wait | A slot in memory needs no transaction, and makes FR-111 true only for triggers that arrive through `serve` |

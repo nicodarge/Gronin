@@ -1,6 +1,6 @@
 # Phase 0 — Research
 
-Four questions from the plan, and two findings that reach back into the specification. Every
+Four questions from the plan, and three findings that reach back into the specification. Every
 measurement below was produced on 2026-09-10 by running a throwaway program against the component
 named, not by reading its documentation; where a statement rests on reading source or
 documentation instead, it says so. Nothing here was run against a multi-host deployment: every
@@ -281,13 +281,12 @@ stops the run. The inequality above is exactly the condition that an attempt usi
 bound still ends before the deadline; without it, a renewal that succeeds slowly would stop a
 healthy run.
 
-**Which clock.** The constitution's Time constraint and FR-118 require elapsed time to come from
-the host's own clock rather than from a timestamp a trigger carried. The stop deadline satisfies
-that on the monotonic reading of the host's clock, which Go's `time.Since` uses, rather than its
-wall reading. A wall reading can be stepped backwards by time synchronisation mid-run, and that
-would move the deadline later. Timestamps that are recorded or compared across processes — a
-waiting trigger's expiry, a refusal's time — use the wall reading in UTC, as the runtime core
-already does.
+**Which clock.** The stop deadline is computed on the monotonic reading of the host's clock, which
+Go's `time.Since` uses, not on its wall reading: time synchronisation can step the wall reading
+backwards mid-run, which would move the deadline later. That departs from the letter of FR-118 and
+of the constitution's Time constraint, which both say "wall clock", and it is the third finding
+below. Timestamps that are recorded or compared across processes — a waiting trigger's expiry, a
+refusal's time — use the wall reading in UTC, as the runtime core already does.
 
 **What the margin does not cover.** The holder's clock is Go's monotonic clock, which on Linux does
 not advance while the host is suspended (a property of `CLOCK_MONOTONIC`, read, not run). A holder
@@ -336,7 +335,7 @@ the backend.
 
 ## Findings that reach back into the specification
 
-Neither is a Phase 0 question. Both surfaced while writing the data model, and both need the
+None is a Phase 0 question. All three surfaced while writing the design, and each needs the
 owner's decision rather than a plan's.
 
 ### FR-110 contradicts User Story 1 on a deployment of two hosts
@@ -372,6 +371,19 @@ the same transaction that takes the claim, and refuses a scheduled trigger whose
 later. The coordination interface already carries the trigger's kind and instant so that adopting
 this changes an adapter and not the interface. Until the owner decides, US1's "it executes once"
 holds for runs longer than the hosts' clock offset and is not claimed beyond that.
+
+### "Wall clock" in FR-118 and the constitution also covers the stop deadline
+
+FR-118 says every time the guard records or compares is "anchored on the runtime's own wall clock",
+and the constitution says elapsed time "MUST be computed from wall-clock time on the host". Both
+are written against a timestamp carried by a trigger, and against that they are right. Read
+literally, they also require the stop deadline to use the wall reading, which a backward time step
+lengthens — the one direction in which FR-105 fails.
+
+**Recommended, and what the design follows**: the deadline uses the monotonic reading of the host's
+clock. That keeps what the rule protects — the host's own clock, never a payload's — and drops
+only a word the rule did not need. Adopting it means a wording change to FR-118 and a PATCH
+amendment to the constitution, both the owner's.
 
 ## What changed in the plan because of this
 
