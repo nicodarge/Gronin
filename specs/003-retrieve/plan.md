@@ -56,9 +56,10 @@ rejected as a second search engine where the first is already linked.
 
 - **The index**, one SQLite database per collection under the state directory: an FTS5 table of
   passages for the lexical mode, and a table of unit-length vectors for the semantic one (research
-  §6). A generation carries an identity derived from the collection's configuration and the digests
-  of the sources it was built from, so two builds of the same sources carry the same identity —
-  which is what lets SC-209 compare an updated index with a rebuilt one by more than their results.
+  §6). A generation carries an identity derived from the collection's configuration and the
+  content digests of the sources it was built from, so two builds of the same sources carry the
+  same identity. That presupposes the exact answer to Phase 0's fifth open question: under a
+  size-and-time check, a missed edit carries the previous digest forward and the identity with it.
   An update is one transaction, so a search sees the generation before it or the one after it and
   never part of either (FR-219). Whether a transaction is enough, or whether a generation needs to
   be a whole file swapped by rename, is decided by SC-211's kill rather than by argument.
