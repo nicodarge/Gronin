@@ -1229,13 +1229,41 @@
       "name": "config set does not strip the value's trailing newline",
       "tree": "..",
       "file": "cmd/gronin/config_cmd.go",
-      "find": "\treturn strings.TrimSuffix(string(data), \"\\n\"), nil",
-      "replace": "\treturn strings.TrimSuffix(string(data), \"\"), nil",
+      "find": "\treturn stripOneTrailingNewline(string(data)), nil",
+      "replace": "\treturn string(data), nil",
       "command": [
         "go",
         "test",
         "./cmd/gronin",
         "-count=1"
+      ]
+    },
+    {
+      "name": "config set does not strip a CRLF trailing newline",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\tif strings.HasSuffix(s, \"\\r\\n\") {\n\t\treturn s[:len(s)-2]\n\t}\n\treturn strings.TrimSuffix(s, \"\\n\")",
+      "replace": "\treturn strings.TrimSuffix(s, \"\\n\")",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "config set does not restore the terminal on interrupt",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\t\tcase <-interrupted:\n\t\t\tif completed.CompareAndSwap(false, true) {\n\t\t\t\t_ = term.Restore(fd, state)\n\t\t\t\tos.Exit(1)\n\t\t\t}",
+      "replace": "\t\tcase <-interrupted:\n\t\t\t_ = completed",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestConfigSetRestoresTheTerminalOnInterrupt"
       ]
     }
   ]

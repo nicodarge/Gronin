@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -147,7 +148,19 @@ func readConfigValue(cmd *cobra.Command) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading the value from standard input: %w", err)
 	}
-	return strings.TrimSuffix(string(data), "\n"), nil
+	return stripOneTrailingNewline(string(data)), nil
+}
+
+// stripOneTrailingNewline removes exactly one trailing newline — "\n", or the "\r\n" a
+// CRLF-terminated file leaves — so `gronin config set key < file` round-trips the file's
+// content rather than keeping a byte the operator did not put there. A bare TrimSuffix on
+// "\n" alone leaves that "\r" in the stored value, invisibly, on the same path a secret
+// travels.
+func stripOneTrailingNewline(s string) string {
+	if strings.HasSuffix(s, "\r\n") {
+		return s[:len(s)-2]
+	}
+	return strings.TrimSuffix(s, "\n")
 }
 
 // promptTerminal is the no-echo prompt readConfigValue uses on a terminal.
@@ -156,8 +169,13 @@ func readConfigValue(cmd *cobra.Command) (string, error) {
 // Ctrl-C during the read still raises SIGINT — and with no handler installed, Go's
 // default disposition kills the process before that restore runs, leaving the
 // operator's terminal without echo until they run `stty sane`. Caught here instead: the
-// terminal state is captured before the read and restored explicitly on the way out,
-// on an interrupt as well as a clean return.
+// terminal state is captured before the read and restored explicitly on the way out, on
+// an interrupt as well as a clean return.
+//
+// completed guards which outcome wins a race between the read finishing and a signal
+// landing: without it, an interrupt arriving in the gap between ReadPassword returning a
+// value and the goroutine below noticing could still discard a value the operator had
+// already typed. Set the instant the read returns, before anything else runs.
 func promptTerminal(errOut io.Writer, f *os.File) (string, error) {
 	fd := int(f.Fd())
 	state, err := term.GetState(fd)
@@ -170,17 +188,21 @@ func promptTerminal(errOut io.Writer, f *os.File) (string, error) {
 	defer signal.Stop(interrupted)
 	done := make(chan struct{})
 	defer close(done)
+	var completed atomic.Bool
 	go func() {
 		select {
 		case <-interrupted:
-			_ = term.Restore(fd, state)
-			os.Exit(1)
+			if completed.CompareAndSwap(false, true) {
+				_ = term.Restore(fd, state)
+				os.Exit(1)
+			}
 		case <-done:
 		}
 	}()
 
 	_, _ = fmt.Fprint(errOut, "value: ")
 	raw, err := term.ReadPassword(fd)
+	completed.Store(true)
 	_, _ = fmt.Fprintln(errOut)
 	if err != nil {
 		_ = term.Restore(fd, state)

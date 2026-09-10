@@ -214,6 +214,24 @@ func TestConfigSetReadsTheValueFromStandardInput(t *testing.T) {
 	}
 }
 
+// A CRLF-terminated file — `gronin config set key < file`, prepared on Windows or
+// pasted through a tool that inserts "\r\n" — must not leave a trailing "\r" in the
+// stored value: it would sit on the value invisibly, and it is exactly the byte a
+// secret token would then fail to authenticate with, for no reason the operator could see.
+func TestConfigSetStripsACRLFTrailingNewline(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.RunWithStdin(t, "t0ken\r\n", "config", "set", "crlfkey", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	stored := readStoredConfig(t, stateDir)
+	if got, want := stored["crlfkey"].Value, "t0ken"; got != want {
+		t.Fatalf("stored value = %q, want %q", got, want)
+	}
+}
+
 // FR-040's sink/build.go depends on an explicitly empty value being distinct from one
 // never configured at all — `printf "" | gronin config set key` must still declare the
 // key, just with nothing in it.
