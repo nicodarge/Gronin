@@ -27,12 +27,11 @@ that acknowledges on receipt and records afterwards loses exactly the events tha
 recording is failing, and loses them silently: the sender was told they succeeded and has no reason
 to send them again. Answering after the write moves the failure to where the sender can see it — an
 answer saying "not accepted" is a retry. What the answer cannot mean is "ran": the guard may make the
-trigger wait, and no sender holds a connection open for that. Phase 0 is where the requirement
-this depends on came from, by running it: an answer that outlives the server's write
-limit vanishes while the handler believes it was sent (FR-313). One more follows from it by
-reasoning rather than measurement: a handler that stops waiting at its bound has not rolled the write
-back, which may already have committed, so the hand-off has to follow the record rather than the
-answer (FR-314) — see [research.md](./research.md), question 3.
+trigger wait, and no sender holds a connection open for that. Phase 0 is where the two
+requirements this depends on came from, by running it. An answer that outlives the server's write
+limit vanishes while the handler believes it was sent (FR-313). And, following that up, a write detached from the request lands after its answer has said "not accepted", and even one
+bound to the request can commit as the bound fires — so the hand-off has to follow the record rather
+than the answer (FR-314). Both are in [research.md](./research.md), question 3.
 
 **The identity is the delivery, not the event (FR-316, FR-317).** The guard specification left
 deduplication here because a cron tick has no identity. A delivery has one — its authenticated body,
@@ -62,8 +61,9 @@ to treat as data. That is a weaker claim than containment, and it is not offered
 
 **Primary Dependencies**: none new. `net/http` serves the ingress, `crypto/hmac` and `crypto/sha256`
 authenticate it, and the record store's existing SQLite driver holds deliveries. Phase 0 established
-that the store, opened exactly as it is today, gives the durability and the single-statement "is this
-new" decision the feature needs (research question 5).
+that the store, opened exactly as it is today, gives FR-312's durability, and one statement that
+decides "new" across processes — for an identity never seen, one past its window (FR-317, FR-318),
+and one whose earlier delivery was dropped (FR-315) — research question 5.
 
 **Storage**: the record store gains three things and changes one.
 
@@ -215,8 +215,9 @@ acceptance, on the host's clock.
 
 **Secrets** is FR-306's last clause. Setting a configuration value today takes it as a command
 argument, which the constitution forbids for a secret. A source secret is the first secret an
-operator of this feature must set, so `gronin config set --secret` gains the form that reads the value
-from standard input, and SC-316 drives it through the built executable. The argument form is left as
+operator of this feature must set, so `gronin config set`, given its existing `--secret` flag and no
+value argument, reads the value from standard input; SC-316 drives that through the built
+executable. The argument form is left as
 it is for values that are not secrets; that it accepts secrets too is the runtime core's to correct.
 
 **Configuration names**: the one this feature introduces from outside is the signature header, and
@@ -275,7 +276,13 @@ JSON. The signature is HMAC-SHA256 over the exact body bytes, hexadecimal, in on
 5. Source and signature together, answered identically when either fails (FR-307, FR-308, FR-309).
    Nothing about the body is stored or parsed before this step passes.
 6. Parse as JSON and resolve the identity (FR-316).
-7. The atomic acceptance under the durable-step bound (FR-312, FR-313, FR-318, FR-317).
+7. The atomic acceptance under the durable-step bound (FR-312, FR-313, FR-318, FR-317). The write
+   runs on a context of its own, not the request's: the handler stops waiting at the bound, and the
+   write goes on until the store's busy timeout. Research question 3 measured both arrangements —
+   tied to the request, a write blocked on a lock is aborted; detached, it lands after the answer.
+   Detached is chosen because FR-314 is needed either way: a commit completing as the bound fires is a
+   late landing whichever context it ran on, and a write aborted for being slow turns a lock held for
+   a moment into a delivery the sender has to send again.
 8. The answer: accepted, whether new or a repeat; or not accepted when step 7 did not complete.
 9. The hand-off, driven by step 7's completion rather than step 8's (FR-314): for each bound playbook,
    validate its declared values (FR-322), refuse a leading dash for any value a gather step binds
@@ -351,7 +358,7 @@ Three remain open, none of which blocks the specification:
 | ------ | --- | ------------------------------------ |
 | Two listeners (FR-301) | The owner's decision. The operator API serves every prompt, tool call and gathered input a run saw | One listener with the webhook route added is less code, and it makes every deployment that accepts deliveries one that exposes its record to anything able to reach that address — a route table inside one listener is a policy, and a listener is a boundary |
 | Answer after the durable write (FR-312) | A sender only retries what it was told failed | Answering on receipt is faster and simpler, and it loses the events that arrive while recording is failing, silently, because the sender was told they succeeded |
-| Hand-off from the record, not the answer (FR-314) | A wait abandoned at its bound is not a write rolled back (research question 3) | Handing off when answering `202` is the obvious place, and it leaves a delivery recorded, deduplicated on retry, and never run |
+| Hand-off from the record, not the answer (FR-314) | A wait abandoned at its bound is not a write rolled back (research question 3, measured) | Handing off when answering `202` is the obvious place, and it leaves a delivery recorded, deduplicated on retry, and never run |
 | A short replay window (FR-317) | Repeat detection exists for retries | A long window looks safer against replay and suppresses an unchanged event deliberately re-sent — the failure the constitution's time constraint describes |
 | Declared values only (FR-322, FR-323) | The runtime can refuse only against something declared | Handing the agent the whole body is one less concept for a playbook author, and makes every byte a sender writes part of every run |
 | Counts, not rows, for unauthenticated refusals (FR-333) | Anyone who can reach the ingress can send them | A row per request is uniform with every other refusal, and lets a stranger fill the disk |

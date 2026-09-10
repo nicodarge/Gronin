@@ -232,7 +232,9 @@ alongside is still accepted.
   absent, empty, not decodable, of the wrong length, or carried more than once MUST be refused.
 - **FR-309**: A delivery naming a source the deployment does not configure and a delivery failing
   its signature MUST receive identical answers, so the ingress does not tell a stranger which source
-  names exist.
+  names exist. Reaching the answer MUST take the same work in both: a delivery to an unconfigured
+  source is verified under a key the runtime holds for the purpose, rather than answered before any
+  MAC is computed, which would separate the two by time where the answers do not.
 - **FR-310**: The runtime MUST refuse a playbook whose webhook trigger names a source the deployment
   does not configure, when it loads, on the same terms as it refuses an MCP server the deployment
   does not provide.
@@ -283,7 +285,8 @@ alongside is still accepted.
 - **FR-321**: The playbooks a delivery triggers MUST be exactly the loaded playbooks bound to its
   source. Nothing in its body, its headers or its query may select among them.
 - **FR-322**: A webhook trigger MUST declare every payload value it uses: where in the body it is
-  found, a pattern the whole value must match, and a maximum length. The runtime MUST refuse, at load,
+  found, a pattern the whole value must match, and a maximum length in characters rather than bytes,
+  so a limit an author reads as characters is the limit enforced. The runtime MUST refuse, at load,
   a declaration missing any of the three or whose pattern does not compile. A delivery whose declared
   value is absent, is not a single value, exceeds its length, or does not wholly match its pattern
   MUST NOT run that playbook, and the refusal MUST name the playbook and the value.
@@ -397,7 +400,9 @@ alongside is still accepted.
   ordinary one — FR-308. Timing is not measured: a timing assertion on a shared runner is a flake by
   construction, which Principle VI refuses.
 - **SC-314**: The answer to an unknown source and the answer to a wrong signature are byte-for-byte
-  identical — FR-309.
+  identical, and a verifier that records its calls is invoked once for each — FR-309. Fails against an
+  implementation that answers an unknown source without verifying, whose answer can still be
+  identical. Time is not measured, for SC-313's reason.
 - **SC-315**: A corpus of webhook playbooks — prompt referencing a payload value, sink field
   referencing one, unconfigured source, a gather step referencing a value the trigger does not
   declare, a declared value without a pattern, without a length, or with a pattern that does not
@@ -410,8 +415,9 @@ alongside is still accepted.
   against a listing that prints it.
 - **SC-317**: Deliveries whose declared value is absent, an object, one character over its length,
   or matching its pattern only in part produce no run of that playbook and a refusal naming it and
-  the value, while a second playbook bound to the same source runs — FR-322. The partial match is the
-  case an unanchored pattern passes.
+  the value, while a second playbook bound to the same source runs, and a value exactly its length in
+  multi-byte characters runs — FR-322. The partial match is the case an unanchored pattern passes;
+  the multi-byte value is the case a length counted in bytes refuses.
 - **SC-318**: A sentinel carried in an undeclared field of a delivery is found in the delivery's
   record and nowhere in the run's working directory, gather environments, prompt or sink deliveries —
   FR-323, FR-324. Fails against an implementation writing the whole body into the working directory.

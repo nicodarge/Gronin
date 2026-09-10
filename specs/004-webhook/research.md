@@ -76,6 +76,16 @@ stops waiting at its bound has not rolled the write back, which may already have
 bound expired, and if the hand-off were tied to answering `202` that delivery would be recorded,
 deduplicated on the sender's retry, and never run.
 
+**Followed up by running it**: does abandoning the wait abandon the write? A second program held a
+write lock on the store from one connection while another inserted a delivery, and the handler's
+wait was bounded at 300 ms; the lock was released 700 ms later. With the write running on the
+request's own context, the handler gave up at 300 ms, the write returned `context deadline exceeded`,
+and the row was absent. With the write on a context detached from the request, the handler gave up at
+300 ms, the write returned no error once the lock was released, and the row was present. So the late
+landing FR-314 is written for is what a detached write does routinely, and what a request-bound one
+can still do when its commit completes as the bound fires — which no probe can produce on demand, and
+which is why FR-314 does not depend on which of the two the implementation picks.
+
 ## 4. The standard library's MAC comparison is constant time over equal lengths (read, not run)
 
 **Question**: FR-308 requires a constant-time comparison. Is `hmac.Equal` one, and is there a catch?
@@ -107,15 +117,19 @@ window judged on the runtime's clock. Can the existing store do all three as it 
   row only when it inserted or updated — and each counted the identities it was told were new.
 - The same statement for one identity at a time of 1000 s, then 1599 s, then 1600 s, with a 600 s
   window.
+- FR-315's case, in a second run of the program: 300 identities recorded as dropped inside the
+  window, then raced by two processes through the same statement extended to treat a dropped row as
+  new, then tried a third time.
 
 **Answer**: `journal_mode` is `wal` and `synchronous` is `2`, which is FULL. All twenty killed rows
 were present on reopen. The two processes were told "new" 287 and 13 times — 300 in all, so the two
 did contend and no identity was new twice. The window answered new, repeat, new: an acceptance
-exactly one window old is a new delivery.
+exactly one window old is a new delivery. The dropped identities were answered new 297 and 3 times —
+300 in all, none twice — and the third try, inside the window, was a repeat.
 
-**Consequence for the design**: the existing store is enough for FR-312, FR-317 and FR-318 without a
-new dependency or a change to how it is opened, and the "new" decision is a statement's result rather
-than a read followed by a write. What this did **not** establish is behaviour on power loss: a kill
+**Consequence for the design**: the existing store is enough for FR-312, FR-315, FR-317 and FR-318
+without a new dependency or a change to how it is opened, and the "new" decision is a statement's
+result rather than a read followed by a write. What this did **not** establish is behaviour on power loss: a kill
 of the process was measured, a loss of the machine was not, and FULL synchronous is the setting that
 is supposed to cover the second. SC-306 still forces the interleaving rather than relying on this
 race, because a race that the right answer happened to win is not a test of the wrong one.
