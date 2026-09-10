@@ -172,10 +172,13 @@ func stripOneTrailingNewline(s string) string {
 // terminal state is captured before the read and restored explicitly on the way out, on
 // an interrupt as well as a clean return.
 //
-// completed guards which outcome wins a race between the read finishing and a signal
-// landing: without it, an interrupt arriving in the gap between ReadPassword returning a
-// value and the goroutine below noticing could still discard a value the operator had
-// already typed. Set the instant the read returns, before anything else runs.
+// completed narrows a race between the read finishing and a signal landing, rather than
+// closing it outright: without it, an interrupt arriving in the gap between
+// ReadPassword returning a value and the goroutine below noticing could still discard a
+// value the operator had already typed. Setting it the instant the read returns shrinks
+// that gap to the two statements between the read and the store — small enough that a
+// human pressing Ctrl-C cannot land in it, and even if something did, the outcome is the
+// same deliberate "discard and exit" the interrupted path already takes.
 func promptTerminal(errOut io.Writer, f *os.File) (string, error) {
 	fd := int(f.Fd())
 	state, err := term.GetState(fd)

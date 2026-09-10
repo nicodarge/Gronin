@@ -62,9 +62,10 @@ func Build(t *testing.T) string {
 // Run invokes the executable with args and returns what it produced. A non-zero exit
 // is a Result, not a failure: refusing is a behaviour tests here assert on.
 //
-// Standard input is empty rather than unset: `config set` reads its value from it, and a
-// test exercising a command that does not touch stdin must not block on a terminal that
-// happens to be attached to the test binary.
+// Standard input is a pipe reading nothing, the same as an unset exec.Cmd.Stdin
+// defaults to (the null device) — named explicitly here because `config set` reads its
+// value from stdin, and RunWithStdin below is what a test reaches for once it needs
+// something other than that default.
 func Run(t *testing.T, args ...string) Result {
 	t.Helper()
 	return RunWithStdin(t, "", args...)
