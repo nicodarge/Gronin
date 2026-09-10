@@ -420,10 +420,10 @@ alongside is still accepted.
   sentinel, set as a source secret through standard input by the built executable, appears nowhere in
   the suite's output — FR-306, FR-311. Fails if the secret can only be set as an argument, and
   against a listing that prints it.
-- **SC-317**: Deliveries whose declared value is absent, an object, one character over its length,
+- **SC-317**: Deliveries whose declared value is absent, an object, one code point over its length,
   or matching its pattern only in part produce no run of that playbook and a refusal naming it and
   the value, while a second playbook bound to the same source runs, and a value exactly its length in
-  multi-byte characters runs — FR-322. The partial match is the case an unanchored pattern passes;
+  multi-byte code points runs — FR-322. The partial match is the case an unanchored pattern passes;
   the multi-byte value is the case a length counted in bytes refuses.
 - **SC-318**: A sentinel carried in an undeclared field of a delivery is found in the delivery's
   record and nowhere in the run's working directory, gather environments, prompt or sink deliveries —
