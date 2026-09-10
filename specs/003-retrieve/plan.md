@@ -206,9 +206,12 @@ tree. Some of them pass while asserting nothing unless they are built with care:
 ### Operational Constraints — two apply
 
 **Secrets.** The embeddings credential is a secret value in the deployment configuration (FR-224),
-sent in a request header by the runtime's own client, never on a command line. Text leaving for the
-API passes the record store's redactor first (FR-223), the same code rather than a second copy, so
-the two cannot come to disagree about what a secret is.
+sent in a request header by the runtime's own client, never on a command line. FR-223's redaction
+is applied by the embeddings client itself, to every request body at the point it is sent — the way
+the record store and the logger apply the redactor at their own write boundaries rather than
+trusting their callers, so a new caller of the client cannot forget it. It is the redactor those
+two are built with, not a second copy, so the three cannot come to disagree about what a secret
+is.
 
 **Configuration names.** The catalogue's keys, and the request and response fields of the
 embeddings API, are verified against the running artifact and a captured real exchange before they

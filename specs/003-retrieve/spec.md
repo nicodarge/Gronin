@@ -320,9 +320,10 @@ under any mode.
 - **SC-209**: Between two retrievals, one source document is added, one changed and one removed.
   The listing reports the sources changed before the second retrieval, and the second retrieval
   reflects all three changes. Its results are identical to those after an operator's full rebuild,
-  and to those after the index is deleted and rebuilt by the next retrieval — FR-215, FR-216,
-  FR-217 and FR-220. The removed document carries a marker, so an update that handles additions
-  and ignores removals fails.
+  and to those after the state directory's index is deleted and rebuilt by the next retrieval —
+  FR-215, FR-216, FR-217 and FR-220. The removed document carries a marker, so an update that
+  handles additions and ignores removals fails; and the listing must show a generation built after
+  the deletion, which an index kept anywhere but the state directory survives to fail.
 - **SC-210**: When the configured embeddings model changes between two retrievals, the stub
   receives the collection's passages again and the second record names a new generation built
   under the new model; when the stub instead answers with vectors of a different length under the
