@@ -91,8 +91,8 @@ stops refusing, and the load-gate rules that go with it.
 **Performance Goals**: none beyond the bounds. The ingress is sized for a sender that retries, not
 for throughput.
 
-**Constraints**: the bounds of FR-329 through FR-331, and FR-313's durable-step bound, have values
-chosen here rather than derived. Each is a threshold decided on 2026-09-10, with its reason:
+**Constraints**: the bounds of FR-329 through FR-331, FR-313's durable-step bound, FR-333's counting
+interval and FR-317's default window have values chosen here rather than derived. Each is a threshold decided on 2026-09-10, with its reason:
 
 | Bound | Value | Reason |
 | ----- | ----- | ------ |
@@ -103,6 +103,7 @@ chosen here rather than derived. Each is a threshold decided on 2026-09-10, with
 | Time to the whole request | 15 s | Counted from the start of the request, headers included; covers a full-size body from a slow sender, and one that has stopped is not waited on longer |
 | Durable step | 5 s | The record store's own busy timeout, so a write lock held by another process is waited out once before the ingress gives up |
 | Answer write | 25 s | The standard library starts this limit once the headers are read, so it has to cover the rest of the body and the durable step before the answer is written. 15 s plus 5 s leaves room; less, and FR-313 cannot hold — research question 3 |
+| Unauthenticated refusal interval | 1 min | FR-333's counts are kept per minute: fine enough to show a burst's start and end, and at most one row per reason and source bucket per minute however many requests arrive |
 | Replay window, default | 10 min | Long enough to cover a sender retrying a delivery whose answer it lost; short enough not to suppress an event deliberately re-sent. Per source, because senders differ in how they retry |
 
 The durable step and the busy timeout are the same number deliberately, and a change to one is a
@@ -310,7 +311,9 @@ trigger:
 
 `at` is a JSON Pointer into the body. The pattern is matched against the whole value — the runtime
 anchors it, so an author who forgets `^` and `$` does not get a partial match (SC-317). A value is a
-JSON string, number or boolean, rendered as text; an object or an array is not a single value. The
+JSON string, number or boolean — a string as decoded, a number as the literal the sender wrote
+(decoding keeps number literals rather than converting them to floats), a boolean as `true` or
+`false`; an object or an array is not a single value (FR-316, SC-308). The
 published schema changes with this, and GitHub Pages publishes it.
 
 **The data file.** The declared values, as one JSON object, written as `trigger.json` into the run's

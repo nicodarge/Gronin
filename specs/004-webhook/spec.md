@@ -265,7 +265,9 @@ alongside is still accepted.
 - **FR-316**: A delivery's identity MUST be its source together with the SHA-256 digest of its exact
   body bytes, unless the source declares a location in the body that carries its identity, in which
   case the value at that location replaces the digest. A delivery whose declared identity location is
-  absent or does not hold a single value MUST be refused.
+  absent or does not hold a single value MUST be refused. A single value is a JSON string, number or
+  boolean; a number is taken as the literal the sender wrote, never re-rendered from a decoded
+  float, so two identities that differ only past a float's precision stay two identities.
 - **FR-317**: A delivery whose identity was accepted within its source's replay window — measured on
   the runtime's clock from the acceptance — MUST be answered as accepted, MUST NOT be handed off
   unless FR-315 marked the accepted one dropped, and MUST be counted on the accepted delivery's
@@ -285,8 +287,9 @@ alongside is still accepted.
 - **FR-321**: The playbooks a delivery triggers MUST be exactly the loaded playbooks bound to its
   source. Nothing in its body, its headers or its query may select among them.
 - **FR-322**: A webhook trigger MUST declare every payload value it uses: where in the body it is
-  found, a pattern the whole value must match, and a maximum length in characters rather than bytes,
-  so a limit an author reads as characters is the limit enforced. The runtime MUST refuse, at load,
+  found, a pattern the whole value must match, and a maximum length counted in Unicode code points
+  rather than bytes, so a limit an author reads as characters is the limit enforced. A value is a
+  single value in FR-316's sense, taken as FR-316 takes it. The runtime MUST refuse, at load,
   a declaration missing any of the three or whose pattern does not compile. A delivery whose declared
   value is absent, is not a single value, exceeds its length, or does not wholly match its pattern
   MUST NOT run that playbook, and the refusal MUST name the playbook and the value.
@@ -380,8 +383,10 @@ alongside is still accepted.
 - **SC-307**: A delivery accepted before a restart is a repeat after it, and the status output names
   the single-host reach of repeat detection — FR-319.
 - **SC-308**: A source whose declared identity location holds a per-attempt value ignores it: two
-  deliveries differing only outside the identity location produce one run, and a delivery missing
-  the location is refused — FR-316.
+  deliveries differing only outside the identity location produce one run, a delivery missing the
+  location is refused, and two deliveries whose identities are integers differing only in their last
+  digit past 2^53 produce two runs — FR-316. The last case fails against an implementation that
+  decodes numbers as floats.
 - **SC-309**: Requesting a run's record, or any path other than the delivery route, on the ingress
   answers not-found with no record content; the delivery route on the operator API answers not-found
   and records nothing — FR-302. Fails against a single listener serving both route sets, the
@@ -389,8 +394,10 @@ alongside is still accepted.
 - **SC-310**: The operator API still refuses a non-loopback address with no credential when a source
   and an ingress address are configured, and the runtime refuses to start with both listeners on one
   port under two different hosts — FR-303, FR-304.
-- **SC-311**: With no ingress address, nothing listens beyond the operator API; with a webhook
-  playbook and no ingress address, startup is refused — FR-305.
+- **SC-311**: With no ingress address, nothing listens beyond the operator API, and in the same
+  test, with the address set, a signed delivery is accepted; with a webhook playbook and no ingress
+  address, startup is refused — FR-305. The accepted delivery is what makes "nothing listens" fail
+  against a test that never started the runtime.
 - **SC-312**: A corpus of signatures — absent, empty, not hexadecimal, one byte short, carried twice,
   computed over a different body, computed under another source's secret — is refused in full, and a
   correct one is accepted — FR-307, FR-308. Each refusal case fails the suite when its check is
