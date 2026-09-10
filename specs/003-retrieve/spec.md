@@ -163,7 +163,8 @@ under any mode.
   a query, and the name its results are written under in the run's working directory — where the
   agent reads them as it reads gathered input.
 - **FR-202**: Retrieval MUST run after the gather stage and before the agent stage, so that a query
-  can be formed from gathered input, and so that a refused retrieval spends no token.
+  can be formed from gathered input, and so that a refused retrieval spends no token. A run a
+  retrieval refuses is recorded as refused, as one whose gather step fails already is.
 - **FR-203**: A playbook MUST NOT carry a retrieval mode, an endpoint, a model, a credential or a
   provider name. The mode is a property of the collection, set by the deployment's configuration.
 - **FR-204**: The runtime MUST accept a `retrieve` block, validate its shape when the playbook
@@ -189,8 +190,9 @@ under any mode.
   refuse the run. FR-208 bounds each request; a stage making many requests, each inside its own
   bound, is not bounded by it.
 - **FR-210**: The same index generation and the same query MUST produce the same results in the
-  same order, in either mode. Equal scores MUST be ordered by a stated key rather than by whatever
-  order the index happens to hold.
+  same order, in either mode. Equal scores MUST be ordered by where the passage came from — its
+  source document or run, then its position within it — rather than by whatever order the index
+  happens to hold.
 - **FR-211**: The query MUST be searched as plain text. No word or character in it may be
   interpreted as search syntax, because a query can be formed from a trigger payload, which for a
   webhook is written by whoever sends the request.
@@ -200,8 +202,9 @@ under any mode.
 - **FR-212**: The runtime MUST index only the sources the deployment's configuration declares for a
   collection: a directory on the host, or the agent reports this runtime has recorded for playbooks
   the configuration names.
-- **FR-213**: Indexing a directory MUST NOT read anything outside it, including through a symbolic
-  link. A file that is not text MUST be skipped, and every skipped file MUST carry the reason it was
+- **FR-213**: Indexing a directory MUST NOT follow a symbolic link, wherever it points, so that
+  nothing outside the directory is read through one and a link loop cannot hold the update. A file
+  that is not text MUST be skipped, and every skipped file or link MUST carry the reason it was
   skipped.
 - **FR-214**: A collection over reports MUST hold only reports that validated against their
   playbook's output schema, and MUST exclude the report of a replay — an experiment against
@@ -303,9 +306,11 @@ under any mode.
   bound, each answered just inside the request bound, is refused within the stage bound — FR-209.
   A stub that answers promptly passes whether or not the stage bound exists, which is why the
   answers are slowed.
-- **SC-207**: A collection directory holding a text file, a file that is not text, and a symbolic
-  link to a file outside it is listed with the text file indexed and the other two skipped, each
-  with its reason — FR-212, FR-213 and FR-215. The outside file's content carries a marker, and the
+- **SC-207**: A collection directory holding a text file, a file that is not text, a symbolic link
+  to a file outside it and one to its own parent is listed with the text file indexed and the other
+  three skipped, each with its reason — FR-212, FR-213 and FR-215. The listing is asserted exactly,
+  so an implementation that follows the link to its parent lists the text file more than once, or
+  never finishes. The outside file's content carries a marker, and the
   marker appears in no result, no record, and no request the stub received.
 - **SC-208**: A record store holding a run whose report validated, a run whose report did not, a
   replay of the first and a resume of the first returns, from a collection over that playbook's
@@ -347,8 +352,8 @@ under any mode.
   stopped completes, and the agent receives a results file byte-identical to the original's —
   FR-226. A replay that searches again fails on the missing index or the stopped stub.
 - **SC-216**: Against a collection whose passages tie on score, and were written to the index in an
-  order that disagrees with the stated tie-break key, repeated retrievals return the same order,
-  and it is the key's order, in both modes — FR-210. Written in the key's order, a fixture passes
+  order that disagrees with FR-210's key, repeated retrievals return the same order, and it is the
+  key's order, in both modes — FR-210. Written in the key's order, a fixture passes
   with the tie-break removed, which is why the order disagrees.
 - **SC-217**: A query holding the lexical search's own operators — a negation word, a prefix
   wildcard, an unbalanced quote, a field filter — returns the same results as the same words
@@ -359,8 +364,9 @@ under any mode.
   enforced.
 - **SC-219**: A collection whose directory is missing, and a query empty once resolved, each refuse
   the run naming the cause; a query that matches nothing lets the run proceed, the agent receives
-  a statement that nothing was found, and the record says the search returned nothing — FR-228. A
-  missing directory read as an empty one fails the first case.
+  a statement that nothing was found, and the record says the search returned nothing — FR-228.
+  Each refusal is recorded with the status refused, not failed — FR-202. A missing directory read as
+  an empty one fails the first case.
 - **SC-220**: Each of the above has at least one test that fails when the behaviour it asserts is
   removed, shown by the mutation harness rather than by the suite passing, and the harness reports
   zero survivors on an unmodified tree.

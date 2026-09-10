@@ -25,8 +25,8 @@ the runtime keeps between runs, so three questions a gather step never raised ha
 explicitly:
 
 **What is indexed.** Only what the deployment declares, from two kinds of source — a directory on
-the host, or the reports this runtime recorded (FR-212) — and nothing a symbolic link reaches
-outside a directory (FR-213). The operator can list every document a collection holds and every
+the host, or the reports this runtime recorded (FR-212) — and no symbolic link is followed
+(FR-213). The operator can list every document a collection holds and every
 file it skipped (FR-215), which is also the complete answer to what an embeddings API would
 receive.
 
@@ -66,7 +66,10 @@ rejected as a second search engine where the first is already linked.
   generation and query, and one row per result, naming its rank, score and source, with the content
   in the blob directory as gathered inputs already are (FR-225). Replay reads them back into the
   working directory instead of searching (FR-226). The runtime core's data model changes here, not
-  only this feature's: the Run entity gains retrievals as a child, as it has gathered inputs.
+  only this feature's: the Run entity gains retrievals as a child, as it has gathered inputs, and
+  its description of the `refused` status — a run that never reached the agent — gains the
+  retrieval's causes beside the receipt mismatch and the failed gather step it names today
+  (FR-202).
 
 **Collections catalogue**: a file in the state directory beside the MCP server catalogue, loaded
 the same way and absent meaning none. An entry names its source and, for the semantic mode, an
