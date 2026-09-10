@@ -111,7 +111,8 @@ func (c *Config) resolve(namespace, key, name string, trigger map[string]string)
 			return value.Value, nil
 		}
 		return "", fmt.Errorf(
-			"${config.%s} is not configured; set it with `gronin config set %s <value>`", key, key)
+			"${config.%s} is not configured; set it with `printf '%%s' \"$VALUE\" | gronin config set %s`",
+			key, key)
 	case "trigger":
 		if value, ok := trigger[key]; ok {
 			return value, nil

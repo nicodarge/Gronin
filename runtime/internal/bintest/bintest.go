@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -60,9 +61,22 @@ func Build(t *testing.T) string {
 
 // Run invokes the executable with args and returns what it produced. A non-zero exit
 // is a Result, not a failure: refusing is a behaviour tests here assert on.
+//
+// Standard input is empty rather than unset: `config set` reads its value from it, and a
+// test exercising a command that does not touch stdin must not block on a terminal that
+// happens to be attached to the test binary.
 func Run(t *testing.T, args ...string) Result {
 	t.Helper()
+	return RunWithStdin(t, "", args...)
+}
+
+// RunWithStdin is Run with stdin content supplied. A pipe, never a terminal: the same
+// path `printf '%s' "$VALUE" | gronin config set key` takes, so the value never has to
+// appear in the argument vector this asserts against.
+func RunWithStdin(t *testing.T, stdin string, args ...string) Result {
+	t.Helper()
 	cmd := exec.CommandContext(t.Context(), Build(t), args...)
+	cmd.Stdin = strings.NewReader(stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -1211,6 +1211,32 @@
         "./internal/run",
         "-count=1"
       ]
+    },
+    {
+      "name": "config set accepts a value given on the command line",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\tcase 1:\n\t\treturn nil\n\tdefault:",
+      "replace": "\tcase 1, 2:\n\t\treturn nil\n\tdefault:",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "config set does not strip the value's trailing newline",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\treturn strings.TrimSuffix(string(data), \"\\n\"), nil",
+      "replace": "\treturn strings.TrimSuffix(string(data), \"\"), nil",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1"
+      ]
     }
   ]
 }
