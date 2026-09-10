@@ -30,7 +30,7 @@
       "type": "string",
       "pattern": "^[0-9]+(s|m|h)$",
       "default": "30m",
-      "description": "How long a trigger refused because the playbook is already running may wait for it (FR-112). 0s refuses it at once, recorded as expired."
+      "description": "How long a trigger refused because the playbook is already running may wait for it (FR-112). 0s means it does not wait: it is refused at once with mechanism claim_held, as a scheduled trigger is."
     }
   }
 }

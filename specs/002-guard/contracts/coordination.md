@@ -203,7 +203,10 @@ the first sink, and asserts the sink's endpoint received nothing.
 **R4 — The stop bound is enforced.** From the stop decision the run's context is cancelled, which
 kills the child process group as `proc.Isolate` already does. If the run is not over within the stop
 bound, the runtime process exits. Cancelling a context cannot end work that ignores it, and exiting
-is the only thing left that can.
+is the only thing left that can. The cost is the whole process, not the one run: under `serve`
+every other playbook's run on that host ends with it, and nothing is scheduled there until the
+process is restarted. Those runs are marked `interrupted` by the next start, as the runtime core
+already does, and their claims lapse within the claim expiry.
 *Fails when*: the exit is removed. The test (SC-115) runs `gronin` as a child process with a
 sink that ignores its context, and asserts the process is gone within the stop bound plus slack. A
 run that stops when asked would pass without the enforcement ever executing, which is why the

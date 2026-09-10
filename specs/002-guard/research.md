@@ -281,6 +281,14 @@ stops the run. The inequality above is exactly the condition that an attempt usi
 bound still ends before the deadline; without it, a renewal that succeeds slowly would stop a
 healthy run.
 
+**Which clock.** The constitution's Time constraint and FR-118 require elapsed time to come from
+the host's own clock rather than from a timestamp a trigger carried. The stop deadline satisfies
+that on the monotonic reading of the host's clock, which Go's `time.Since` uses, rather than its
+wall reading. A wall reading can be stepped backwards by time synchronisation mid-run, and that
+would move the deadline later. Timestamps that are recorded or compared across processes — a
+waiting trigger's expiry, a refusal's time — use the wall reading in UTC, as the runtime core
+already does.
+
 **What the margin does not cover.** The holder's clock is Go's monotonic clock, which on Linux does
 not advance while the host is suspended (a property of `CLOCK_MONOTONIC`, read, not run). A holder
 on a host that sleeps for longer than the margin resumes believing it still holds a claim that has
