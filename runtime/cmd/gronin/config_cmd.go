@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -29,6 +31,11 @@ func newConfigCommand() *cobra.Command {
 		Short: "Set a deployment configuration value, read from standard input",
 		Args:  setArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Checked before anything reads the value: a mistyped key is otherwise found
+			// only after the operator has typed or piped the value at a prompt.
+			if err := config.ValidKey(args[0]); err != nil {
+				return err
+			}
 			cfg, err := openConfig(cmd)
 			if err != nil {
 				return err
@@ -134,18 +141,50 @@ func setArgs(_ *cobra.Command, args []string) error {
 func readConfigValue(cmd *cobra.Command) (string, error) {
 	in := cmd.InOrStdin()
 	if f, ok := in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		errOut := cmd.ErrOrStderr()
-		_, _ = fmt.Fprint(errOut, "value: ")
-		raw, err := term.ReadPassword(int(f.Fd()))
-		_, _ = fmt.Fprintln(errOut)
-		if err != nil {
-			return "", fmt.Errorf("reading the value from the terminal: %w", err)
-		}
-		return string(raw), nil
+		return promptTerminal(cmd.ErrOrStderr(), f)
 	}
 	data, err := io.ReadAll(in)
 	if err != nil {
 		return "", fmt.Errorf("reading the value from standard input: %w", err)
 	}
 	return strings.TrimSuffix(string(data), "\n"), nil
+}
+
+// promptTerminal is the no-echo prompt readConfigValue uses on a terminal.
+//
+// term.ReadPassword restores echo itself when it returns, but it leaves ISIG set, so a
+// Ctrl-C during the read still raises SIGINT — and with no handler installed, Go's
+// default disposition kills the process before that restore runs, leaving the
+// operator's terminal without echo until they run `stty sane`. Caught here instead: the
+// terminal state is captured before the read and restored explicitly on the way out,
+// on an interrupt as well as a clean return.
+func promptTerminal(errOut io.Writer, f *os.File) (string, error) {
+	fd := int(f.Fd())
+	state, err := term.GetState(fd)
+	if err != nil {
+		return "", fmt.Errorf("reading the value from the terminal: %w", err)
+	}
+
+	interrupted := make(chan os.Signal, 1)
+	signal.Notify(interrupted, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(interrupted)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-interrupted:
+			_ = term.Restore(fd, state)
+			os.Exit(1)
+		case <-done:
+		}
+	}()
+
+	_, _ = fmt.Fprint(errOut, "value: ")
+	raw, err := term.ReadPassword(fd)
+	_, _ = fmt.Fprintln(errOut)
+	if err != nil {
+		_ = term.Restore(fd, state)
+		return "", fmt.Errorf("reading the value from the terminal: %w", err)
+	}
+	return string(raw), nil
 }

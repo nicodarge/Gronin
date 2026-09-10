@@ -118,9 +118,10 @@ func buildGitHub(decl Declaration, opts BuildOptions) (Sink, error) {
 	// must never happen is it being written into the playbook, which is why it is read
 	// through the deployment like every other value.
 	//
-	// Declared-and-empty is not absent. `gronin config set github_token ""` resolves to
-	// an empty string without error, and accepting that built an unauthenticated client
-	// with nothing said at load time — a playbook that looks configured and is not.
+	// Declared-and-empty is not absent. `printf '' | gronin config set github_token`
+	// resolves to an empty string without error, and accepting that built an
+	// unauthenticated client with nothing said at load time — a playbook that looks
+	// configured and is not.
 	var token string
 	if _, declared := decl.Config["token"]; declared {
 		token, err = resolved(decl, opts, "token")

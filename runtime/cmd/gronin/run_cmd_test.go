@@ -215,7 +215,7 @@ func TestConfigSetReadsTheValueFromStandardInput(t *testing.T) {
 }
 
 // FR-040's sink/build.go depends on an explicitly empty value being distinct from one
-// never configured at all — `printf ” | gronin config set key` must still declare the
+// never configured at all — `printf "" | gronin config set key` must still declare the
 // key, just with nothing in it.
 func TestConfigSetAcceptsAnExplicitlyEmptyValue(t *testing.T) {
 	stateDir := t.TempDir()
