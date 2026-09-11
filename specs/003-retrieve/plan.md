@@ -56,10 +56,15 @@ rejected as a second search engine where the first is already linked.
 
 - **The index**, one SQLite database per collection under the state directory: an FTS5 table of
   passages for the lexical mode, and a table of unit-length vectors for the semantic one (research
-  §6). A generation carries an identity derived from the collection's configuration and the
-  content digests of the sources it was built from, so two builds of the same sources carry the
-  same identity. That presupposes the exact answer to Phase 0's fifth open question: under a
-  size-and-time check, a missed edit carries the previous digest forward and the identity with it.
+  §6). A passage is at most 1,024 bytes, cut at blank lines and Markdown headings, and a report is
+  indexed by its JSON values rather than its text (research §8). Every collection uses the
+  `unicode61` tokenizer (research §10). A generation carries an identity derived from the
+  collection's configuration — the tokenizer included and, for the semantic mode, the endpoint and
+  the model — and the content digests of the sources it was built from, so two builds of the same
+  sources carry the same identity. The digests are exact because every file is digested on every
+  retrieval, with no size-and-time check in front (research §11): such a check missed most
+  same-size rewrites landing within one clock tick, and a missed edit would carry the previous digest
+  forward and the identity with it.
   An update is one transaction, so a search sees the generation before it or the one after it and
   never part of either (FR-219). Whether a transaction is enough, or whether a generation needs to
   be a whole file swapped by rename, is decided by SC-211's kill rather than by argument.
@@ -76,13 +81,16 @@ rejected as a second search engine where the first is already linked.
 the same way and absent meaning none. An entry names its source and, for the semantic mode, an
 endpoint, a model and a reference to the credential held as a secret in the deployment
 configuration (FR-224) — the same way an MCP server entry refers to its credential rather than
-holding it. A playbook names an entry and nothing else (FR-203), and the load gate refuses a name
+holding it. The endpoint is the full URL of an OpenAI-compatible embeddings resource (research
+§7). An entry also carries the two time bounds a playbook cannot know, since they depend on how fast
+the endpoint answers: FR-208's per request and FR-209's per retrieval (research §9). A playbook names an entry and nothing else (FR-203), and the load gate refuses a name
 the catalogue does not hold (FR-204), as it refuses an MCP server the deployment does not provide.
 
 **Testing**: the existing suite under Principle VI. The semantic mode is exercised against stub
 APIs on loopback inside `scripts/no-network.sh`, which Phase 0 showed can answer, refuse, and hold
-a response past a client's deadline with no network present (research §5). What a stub cannot show
-is that a real API behaves as the stub does — Phase 0's first open question.
+a response past a client's deadline with no network present (research §5). The stub answers in the
+shapes research §7 observed from a real server, errors included. What it still cannot show — another
+provider's behaviour, a refused credential, silent truncation — is listed there.
 
 **Target Platform**: unchanged, and the static-link check is what holds it unchanged.
 
@@ -90,7 +98,8 @@ is that a real API behaves as the stub does — Phase 0's first open question.
 one schema block that stops being refused.
 
 **Performance Goals**: not a throughput system. The bounds that matter are FR-208's per request and
-FR-209's per stage; their values are Phase 0 outputs.
+FR-209's per retrieval, set by the deployment for each collection, and FR-227's, which a playbook
+declares within the runtime's ceilings. Their values and the reason for each are in research §9.
 
 **Scale/Scope**: collections of hundreds to tens of thousands of passages. Past that, a linear scan
 stops being a reasonable answer and a vector index is what would change.
@@ -154,9 +163,10 @@ configuration, never the process environment.
 ### V. Nothing From a Real Fleet Enters This Repository — PASS, with one new surface
 
 The catalogue is configuration and is never committed; examples use documentation-reserved values.
-The new surface is Phase 0's first open question: a captured exchange with a real embeddings API,
-kept as the stub's fixture, has to hold vectors and a model name and nothing identifying an
-account. It is reviewed as a fixture that came from outside, which it is.
+The new surface is research §7's captured exchange with a real embeddings API, which the stub's
+fixture is built from. As recorded there it holds a request, vectors cut to three dimensions, and
+`REPLACE_ME` where the model's name was: nothing naming the server, the account or the models. It
+is reviewed as a fixture that came from outside, which it is.
 
 ### VI. The Suite Is the Gate — the principle this feature is hardest against, again
 
@@ -216,7 +226,8 @@ is.
 
 **Configuration names.** The catalogue's keys, and the request and response fields of the
 embeddings API, are verified against the running artifact and a captured real exchange before they
-are used — which is why the wire protocol is an open question rather than a choice made here.
+are used. Research §7 did the second half for the wire protocol; the catalogue's keys are
+Phase 1's.
 
 ## Project Structure
 
@@ -226,7 +237,7 @@ are used — which is why the wire protocol is an open question rather than a ch
 specs/003-retrieve/
 ├── spec.md          # this feature's requirements
 ├── plan.md          # this file
-├── research.md      # Phase 0 — six questions resolved by running them, two open
+├── research.md      # Phase 0 — every question resolved by running it, limits listed
 └── tasks.md         # not yet written
 ```
 
@@ -249,9 +260,9 @@ different questions, are refused for different reasons, and will change apart.
 The operator commands — the listing of FR-215 and the rebuild of FR-220 — are Phase 1's
 `contracts/cli.md` change, as are the playbook schema's `retrieve` block and the catalogue's shape.
 
-## Phase 0 — Partly resolved
+## Phase 0 — Resolved
 
-Six questions answered by running throwaway programs; findings and method in
+Eleven questions answered by running throwaway programs; findings and method in
 [research.md](./research.md).
 
 1. **Lexical search** is FTS5 in the driver already linked, statically built and accepted by the
@@ -264,23 +275,32 @@ Six questions answered by running throwaway programs; findings and method in
 5. **Stubs on loopback work inside the no-network namespace**, including one that holds its
    response (§5).
 6. **A linear scan is fast enough** at the scale this targets, so no vector engine (§6).
+7. **The wire protocol is OpenAI-compatible**, pinned to a real server's answers, errors included
+   (§7). It returned the same vectors as Ollama's own protocol, which answers an empty input with
+   200 and no vectors at all. Both truncate an input past the context without saying so, which is
+   why the runtime bounds passages and queries itself. The section ends with what a stub built from
+   the exchange pins and what it cannot — the answer to issue #16's trap for this stage.
+8. **A passage is at most 1,024 bytes**, cut at blank lines and Markdown headings, sized to fit the
+   smallest context observed; granularity did not move ranking measurably. **A report is indexed by
+   its JSON values**, never its text: indexed as text, every report matched its own key names, the
+   empty one included (§8).
+9. **The bounds' values**, each with its reason and dated 2026-09-11 (§9): the query at 1,024 bytes
+   and passages at 1,024, fixed by the runtime; results at 10 and bytes at 16 KiB unless the playbook
+   declares otherwise, within ceilings of 50 and 64 KiB; each request at 60 seconds and each
+   retrieval at 2 minutes unless the deployment sets otherwise for the collection. FR-208, FR-209
+   and FR-227 now say who declares which.
+10. **One tokenizer, `unicode61`, for every collection** (§10). On French and English manual pages no
+    alternative, Porter included, differed from it by much more than one standard error, and the
+    sign flipped with the passage rule. A per-collection choice would be a setting whose effect
+    cannot be told from noise.
+11. **Every file is digested on every retrieval** (§11). A size-and-time check missed most same-size
+    rewrites landing within one clock tick; the digest costs about 60 milliseconds on a directory of
+    runbooks. A file over 1 MiB is skipped with that reason, now in FR-213.
 
-Open, and the first gates `tasks.md` the way the guard plan's first question gates its own:
-
-1. **What pins the stub to a real embeddings API?** Research's first open question. The wire
-   protocol is not chosen and no response has been observed. The trap is issue #16's: every defect
-   the runtime core's walkthrough found was its stub disagreeing with the real executable, and a
-   contract test proves the runtime uses the API as the stub describes it, not that the API is
-   described correctly.
-2. **Passage boundaries, and what text of a report is indexed.** Research's second.
-3. **The bounds' values** — per request (FR-208), per stage (FR-209), and FR-227's result count,
-   retrieved bytes and query length — and which of them a playbook may declare and which the
-   deployment sets. Each is a chosen threshold, so each gets a stated reason and a date.
-4. **Which tokenizer.** Research §1 showed the Porter stemmer matching `disk` against `Disks`; it is
-   also English-only, and whether it helps or harms a collection in another language was not
-   measured. Whether the tokenizer is a per-collection choice is open.
-5. **How a directory's changes are detected** for FR-217 — a content digest per file is exact and
-   reads every file on every retrieval; size and modification time are cheap and can miss an edit.
+None of what research lists as still open gates `tasks.md`. Each is a limit on what the evidence
+covers — one server observed, a corpus of manual pages rather than a deployment's own, truncation
+invisible in a batch response — and each is stated where a reader of the stub, the rules or the
+listing will meet it.
 
 ## Complexity Tracking
 
