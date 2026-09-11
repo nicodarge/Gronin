@@ -9,8 +9,10 @@
 The stage that decides, before any command runs and any token is spent, whether a trigger becomes a
 run (FR-102). Three mechanisms, one of which the runtime core already has in a narrower form: a
 claim on the playbook that holds across the hosts of one deployment (FR-101), a rate limit keyed on
-the playbook name (FR-114), and a single waiting slot so that a refused trigger is deferred rather
-than lost (FR-110).
+the playbook name (FR-114), and a single waiting slot so that a refused trigger that will not come
+again is deferred rather than lost (FR-110). Beside the claim, the backend records each playbook's
+last tick, so that one scheduled tick runs at most once across hosts whose clocks disagree
+(FR-128).
 
 Two clarifications set the technical shape, and both cost something the plan has to be honest
 about.
@@ -35,7 +37,7 @@ bounds acceptances rather than runs is not the limit the operator declared.
 process holding it; a lease does not. That gap is where a second run gets in, and closing it is
 what FR-105 and FR-106 are for: the holder ends its own run when it cannot renew, and the backend
 rather than either host judges when a claim has lapsed. Neither is optional, and together they are
-the hardest part of this feature to test — see Phase 0.
+the hardest part of this feature to test — see [research.md](./research.md) §1.
 
 Saying those two must not hold at once does not make it so, which is why FR-122 and FR-123 exist. A
 renewal that hangs is not a renewal that failed: it looks like one still in flight right up to the
@@ -49,28 +51,38 @@ checkable instead of aspirational (SC-112).
 
 **Language/Version**: Go, as the runtime core. No change.
 
-**Primary Dependencies**: one new dependency, the client for whichever coordination backend Phase 0
-selects. It is bound by the constraint that already governs every dependency in this repository:
-**no cgo**, because `scripts/check-static.sh` refuses a binary that is not statically linked, and
-that check is not negotiable for a client library.
+**Primary Dependencies**: the etcd client, `go.etcd.io/etcd/client/v3`, chosen in
+[research.md](./research.md) §2. The shipped binary links it and nothing else new. The etcd server,
+`go.etcd.io/etcd/server/v3/embed`, is imported by tests only, so that the contract suite can run
+against a real server inside the no-network namespace. Both are bound by the constraint that
+already governs every dependency here, **no cgo**, and both were built with `CGO_ENABLED=0` and
+passed `scripts/check-static.sh` on 2026-09-10.
 
 **Storage**: the existing record store gains the refusal records of FR-117. Refusals are not runs
 and must not be counted as runs, but they are read through the same operator surface (SC-108). Two
 further writes: a waiting trigger is recorded when it is accepted (FR-127), which is what makes a
 drop reconstructible after a kill, and the Run entity the runtime core defines gains the fact that
 a run waited and for how long (FR-125) — a field its current description does not carry, so the
-runtime core's own data model changes here rather than only this feature's.
+runtime core's own data model changes here rather than only this feature's. The backend holds the
+claims, the rate windows and each playbook's last tick, and nothing else. The whole split is in [data-model.md](./data-model.md).
 
 **Testing**: the existing suite, under the hermeticity and mutation obligations of Principle VI.
-This is the feature's hardest constraint and it is unresolved — see Phase 0.
+Three layers, chosen in [research.md](./research.md) §1:
+
+- the guard's logic against an in-process fake;
+- one contract suite run against the fake, the etcd adapter talking to an embedded server, and the
+  file lock;
+- one test driving two built binaries against an embedded server.
+
+The clauses and their mutants are in [contracts/coordination.md](./contracts/coordination.md).
 
 **Target Platform**: unchanged. The coordination backend is a deployment concern, not a build one.
 
 **Project Type**: an added stage in an existing pipeline, plus one schema block that stops being
 refused (FR-119).
 
-**Performance Goals**: the guard's decision is bounded (FR-108). The bound's value is a Phase 0
-output; what the specification fixes is that exceeding it refuses rather than passes.
+**Performance Goals**: the guard's decision is bounded (FR-108), by default at 5 s, and exceeding it
+refuses rather than passes. Every duration and its reason is in [research.md](./research.md) §3.
 
 **Scale/Scope**: the deployments this targets run a handful of hosts for availability, not a fleet
 for capacity. A coordination design that would not survive a hundred contending hosts is
@@ -116,10 +128,13 @@ when the process was killed, which no absence-shaped criterion can establish —
 FR-127 puts the record in at acceptance rather than on the way out.
 
 FR-118 is the trap this repository has already been bitten by, stated as a requirement: anchor on
-the runtime's own wall clock, never on a timestamp the trigger carried. It matters most for the
-deduplication this feature does *not* specify, but the rate window (FR-114) and the waiting
-trigger's expiry (FR-112) are both time comparisons, and both would be silently wrong against a
-frozen payload timestamp.
+the runtime's own clock — its monotonic reading for durations and deadlines, its wall reading for
+recorded timestamps — never on a timestamp the trigger carried. It matters most for the
+deduplication of deliveries this feature does *not* specify, but the rate window (FR-114) and the
+waiting trigger's expiry (FR-112) are both time comparisons, and both would be silently wrong
+against a frozen payload timestamp. The one deduplication this feature does specify, of scheduled
+ticks (FR-128), compares the instant the schedule computed, which is neither a clock reading nor a
+payload's timestamp (FR-129).
 
 ### IV. Playbooks Are Portable Data — PASS, and it constrains the block's shape
 
@@ -140,9 +155,9 @@ Three obligations collide here, and Phase 0 exists mostly for this.
 
 **Hermetic.** The suite must pass with no network reachable. A coordination backend is reached over
 a network by definition, so the cross-host guarantee — SC-101, SC-103, SC-104 — cannot be proven by
-talking to a real one in the suite. What can be tested hermetically is the *contract*: claim,
-renew, expire, fence. Whether that is enough, and what proves the chosen backend honours the
-contract, is Phase 0's question and is not answered here.
+talking to a deployed one in the suite. [research.md](./research.md) §1 answers it: a loopback or
+unix socket to a server the test itself started is not network in Principle VI's sense, which lets
+a real etcd server run inside the test process and hold the fake to the same contract.
 
 **Deterministic.** Every mechanism in this feature is a race or a clock. A test that starts two
 runs and asserts one wins is the archetype of a flake, and Principle VI forbids quarantining one.
@@ -153,10 +168,9 @@ than leaving it to discipline. Every guarantee here is that something does *not*
 asserting a non-event is indistinguishable from a broken test until a mutant proves otherwise: a
 test that asserts "no second run started" passes just as well when nothing started at all, when the
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
-SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114, SC-115 and SC-116
-needs a
-mutant, and the mutation harness has to report zero on an unmodified tree for any of their counts
-to mean anything, SC-116 included.
+SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114, SC-115, SC-116,
+SC-117 and SC-118 needs a mutant, and the mutation harness has to report zero on an unmodified tree
+for any of their counts to mean anything, SC-116 included.
 
 Earlier drafts of this plan claimed one guarantee here escaped that — a time bound, it was argued,
 fails loudly on its own, because something runs long and a test waiting on it times out. It does
@@ -180,8 +194,15 @@ connection, because a severed connection fails fast and a held one is the case F
 a test that cuts the link proves the easy half and leaves the hang untested. SC-113 has to kill the
 process rather than stop it, because a record written on the way out satisfies a graceful stop and
 is exactly the implementation FR-127 refuses. SC-105 and SC-107 are the counting ones, and a count
-is the one shape here that fails honestly when it is wrong; SC-114 counts too, downward, to zero
-refusal records. SC-115 is the one that needs a subject built to misbehave: a run that stops when
+is the one shape here that fails honestly when it is wrong — except for SC-105's scheduled tick,
+where an implementation that lets the tick wait produces the same counts and only reading which
+trigger each record refers to tells them apart. SC-114 counts too, downward, to zero refusal
+records. SC-117 passes against an implementation with no record of the last tick if its
+run outlasts the gap between the two deliveries, because FR-101 then refuses the second on its own;
+and two deliveries in sequence can never show that the record is written in the step that takes the
+claim, which is why that mutant is killed in the coordination contract, where the test chooses the
+interleaving. SC-118 is two halves because each passes against the mutant the other catches. SC-115
+is the one that needs a subject built to misbehave: a run that stops when
 asked satisfies it without the enforcement in FR-126 ever executing, so the test needs a run that
 does not stop on its own.
 
@@ -193,8 +214,10 @@ an implementation that resolved the playbook once, at trigger time, and never lo
 
 ### Operational Constraints — one is directly relevant
 
-The constitution's wall-clock anchoring constraint is FR-118 above, and it is the reason that
-requirement is stated at all rather than left as implementation detail.
+The constitution's Time constraint is FR-118 above, and it is the reason that requirement is stated
+at all rather than left as implementation detail. Phase 0 found its wording, "wall clock", also
+covered the stop deadline, which a backward step of the wall clock lengthens; the constitution was
+amended to 1.3.0 so that both say the runtime's own clock, monotonic for durations and deadlines.
 
 ## Project Structure
 
@@ -204,7 +227,13 @@ requirement is stated at all rather than left as implementation detail.
 specs/002-guard/
 ├── spec.md          # this feature's requirements
 ├── plan.md          # this file
-├── research.md      # Phase 0 output — not yet written
+├── research.md      # Phase 0 output
+├── data-model.md    # Phase 1 output
+├── quickstart.md    # Phase 1 output
+├── contracts/
+│   ├── coordination.md    # the interface every coordinator is held to
+│   ├── guard.schema.json  # the guard block, replacing the reserved property
+│   └── cli.md             # the operator surface and coordination.json
 └── tasks.md         # not yet written
 ```
 
@@ -215,65 +244,101 @@ one.
 
 ```text
 runtime/internal/
-├── guard/           # new — the decision, the claim contract, the waiting slot, the rate window
+├── guard/           # new — the decision, the Coordinator interface, the waiting slot, the stop deadline
+│   ├── etcd/        # the adapter, the only package that imports the etcd client
+│   └── guardtest/   # the fake, the contract suite, and the embedded server the suite runs against
 ├── run/             # the advisory file lock lives here today and stays, as FR-109's mechanism
 ├── playbook/        # the `guard` block stops being refused outright (FR-119)
-└── record/          # refusal records (FR-117)
+└── record/          # refusal records (FR-117), waiting triggers (FR-127), the Run's new fields
 ```
 
 The file lock in `run` is not replaced. It is already proven, already has a mutant, and is exactly
 what FR-109 requires for a deployment that configures no backend.
 
-## Phase 0 — Open
+## Phase 0 — Resolved
 
-Not started. Four questions, and the first two gate the rest.
+In [research.md](./research.md), 2026-09-10. The first two were answered by running the candidates
+rather than reading about them; the durations are chosen thresholds, each with its reason.
 
-1. **What proves the cross-host guarantee in a hermetic suite?** SC-101, SC-103 and SC-104 assert
-   behaviour across two processes and a shared authority, and Principle VI forbids reaching a
-   network to demonstrate it. The candidate answers — a coordination interface with an in-process
-   implementation that can inject partition and expiry, a backend that runs locally without a
-   network, or a contract test the real client is separately held to — have different costs and
-   different blind spots. The blind spot to name explicitly: a contract test proves the runtime
-   uses the backend correctly, and proves nothing about whether the backend behaves as assumed.
-   That is exactly the "the stub disagreed with the real thing" failure the runtime core's own
-   walkthrough found four times, recorded in issue #16.
+1. **The hermetic proof** is three layers. The guard's logic runs against an in-process fake. One
+   contract suite holds the fake and the etcd adapter to the same clauses, the adapter talking to
+   an etcd server embedded in the test process over a unix socket. One test drives two built
+   binaries with separate state directories against that server. A socket the test itself created
+   is not network in Principle VI's sense; a fixed port, a binary found on `PATH` and a container
+   are.
+2. **The backend is etcd**. It met every requirement when run: server-judged expiry, a claim that
+   survived the loss of the leader, the creation revision as a fencing token, a client that honours
+   a context deadline under a held, severed or absent server, and no cgo in the client or the
+   embedded server. The library's keep-alive helpers signal loss only at the expiry, so the runtime
+   drives its own bounded renewals. Consul, Redis and PostgreSQL were run the same way and rejected
+   for the reasons recorded there.
+3. **The durations** are a 30 s claim expiry, renewal every 5 s, a 4 s renewal bound, a 10 s stop
+   bound and a 2 s margin floor. The runtime refuses a configuration where
+   `renewal interval + renewal bound + stop bound + margin floor > claim expiry`. Outside that
+   inequality sit a 5 s decision bound and a 30 m default wait.
+4. **A rename** cannot orphan a claim, because a claim is released through its lease. The old and
+   new names are different claims. A waiting trigger whose file no longer declares its name is
+   discarded rather than run under the new one.
 
-2. **Which backend, and what does it have to guarantee?** Not a preference question. FR-106
-   requires expiry judged by the backend rather than by a host, which rules out anything whose
-   expiry is a client-side comparison. FR-105 requires the holder to learn it has lost the claim in
-   time to stop, which is a property of the client's failure signalling, not of the store. And the
-   no-cgo constraint rules out any client that needs a C toolchain.
+Three findings reached back into the specification. Each was the owner's to decide rather than a
+plan's, and the owner decided all three on 2026-09-11.
 
-3. **What are the durations?** Two disjoint sets, and conflating them is how the margin gets
-   mis-computed.
+- **FR-110 contradicted User Story 1 on two hosts**: a cron tick that waits behind the same tick's
+  run on another host runs twice. Decided: only a trigger that will not come again waits; a
+  colliding scheduled tick is discarded with a refusal record (FR-110, SC-105).
+- **A run shorter than the hosts' clock offset could let one tick run twice**, one host after the
+  other. Decided: the backend records each playbook's last tick in the transaction that takes the
+  claim, and refuses a tick at or before it, compared on the instant the schedule computed rather
+  than on any host's clock (FR-128, FR-129, SC-117, SC-118; C13 and C14 of the coordination
+  contract).
+- **"Wall clock" in FR-118 and the constitution, read literally, covered the stop deadline**, where a
+  backward time step would lengthen it. Decided: the runtime's own clock — monotonic for durations
+  and deadlines, wall clock for recorded timestamps, never a timestamp a trigger carried. FR-118 says
+  so, and the constitution was amended to 1.3.0.
 
-   The first set is bound together by FR-123: the renewal interval (FR-103), the bound on a single
-   renewal attempt (FR-122), and the bound on stopping a run (FR-126) must fit inside the claim's
-   expiry (FR-104) with margin. Phase 0 picks these four as a set rather than one at a time,
-   because a value that is reasonable alone can be impossible alongside the others, and the runtime
-   refuses a set that does not fit.
+`tasks.md` can be written against the design as it stands.
 
-   The second set is independent of that arithmetic: the guard's own decision bound (FR-108) and
-   how long a trigger may wait (FR-112). Neither enters FR-123's margin.
+## Phase 1 — Design
 
-   Every one of them is a chosen threshold rather than a derived one, so each gets a stated reason
-   and a date, not a number that looks measured.
+- [data-model.md](./data-model.md): where each piece of state lives — backend, process memory, or
+  the host's record store. It covers the claim, the rate slot, the last tick, the waiting trigger
+  and its durable acceptance, the refusal record and its mechanisms, and the four fields and one
+  status the runtime core's Run gains.
+- [contracts/coordination.md](./contracts/coordination.md): the interface the fake, the etcd
+  adapter and the file lock are held to, clause by clause, each with the mutant that shows its test
+  can fail; and the holder's own obligations — the stop deadline, fencing before side effects,
+  enforcing the stop bound, refusing a configuration that cannot hold.
+- [contracts/guard.schema.json](./contracts/guard.schema.json): the `guard` block's keys (FR-119),
+  probed on the values it must refuse as well as those it must accept.
+- [contracts/cli.md](./contracts/cli.md): what changes on the operator's surface, and the
+  deployment's `coordination.json`.
+- [quickstart.md](./quickstart.md): the validation on two real hosts, which the suite cannot be.
 
-4. **What happens across a rename?** The spec's edge cases raise it: the playbook name is the
-   claim's identity, so renaming a playbook mid-run leaves a claim nobody will release. The load
-   stage already refuses two playbooks sharing a name, which bounds the problem but does not answer
-   it.
+**Constitution Check, after design.** No gate changes verdict.
+
+- **I** gains a refusal at startup: a configuration whose durations cannot hold.
+- **III** gains the refusal records, the waiting triggers' acceptance, and a Run that says which
+  guarantee it ran under.
+- **IV** holds: the `guard` block carries a limit and a wait and nothing that names a deployment.
+- **VI** is answered rather than open, at the costs recorded in research.md §1 — a larger test
+  binary and a slower compile per mutant.
 
 ## Complexity Tracking
 
-One deliberate complexity, and it is a departure worth stating plainly rather than burying: this
-feature adds a deployment dependency to a product whose distribution story was "one static binary,
-nothing beside it".
+The first row is the departure worth stating plainly rather than burying: this feature adds a
+deployment dependency to a product whose distribution story was "one static binary, nothing beside
+it".
 
 | Choice | Why | Simpler alternative rejected because |
 | ------ | --- | ------------------------------------ |
 | A shared coordination backend | FR-101 is worthless if it holds only within one host, and a deployment run twice for availability doubles every scheduled run — doubling side effects, not just cost | Keeping the file lock on a shared filesystem was considered and refused: advisory locking over network filesystems is not reliably honoured, so the guarantee would hold on some deployments and silently not on others, which is worse than the narrow guarantee honestly stated |
 | Waiting is local to one process (FR-113) | A trigger that waits across hosts needs durable state and an ownership question of its own — a larger feature than the one it serves | Putting the waiting slot in the backend is the obvious symmetry, and it makes a process's death silently promote another host's waiting trigger into a run nobody is watching |
 | Queue depth of exactly one (FR-111) | A burst must not become a backlog of runs against a world that has since changed | An unbounded queue is simpler to implement and turns a misbehaving trigger source into a stampede the rate limit then cannot help with, because the runs were already accepted |
+| A colliding scheduled tick is discarded rather than deferred (FR-110) | On two hosts a tick waiting behind the same tick's run elsewhere runs twice, which is what User Story 1 exists to prevent | One waiting rule for every trigger kind is one code path, and it doubles every scheduled run that collides across hosts |
+| Each playbook's last tick is recorded in the backend (FR-128) | FR-101 forbids only overlap, so hosts whose clocks differ by more than a run lasts run one tick one after the other | Relying on the claim alone needs no new key, and holds only for runs longer than the hosts' clock offset — a guarantee that depends on how well two machines keep time |
 | The rate limit discards rather than defers (FR-116) | Deferring replays the burst the limit exists to refuse | Treating both refusals the same is one code path instead of two, and it makes the limit a delay rather than a limit |
 | The file lock is kept, not replaced | FR-109 needs it, and it is already proven with a mutant | Deleting it once the backend exists would make the backend mandatory, which forces the dependency on deployments that never needed it |
+| The rate window lives in the backend when there is one | Counted per host, a deployment of two hosts allows twice the declared runs | A count of the local record store's runs is one query and no new keys, and delivers FR-114 at half its declared strength on the deployments this feature exists for |
+| The runtime drives its own renewals | The client library's keep-alive signals loss at the expiry, measured at 5.001 s for a 5 s claim, which leaves FR-105 no time to act | The library's `KeepAlive` and `concurrency.Session` are a few lines each, and would satisfy every requirement except the one the lease exists for |
+| The process exits when a run outlives the stop bound | Cancelling a context cannot end work that ignores it, and a run still going when the claim lapses breaks FR-101. The cost is every other run in that `serve` process, and every schedule on that host, until it restarts | Logging the overrun and carrying on is what every other stop path does, and makes FR-126's bound a measurement rather than a bound |
+| The waiting slot is counted in the record store | `gronin run` is a process of its own, so a slot counted in memory would let every manual invocation wait | A slot in memory needs no transaction, and makes FR-111 true only for triggers that arrive through `serve` |

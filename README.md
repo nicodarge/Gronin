@@ -57,7 +57,7 @@ is a place where unattended agents usually go wrong, and where this runtime
 takes a position:
 
 - **`guard` runs before the agent, not after.** Deduplication is anchored on
-  wall-clock time, never on a timestamp carried in the payload — an alerting
+  the runtime's own clock, never on a timestamp carried in the payload — an alerting
   system re-sends a firing alert with its original start time, so ageing a
   re-fire against it makes every one of them look seconds old and silently
   suppresses the investigation.

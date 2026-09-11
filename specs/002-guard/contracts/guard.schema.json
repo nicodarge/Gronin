@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gronin playbook guard block",
+  "description": "The value that replaces the reserved `guard` property of specs/001-runtime-core/contracts/playbook.schema.json when this feature lands; until then that schema refuses the block outright. Shape only, like the playbook schema: the durations of the claim set belong to the deployment and are checked by the runtime at startup, not here. An unknown key is refused (FR-119).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "rate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs",
+        "per"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "At most this many runs start within any window of `per` (FR-114). A run counts from the moment it starts, whatever its outcome."
+        },
+        "per": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(m|h)$",
+          "description": "The window, in whole minutes or hours. Keyed on the playbook name alone."
+        }
+      },
+      "description": "A trigger this refuses is discarded, never made to wait (FR-116)."
+    },
+    "wait": {
+      "type": "string",
+      "pattern": "^[0-9]+(s|m|h)$",
+      "default": "30m",
+      "description": "How long a trigger refused because the playbook is already running may wait for it (FR-112). A zero duration still enters the waiting slot and expires at once, recorded as wait_expired."
+    }
+  }
+}
