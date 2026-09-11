@@ -221,8 +221,9 @@ value argument, reads the value from standard input; SC-316 drives that through 
 executable. The argument form is left as
 it is for values that are not secrets; that it accepts secrets too is the runtime core's to correct.
 
-**Configuration names**: the one this feature introduces from outside is the signature header, and
-which header real senders use is not established here — Phase 0, question 1.
+**Configuration names**: the one this feature introduces from outside is the signature header. Phase
+0 question 7 found real senders do not agree on one name, so it is a property a source declares
+(FR-306), not a name the ingress fixes.
 
 ## Project Structure
 
@@ -266,7 +267,8 @@ reference (FR-311).
 Not a contract yet; the shape the tasks will be written against.
 
 **The delivery route.** `POST /hooks/{source}` on the ingress, and nothing else (FR-302). The body is
-JSON. The signature is HMAC-SHA256 over the exact body bytes, hexadecimal, in one header.
+JSON. The signature is HMAC-SHA256 over the exact body bytes, hexadecimal, in the header the
+source declares (FR-306) — real senders do not agree on one name (Phase 0 question 7).
 
 **The order of a delivery through the ingress**, which is load-bearing:
 
@@ -332,28 +334,43 @@ Its startup output names the ingress address and says that repeat detection reac
 **Restart.** Before either listener opens, deliveries still accepted and not handed off are marked
 dropped (FR-315) — the same moment `serve` already marks runs interrupted, for the same reason.
 
-## Phase 0 — Resolved and open
+## Phase 0 — Resolved
 
-Six questions resolved, in [research.md](./research.md): a loopback listener is hermetic here; what
-`net/http` does with each misbehaving sender; that an answer can vanish past the write limit; that
-`hmac.Equal` is constant time over equal lengths; that the record store, opened as it is, survives a
-kill after commit and can decide "new" in one statement; and that replay and resume pass the sinks no
-trigger values.
+Nine questions resolved, in [research.md](./research.md): a loopback listener is hermetic here;
+what `net/http` does with each misbehaving sender; that an answer can vanish past the write limit;
+that `hmac.Equal` is constant time over equal lengths; that the record store, opened as it is,
+survives a kill after commit and can decide "new" in one statement; that replay and resume pass the
+sinks no trigger values; which real senders can produce FR-307's signature and in which header;
+that repeat detection's single-host reach does not widen merely because the guard's coordination
+backend does; and what SQLite's own documentation establishes, and does not, about `synchronous=FULL`
+surviving power loss.
 
-Three remain open, none of which blocks the specification:
-
-1. **Which senders can produce the signature, and in which header?** Not investigated: the answer is
-   about third-party software, and this repository's standard is that it is read off that software
-   rather than recalled. The design admits a per-source header name if the answer needs it; it does
-   not admit a second signing scheme, which would be a change to the owner's decision rather than to
-   the plan.
-2. **Does repeat detection widen with the guard's coordination backend?** A deployment running two
-   hosts behind one ingress address detects a retry only on the host that took the first delivery
-   (FR-319). The guard's backend is what would widen it, and it is not chosen yet. Until it is, the
-   narrower reach is stated, the way the guard states its own.
-3. **Power loss.** Research question 5 measured a killed process, not a lost machine. The store runs
-   with FULL synchronous, which is the setting meant to cover the second; nothing here has shown it
-   does on the filesystems a deployment will use.
+1. **Which senders can produce the signature, and in which header?** Read off each sender's own
+   source or documentation (research question 7). GitHub, Gitea and Forgejo already sign the exact
+   body with HMAC-SHA256, each in a header of its own — `X-Hub-Signature-256`, `X-Gitea-Signature`,
+   `X-Forgejo-Signature`. Grafana alerting does too, in a header its own configuration names, as
+   long as the operator leaves its optional timestamp header unset. The header is therefore a
+   per-source declared property (FR-306, below), not a name the ingress fixes. Prometheus
+   Alertmanager signs nothing; GitLab's recommended mechanism and a generic example (Stripe) both
+   sign a composite string, not the body alone. Those three are flagged, not accommodated — a
+   sender that cannot present FR-307's shape needs something in front of the ingress that verifies
+   it and re-signs, which the specification's own assumptions section already names. No second
+   signing scheme was added.
+2. **Does repeat detection widen with the guard's coordination backend?** No, not by the guard's
+   choice of etcd alone (research question 8, reading `origin/add_guard_research`'s
+   `contracts/coordination.md`). The guard's `Coordinator` interface carries a claim on a playbook
+   name and nothing about a delivery's identity; FR-316 through FR-319's "is this identity new" is
+   answered by the webhook's own record store, a separate mechanism. Stated as an option and not
+   adopted: a later change could keep delivery identities in etcd instead of, or beside, the SQLite
+   row, which would need its own Phase 0 for FR-312's kill-survival property against that backend.
+   FR-319's narrower, single-host reach stands.
+3. **Power loss.** SQLite's own documentation (research question 9) states that `synchronous=FULL`
+   in WAL mode — what the record store is opened with — adds a WAL fsync after every commit
+   specifically so that "transactions are durable across a power loss," and states in the same
+   breath that this depends on the operating system's fsync actually reaching the disk, naming
+   hardware that lies about it as the way the guarantee fails. Research question 5's kill test is
+   evidence for FR-312's narrower claim — a process killed the instant its answer leaves — not for
+   a lost machine. That gap is named as an assumption below, not claimed as shown.
 
 ## Complexity Tracking
 
