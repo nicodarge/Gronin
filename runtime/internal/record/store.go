@@ -26,6 +26,34 @@ const (
 	StatusCapped      Status = "capped"
 	StatusInterrupted Status = "interrupted"
 	StatusRefused     Status = "refused"
+	// StatusClaimLost is a run stopped because its claim could no longer be proven held
+	// (FR-105). Not failed — nothing in the run went wrong, the deployment lost its
+	// authority — and not interrupted, which is a run the next process found running.
+	StatusClaimLost Status = "claim_lost"
+)
+
+// Reach is which guarantee a run ran under (FR-109).
+type Reach string
+
+// The two reaches a claim can have.
+const (
+	ReachCrossHost  Reach = "cross-host"
+	ReachSingleHost Reach = "single-host"
+)
+
+// Mechanism is what refused a trigger that did not become a run (FR-117).
+type Mechanism string
+
+// Every mechanism a refusal record can name, as data-model.md lists them.
+const (
+	MechanismClaimHeld          Mechanism = "claim_held"
+	MechanismTickAlreadyRan     Mechanism = "tick_already_ran"
+	MechanismWaitingSlotFull    Mechanism = "waiting_slot_full"
+	MechanismWaitExpired        Mechanism = "wait_expired"
+	MechanismRateLimited        Mechanism = "rate_limited"
+	MechanismBackendUnavailable Mechanism = "backend_unavailable"
+	MechanismPlaybookChanged    Mechanism = "playbook_changed"
+	MechanismDropped            Mechanism = "dropped"
 )
 
 // TriggerKind is how a run came to exist. Deliberately not the playbook's trigger type:
@@ -58,6 +86,15 @@ type Run struct {
 	AgentSessionID      string
 	CredentialSource    string
 	Error               string
+
+	// WaitingTriggerID is the waiting trigger this run started from, empty for a run that
+	// did not wait; WaitedMS is how long it waited, and is only recorded beside one.
+	WaitingTriggerID string
+	WaitedMS         int64
+	ClaimReach       Reach
+	// ClaimToken is the fencing token the run held; zero on a single-host deployment,
+	// which has none.
+	ClaimToken int64
 }
 
 // Store is the run record: a SQLite database for what is queried, and a directory of

@@ -91,20 +91,20 @@ it links.
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/0002_guard.sql`: the `refusals`, `waiting_triggers`
+- [x] T005 `runtime/internal/record/migrations/0002_guard.sql`: the `refusals`, `waiting_triggers`
       and `last_ticks` tables, and the `runs` columns `waiting_trigger_id`, `waited_ms`,
       `claim_reach`, `claim_token`, per [data-model.md](./data-model.md). A new file rather than an
       edit of `0001_initial.sql`: `schema.go` applies migrations by name, and an edited one is
       skipped on every store that already applied it
-- [ ] T006 `runtime/internal/record/store.go` and `runtime/internal/record/runs.go`: the Run's four
+- [x] T006 `runtime/internal/record/store.go` and `runtime/internal/record/runs.go`: the Run's four
       fields, the `claim_lost` status, and the refusal `mechanism` type with every value
       data-model.md lists — read and written by `CreateRun`, `FinishRun` and `scanRun`
-- [ ] T007 [P] `runtime/internal/record/refusals.go`: write a refusal record and list them most
+- [x] T007 [P] `runtime/internal/record/refusals.go`: write a refusal record and list them most
       recent first. `detail` passes the redactor at the write boundary like every other record, and
       `refused_at` and `due_at` are stored in UTC
-- [ ] T008 [P] `runtime/internal/record/ticks.go`: read and write one playbook's last tick — the
+- [x] T008 [P] `runtime/internal/record/ticks.go`: read and write one playbook's last tick — the
       single-host form of FR-128, used only under the file lock
-- [ ] T009 Test in `runtime/internal/record/guard_test.go`: a store created under the runtime core's
+- [x] T009 Test in `runtime/internal/record/guard_test.go`: a store created under the runtime core's
       schema migrates, and its existing runs read back with the new fields empty; a refusal, a last
       tick and a run's new fields round-trip; a configured secret written into a refusal's detail
       does not reach the database file (the `testsecret` sentinel, as the leak test uses)
