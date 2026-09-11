@@ -336,7 +336,7 @@ dropped (FR-315) — the same moment `serve` already marks runs interrupted, for
 
 ## Phase 0 — Resolved
 
-Nine questions resolved, in [research.md](./research.md): a loopback listener is hermetic here;
+Every question is resolved, in [research.md](./research.md): a loopback listener is hermetic here;
 what `net/http` does with each misbehaving sender; that an answer can vanish past the write limit;
 that `hmac.Equal` is constant time over equal lengths; that the record store, opened as it is,
 survives a kill after commit and can decide "new" in one statement; that replay and resume pass the
@@ -350,7 +350,7 @@ surviving power loss.
    body with HMAC-SHA256, each in a header of its own — `X-Hub-Signature-256`, `X-Gitea-Signature`,
    `X-Forgejo-Signature`. Grafana alerting does too, in a header its own configuration names, as
    long as the operator leaves its optional timestamp header unset. The header is therefore a
-   per-source declared property (FR-306, below), not a name the ingress fixes. Prometheus
+   per-source declared property (FR-306, in spec.md), not a name the ingress fixes. Prometheus
    Alertmanager signs nothing; GitLab's recommended mechanism and a generic example (Stripe) both
    sign a composite string, not the body alone. Those three are flagged, not accommodated — a
    sender that cannot present FR-307's shape needs something in front of the ingress that verifies
