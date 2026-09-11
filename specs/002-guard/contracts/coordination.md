@@ -197,8 +197,12 @@ advances it.
 For etcd the record is a key of its own, with no lease, since it has to outlive every claim. The
 adapter reads it, decides, and sends one transaction that compares the claim key's creation revision
 with zero and the record's modification revision with the one it read, then writes the claim, the
-slot and the new record. A transaction that fails the second comparison was overtaken by another
-host, and the adapter reads and decides again inside the same deadline (C4). The fake holds the same
+slot and the new record. The first tick of a name finds no record, and the comparison is then with
+zero, which is what etcd reports for a key that does not exist — so two hosts racing a name's first
+tick are ordered by that comparison exactly as later ticks are. A transaction that fails the second
+comparison was overtaken by another host, and the adapter reads and decides again inside the same
+deadline (C4); repeated conflicts end at that deadline as `ErrUnavailable`, never as an unbounded
+retry. The fake holds the same
 record behind the same comparison. For the file lock the record is a row of the record store, read
 and written while the lock is held.
 
@@ -214,6 +218,10 @@ and written while the lock is held.
   contract suite sets, between their read and their transaction. The test holds B there, lets A take
   the claim for T and release it, then lets B go. B must return `ErrTickRan`; under the mutant it
   takes the claim for a tick that has already run.
+- The absent record is not compared. The same interleaving on a name with no record yet: B, held
+  between its read of nothing and its transaction, must return `ErrTickRan` once A has taken and
+  released the first tick; under the mutant, which sends the transaction without the record's
+  comparison when there was nothing to read, the first tick runs twice.
 
 **C14 — The tick is the one requested.** `Acquire` records and compares `req.Trigger.DueAt`, and
 reads no clock to do it (FR-129).

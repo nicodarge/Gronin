@@ -104,7 +104,7 @@ has no lease, because it has to outlive every claim.
 | Field | Where | Notes |
 | ----- | ----- | ----- |
 | `due_at` | backend, in the key's value | The instant the schedule computed, in UTC (FR-129). The only field compared: a tick at or before it is refused as `tick_already_ran` |
-| holder | backend, in the key's value | The host, process instance and run that took it. Read back only to name them in a refusal |
+| holder | backend, in the key's value | The host, process instance and run that took it. Read back only to name them in a refusal, never compared: no decision may depend on it |
 
 A manual invocation, a replay and a resume neither read it nor advance it. The comparison is on
 scheduled instants only, so a host whose clock runs ahead fires a tick first and runs it early, and
