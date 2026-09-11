@@ -79,19 +79,6 @@
       ]
     },
     {
-      "name": "two runs of one playbook are allowed at once",
-      "tree": "..",
-      "file": "internal/run/run.go",
-      "find": "\tif holder, running := m.inFlight[playbookName]; running {",
-      "replace": "\tif holder, running := m.inFlight[playbookName]; false {\n\t\t_ = running",
-      "command": [
-        "go",
-        "test",
-        "./internal/run",
-        "-count=1"
-      ]
-    },
-    {
       "name": "the working directory outlives its run",
       "tree": "..",
       "file": "internal/run/run.go",
@@ -1177,8 +1164,8 @@
       "name": "finishing a run does not release its cross-process lock",
       "tree": "..",
       "file": "internal/run/run.go",
-      "find": "\tm.releaseLock(run.lockFile)\n\tm.release(run.PlaybookName)",
-      "replace": "\tm.release(run.PlaybookName)",
+      "find": "\treleaseErr := run.claim.Release(ctx)",
+      "replace": "\tvar releaseErr error",
       "command": [
         "go",
         "test",
@@ -1190,8 +1177,8 @@
       "name": "a filesystem failure is reported as a concurrent run",
       "tree": "..",
       "file": "internal/run/run.go",
-      "find": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\tm.release(playbookName)\n\t\treturn nil, err\n\t}",
-      "replace": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\tm.release(playbookName)\n\t\treturn nil, fmt.Errorf(\"%w: held by another process\", ErrAlreadyRunning)\n\t}",
+      "find": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\treturn nil, err\n\t}",
+      "replace": "\tlockFile, err := m.acquireLock(playbookName)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"%w: held by another process\", ErrAlreadyRunning)\n\t}",
       "command": [
         "go",
         "test",
@@ -1642,6 +1629,51 @@
         "-count=1",
         "-run",
         "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the file lock's release does nothing",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tc.released.Do(func() { c.lock.manager.unclaim(c.held) })",
+      "replace": "\tc.released.Do(func() { _ = c.held })",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockContract"
+      ]
+    },
+    {
+      "name": "the file lock's released returns only at its deadline",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\t\tif l.free(name) {\n\t\t\treturn nil\n\t\t}",
+      "replace": "\t\tif l.free(name) && false {\n\t\t\treturn nil\n\t\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockContract"
+      ]
+    },
+    {
+      "name": "the single-host last tick is not written",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tif err := l.manager.store.SetLastTick(ctx, req.Name, record.Tick{\n\t\tDueAt: req.Trigger.DueAt, Host: req.Holder.Host,\n\t\tInstance: req.Holder.Instance, RunID: req.Holder.RunID,\n\t}); err != nil {\n\t\treturn fmt.Errorf(\"%w: %w\", guard.ErrUnavailable, err)\n\t}",
+      "replace": "\t_ = record.Tick{DueAt: req.Trigger.DueAt}",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockContract"
       ]
     }
   ]

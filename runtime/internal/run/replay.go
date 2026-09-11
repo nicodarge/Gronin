@@ -82,8 +82,13 @@ func (e *Executor) Replay(
 		return record.Run{}, fmt.Errorf("%w: %w", ErrNotReplayable, err)
 	}
 
-	started, err := e.Manager.Begin(ctx, book.Name, record.TriggerReplay, parentID)
+	claimed, err := e.claim(ctx, book.Name)
 	if err != nil {
+		return record.Run{}, err
+	}
+	started, err := e.Manager.Begin(ctx, claimed, record.TriggerReplay, parentID)
+	if err != nil {
+		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
 	}
 
@@ -151,8 +156,13 @@ func (e *Executor) Resume(
 		return record.Run{}, err
 	}
 
-	started, err := e.Manager.Begin(ctx, book.Name, record.TriggerResume, parentID)
+	claimed, err := e.claim(ctx, book.Name)
 	if err != nil {
+		return record.Run{}, err
+	}
+	started, err := e.Manager.Begin(ctx, claimed, record.TriggerResume, parentID)
+	if err != nil {
+		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
 	}
 

@@ -9,9 +9,52 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
 )
+
+// begin takes the claim the way the guard does and begins the run under it. Every test
+// below that used to reach the lock through Manager.Begin goes through the file lock
+// instead, which is where the lock now lives.
+func begin(
+	t *testing.T, manager *run.Manager, playbookName string, kind record.TriggerKind,
+) (*run.Run, error) {
+	t.Helper()
+	claimed, err := claim(t, manager, playbookName)
+	if err != nil {
+		return nil, err
+	}
+	started, err := manager.Begin(t.Context(), claimed, kind, "")
+	if err != nil {
+		_ = claimed.Claim.Release(t.Context())
+		return nil, err
+	}
+	return started, nil
+}
+
+func claim(t *testing.T, manager *run.Manager, playbookName string) (run.Claimed, error) {
+	t.Helper()
+	id := nextRunID(t)
+	lock := manager.FileLock()
+	held, err := lock.Acquire(t.Context(), guard.AcquireRequest{
+		Name:   playbookName,
+		Holder: guard.Holder{Host: "host.example.com", Instance: "instance", RunID: id},
+	})
+	if err != nil {
+		return run.Claimed{}, err
+	}
+	return run.Claimed{Claim: held, RunID: id, PlaybookName: playbookName, Reach: lock.Reach()}, nil
+}
+
+func nextRunID(t *testing.T) string {
+	t.Helper()
+	id, err := run.NewRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
 
 func newManager(t *testing.T) (*run.Manager, *record.Store, string) {
 	t.Helper()
@@ -27,14 +70,13 @@ func newManager(t *testing.T) (*run.Manager, *record.Store, string) {
 
 // A playbook name is placed into a lock file path, and the contract that constrains it
 // (specs/001-runtime-core/contracts/playbook.schema.json) is enforced elsewhere, at
-// load. Begin asserts it again rather than trusting that a caller always went through
-// the gate first.
+// load. The claim asserts it again rather than trusting that a caller always went
+// through the gate first.
 func TestBeginRefusesAPlaybookNameUnsafeAsAFileName(t *testing.T) {
 	manager, _, _ := newManager(t)
-	ctx := t.Context()
 
 	for _, name := range []string{"../escape", "UPPER", "", "with/slash", "a."} {
-		if _, err := manager.Begin(ctx, name, record.TriggerManual, ""); err == nil {
+		if _, err := begin(t, manager, name, record.TriggerManual); err == nil {
 			t.Fatalf("playbook name %q was accepted", name)
 		}
 	}
@@ -46,24 +88,23 @@ func TestASecondRunOfTheSamePlaybookIsRefused(t *testing.T) {
 	manager, _, _ := newManager(t)
 	ctx := t.Context()
 
-	first, err := manager.Begin(ctx, "drift-check", record.TriggerSchedule, "")
+	first, err := begin(t, manager, "drift-check", record.TriggerSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = manager.Begin(ctx, "drift-check", record.TriggerManual, "")
+	_, err = begin(t, manager, "drift-check", record.TriggerManual)
 	if !errors.Is(err, run.ErrAlreadyRunning) {
 		t.Fatalf("the second run began: %v", err)
 	}
-	// The in-memory claim is what names the holder — the file lock alone cannot, since
-	// two racing calls within one process would already be refused by it regardless of
-	// whether the map still holds the claim.
+	// The refusal names the run holding the playbook: from the in-process claim here, and
+	// from the lock file's own contents for a second process.
 	if !strings.Contains(err.Error(), first.ID) {
 		t.Fatalf("the refusal does not name the run holding the playbook: %v", err)
 	}
 
 	// A different playbook is not blocked by it.
-	other, err := manager.Begin(ctx, "cert-expiry", record.TriggerManual, "")
+	other, err := begin(t, manager, "cert-expiry", record.TriggerManual)
 	if err != nil {
 		t.Fatalf("an unrelated playbook was blocked: %v", err)
 	}
@@ -72,7 +113,7 @@ func TestASecondRunOfTheSamePlaybookIsRefused(t *testing.T) {
 	if err := manager.Finish(ctx, first, record.Run{Status: record.StatusSucceeded}); err != nil {
 		t.Fatal(err)
 	}
-	third, err := manager.Begin(ctx, "drift-check", record.TriggerManual, "")
+	third, err := begin(t, manager, "drift-check", record.TriggerManual)
 	if err != nil {
 		t.Fatalf("the playbook stayed claimed after its run finished: %v", err)
 	}
@@ -103,12 +144,12 @@ func TestASecondManagerOverTheSameStateDirIsRefused(t *testing.T) {
 	t.Cleanup(func() { _ = storeB.Close() })
 	managerB := run.NewManager(storeB, filepath.Join(dir, "work"), locksDir)
 
-	first, err := managerA.Begin(ctx, "drift-check", record.TriggerSchedule, "")
+	first, err := begin(t, managerA, "drift-check", record.TriggerSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := managerB.Begin(ctx, "drift-check", record.TriggerManual, ""); !errors.Is(err, run.ErrAlreadyRunning) {
+	if _, err := begin(t, managerB, "drift-check", record.TriggerManual); !errors.Is(err, run.ErrAlreadyRunning) {
 		t.Fatalf("a second manager over the same state directory began the run: %v", err)
 	}
 
@@ -116,7 +157,7 @@ func TestASecondManagerOverTheSameStateDirIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := managerB.Begin(ctx, "drift-check", record.TriggerManual, "")
+	second, err := begin(t, managerB, "drift-check", record.TriggerManual)
 	if err != nil {
 		t.Fatalf("the playbook stayed claimed after the holding manager finished: %v", err)
 	}
@@ -140,7 +181,7 @@ func TestOnlyOneOfManyRacingTriggersWins(t *testing.T) {
 	for range racers {
 		go func() {
 			defer wg.Done()
-			started, err := manager.Begin(ctx, "drift-check", record.TriggerSchedule, "")
+			started, err := begin(t, manager, "drift-check", record.TriggerSchedule)
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -172,7 +213,7 @@ func TestTheWorkingDirectoryIsGoneWhateverTheOutcome(t *testing.T) {
 			manager, store, work := newManager(t)
 			ctx := t.Context()
 
-			started, err := manager.Begin(ctx, "drift-check", record.TriggerManual, "")
+			started, err := begin(t, manager, "drift-check", record.TriggerManual)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +268,7 @@ func TestAFailureToBeginDoesNotWedgeThePlaybook(t *testing.T) {
 	}
 	manager := run.NewManager(store, blocked, filepath.Join(dir, "locks"))
 
-	if _, err := manager.Begin(t.Context(), "drift-check", record.TriggerManual, ""); err == nil {
+	if _, err := begin(t, manager, "drift-check", record.TriggerManual); err == nil {
 		t.Fatal("beginning a run succeeded with no writable work root")
 	}
 	if manager.InFlight("drift-check") {
@@ -243,7 +284,7 @@ func TestRunIdentifiersSortByTimeAndDoNotCollide(t *testing.T) {
 	var previous string
 	for i := range 50 {
 		name := "playbook-" + string(rune('a'+i%26)) + string(rune('a'+i/26))
-		started, err := manager.Begin(ctx, name, record.TriggerManual, "")
+		started, err := begin(t, manager, name, record.TriggerManual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -265,7 +306,7 @@ func TestFinishRecordsWhatTheRunProduced(t *testing.T) {
 	manager, store, _ := newManager(t)
 	ctx := t.Context()
 
-	started, err := manager.Begin(ctx, "drift-check", record.TriggerSchedule, "")
+	started, err := begin(t, manager, "drift-check", record.TriggerSchedule)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +349,7 @@ func TestAFailureThatIsNotContentionIsNotReportedAsAnotherRun(t *testing.T) {
 	}
 
 	manager := run.NewManager(store, filepath.Join(dir, "work"), locks)
-	_, err = manager.Begin(t.Context(), "daily-drift", record.TriggerManual, "")
+	_, err = begin(t, manager, "daily-drift", record.TriggerManual)
 	if err == nil {
 		t.Fatal("a run began although its lock could not be taken")
 	}

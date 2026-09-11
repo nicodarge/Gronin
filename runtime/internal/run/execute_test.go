@@ -388,7 +388,7 @@ func TestATriggerDuringARunDoesNotStartASecond(t *testing.T) {
 		first <- err
 	}()
 
-	started, err := h.executor.Manager.Begin(t.Context(), book.Name, record.TriggerManual, "")
+	started, err := begin(t, h.executor.Manager, book.Name, record.TriggerManual)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -188,14 +188,14 @@ it links.
       embedded server can only grant longer than asked, so C12's refusing half cannot be reached
       through it; the contract exercises that half on the fake, and this is where the adapter's own
       comparison is shown able to fail
-- [ ] T022 `runtime/internal/run/filelock.go`: the single-host `Coordinator` over the existing
+- [x] T022 `runtime/internal/run/filelock.go`: the single-host `Coordinator` over the existing
       advisory lock — `Acquire` takes the in-process claim and the flock through the functions
       already in `run.go`, which stay where they are so the existing lock mutants keep their target;
       `Renew` and `Fence` are no-ops, since the lock cannot be lost while its holder lives; `Released`
       returns once the lock can be taken or the context ends; the last tick is read and written
       through `record/ticks.go` while the lock is held (C13); `Reach` is `single-host`.
       `Manager.Begin` stops taking the lock itself and is handed the claim the guard took
-- [ ] T023 `TestFileLockContract` in `runtime/internal/run/filelock_contract_test.go`: the contract against the file lock where
+- [x] T023 `TestFileLockContract` in `runtime/internal/run/filelock_contract_test.go`: the contract against the file lock where
       the contract's table applies. C2's equivalent stays
       `TestALockHeldByAKilledProcessIsAcquirable`, re-pointed at `filelock.go`; C11 inherits the
       existing mutant `a filesystem failure is reported as a concurrent run`. The existing tests that
@@ -223,7 +223,7 @@ it links.
       recorded one is let through`, `every tick is refused once one is recorded`, `the tick's
       revision is not compared`, `an absent tick record is not compared`; C14 `the adapter records
       its clock as the tick`, `the adapter compares its clock with the recorded tick`
-- [ ] T026 Register the file lock's mutants, in `internal/run/filelock.go`, command
+- [x] T026 Register the file lock's mutants, in `internal/run/filelock.go`, command
       `go test ./internal/run -count=1 -run TestFileLockContract`: C7 `the file lock's release does
       nothing`, C10 `the file lock's released returns only at its deadline`, C13 `the single-host
       last tick is not written`

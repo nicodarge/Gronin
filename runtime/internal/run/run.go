@@ -11,10 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
 
@@ -23,7 +23,10 @@ import (
 // occurrence rather than queueing behind it: a schedule that fires while the previous
 // occurrence is still going is telling you the schedule is too tight, and stacking runs
 // spends money to hide that.
-var ErrAlreadyRunning = errors.New("a run of this playbook is already in flight")
+//
+// It is the single-host spelling of the coordination contract's ErrHeld, and wraps it, so
+// that a caller holding a Coordinator does not have to know which one it has.
+var ErrAlreadyRunning = fmt.Errorf("a run of this playbook is already in flight (%w)", guard.ErrHeld)
 
 // Run is one execution in progress.
 type Run struct {
@@ -33,7 +36,17 @@ type Run struct {
 	TriggerKind  record.TriggerKind
 	StartedAt    time.Time
 
-	lockFile *os.File
+	claim guard.Claim
+}
+
+// Claimed is a claim taken for a run that has not begun. The run's identifier is minted
+// before the claim so that the claim can name it, which is what a refusal elsewhere in
+// the deployment shows an operator.
+type Claimed struct {
+	Claim        guard.Claim
+	RunID        string
+	PlaybookName string
+	Reach        string
 }
 
 // Manager creates runs, keeps one playbook from running twice at once, and makes sure a
@@ -42,15 +55,12 @@ type Manager struct {
 	store    *record.Store
 	workRoot string
 	locksDir string
-
-	mu       sync.Mutex
-	inFlight map[string]string // playbook name -> the run holding it
 }
 
 // NewManager returns a manager writing working directories under workRoot and holding
 // its cross-process locks under locksDir.
 func NewManager(store *record.Store, workRoot, locksDir string) *Manager {
-	return &Manager{store: store, workRoot: workRoot, locksDir: locksDir, inFlight: map[string]string{}}
+	return &Manager{store: store, workRoot: workRoot, locksDir: locksDir}
 }
 
 // playbookNamePattern mirrors the contract's constraint on a playbook name
@@ -58,69 +68,80 @@ func NewManager(store *record.Store, workRoot, locksDir string) *Manager {
 // file path below, so the constraint is asserted here rather than trusted silently.
 var playbookNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
-// Begin claims the playbook, creates the working directory and records the run as
-// running. The claim is taken before anything is created, so two triggers racing cannot
-// both get as far as a directory.
+// NewRunID mints a run identifier. It is minted before the guard decides, so that the
+// claim it takes names the run that will hold it.
+func NewRunID() (string, error) { return newID(time.Now().UTC()) }
+
+// Begin creates the working directory and records the run as running, under a claim
+// already taken for it. Nothing is created before the claim, so two triggers racing
+// cannot both get as far as a directory.
+//
+// The claim is not released here on failure: it was taken by the caller, which releases
+// it — the run's own claim is released by Finish.
 func (m *Manager) Begin(
-	ctx context.Context, playbookName string, kind record.TriggerKind, parentRunID string,
+	ctx context.Context, claimed Claimed, kind record.TriggerKind, parentRunID string,
 ) (*Run, error) {
-	if !playbookNamePattern.MatchString(playbookName) {
-		return nil, fmt.Errorf("playbook name %q does not match %s", playbookName, playbookNamePattern)
-	}
-
-	id, err := newID(time.Now().UTC())
-	if err != nil {
-		return nil, err
-	}
-
-	m.mu.Lock()
-	if holder, running := m.inFlight[playbookName]; running {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrAlreadyRunning, holder)
-	}
-	m.inFlight[playbookName] = id
-	m.mu.Unlock()
-
-	// From here every failure has to release the claim, or the playbook is wedged until
-	// the process restarts.
-	lockFile, err := m.acquireLock(playbookName)
-	if err != nil {
-		m.release(playbookName)
-		return nil, err
-	}
-
 	run := &Run{
-		ID: id, PlaybookName: playbookName, TriggerKind: kind,
-		StartedAt: time.Now().UTC(), WorkDir: filepath.Join(m.workRoot, id),
-		lockFile: lockFile,
+		ID: claimed.RunID, PlaybookName: claimed.PlaybookName, TriggerKind: kind,
+		StartedAt: time.Now().UTC(), WorkDir: filepath.Join(m.workRoot, claimed.RunID),
+		claim: claimed.Claim,
 	}
 
 	if err := os.MkdirAll(run.WorkDir, 0o700); err != nil {
-		m.releaseLock(lockFile)
-		m.release(playbookName)
 		return nil, fmt.Errorf("creating the working directory: %w", err)
 	}
-	if err := m.store.CreateRun(ctx, record.Run{
-		ID: run.ID, PlaybookName: playbookName, TriggerKind: kind, ParentRunID: parentRunID,
+	recorded := record.Run{
+		ID: run.ID, PlaybookName: run.PlaybookName, TriggerKind: kind, ParentRunID: parentRunID,
 		Status: record.StatusRunning, StartedAt: run.StartedAt,
-	}); err != nil {
+		ClaimReach: record.Reach(claimed.Reach),
+	}
+	if claimed.Claim != nil {
+		recorded.ClaimToken = claimed.Claim.Token()
+	}
+	if err := m.store.CreateRun(ctx, recorded); err != nil {
 		_ = os.RemoveAll(run.WorkDir)
-		m.releaseLock(lockFile)
-		m.release(playbookName)
 		return nil, err
 	}
 	return run, nil
 }
 
+// claim takes the advisory file lock on a playbook. It is the single-host Coordinator's
+// acquisition (filelock.go), kept here because the lock is.
+//
+// Two runs in one process are excluded by it as surely as two processes are: the lock is
+// held by an open file description, and each acquisition opens its own.
+func (m *Manager) claim(playbookName string) (*held, error) {
+	if !playbookNamePattern.MatchString(playbookName) {
+		return nil, fmt.Errorf("playbook name %q does not match %s", playbookName, playbookNamePattern)
+	}
+
+	lockFile, err := m.acquireLock(playbookName)
+	if err != nil {
+		return nil, err
+	}
+	return &held{playbookName: playbookName, lockFile: lockFile}, nil
+}
+
+// held is what claim took.
+type held struct {
+	playbookName string
+	lockFile     *os.File
+}
+
+// unclaim gives it back.
+func (m *Manager) unclaim(h *held) {
+	m.releaseLock(h.lockFile)
+}
+
 // acquireLock takes the advisory file lock that makes the claim visible across
-// processes. It is held for the life of the run and released in Finish or on any
-// failure path in Begin — the kernel drops it on its own if the holding process dies,
-// including on SIGKILL, so there is nothing to clean up by hand and no lease to expire.
+// processes. It is held for the life of the run and released when the claim is — the
+// kernel drops it on its own if the holding process dies, including on SIGKILL, so there
+// is nothing to clean up by hand and no lease to expire.
 func (m *Manager) acquireLock(playbookName string) (*os.File, error) {
 	if err := os.MkdirAll(m.locksDir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating the locks directory: %w", err)
 	}
-	path := filepath.Join(m.locksDir, playbookName+".lock")
+	path := m.lockPath(playbookName)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // playbookName is checked against playbookNamePattern above
 	if err != nil {
 		return nil, fmt.Errorf("opening %s: %w", path, err)
@@ -136,6 +157,10 @@ func (m *Manager) acquireLock(playbookName string) (*os.File, error) {
 		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
 	return file, nil
+}
+
+func (m *Manager) lockPath(playbookName string) string {
+	return filepath.Join(m.locksDir, playbookName+".lock")
 }
 
 // releaseLock unlocks and closes the file. Closing matters as much as unlocking: an
@@ -161,24 +186,21 @@ func (m *Manager) Finish(ctx context.Context, run *Run, outcome record.Run) erro
 
 	recordErr := m.store.FinishRun(ctx, outcome)
 	removeErr := os.RemoveAll(run.WorkDir)
-	m.releaseLock(run.lockFile)
-	m.release(run.PlaybookName)
+	releaseErr := run.claim.Release(ctx)
 
-	return errors.Join(recordErr, removeErr)
+	return errors.Join(recordErr, removeErr, releaseErr)
 }
 
-// InFlight reports whether a playbook is currently running.
+// InFlight reports whether a playbook is currently running, by taking its lock and
+// giving it back — the only way to ask. A lock that cannot be taken for another reason
+// reads as running, which is the safe direction to be wrong in.
 func (m *Manager) InFlight(playbookName string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, running := m.inFlight[playbookName]
-	return running
-}
-
-func (m *Manager) release(playbookName string) {
-	m.mu.Lock()
-	delete(m.inFlight, playbookName)
-	m.mu.Unlock()
+	file, err := m.acquireLock(playbookName)
+	if err != nil {
+		return true
+	}
+	m.releaseLock(file)
+	return false
 }
 
 // newID returns a run identifier that sorts by time and cannot collide.
