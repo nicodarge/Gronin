@@ -172,6 +172,10 @@ func stripOneTrailingNewline(s string) string {
 // terminal state is captured before the read and restored explicitly on the way out, on
 // an interrupt as well as a clean return.
 //
+// Echo goes off before the label is written, not inside ReadPassword: otherwise a value
+// already on its way when the label appears is echoed. ReadPassword then restores the
+// echo-off state it found, so the state captured first is restored explicitly.
+//
 // completed narrows a race between the read finishing and a signal landing, rather than
 // closing it outright: without it, an interrupt arriving in the gap between
 // ReadPassword returning a value and the goroutine below noticing could still discard a
@@ -203,12 +207,15 @@ func promptTerminal(errOut io.Writer, f *os.File) (string, error) {
 		}
 	}()
 
+	if err := disableEcho(fd); err != nil {
+		return "", fmt.Errorf("reading the value from the terminal: %w", err)
+	}
 	_, _ = fmt.Fprint(errOut, "value: ")
 	raw, err := term.ReadPassword(fd)
 	completed.Store(true)
+	_ = term.Restore(fd, state)
 	_, _ = fmt.Fprintln(errOut)
 	if err != nil {
-		_ = term.Restore(fd, state)
 		return "", fmt.Errorf("reading the value from the terminal: %w", err)
 	}
 	return string(raw), nil
