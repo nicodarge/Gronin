@@ -165,8 +165,9 @@ rebases onto the other, and T098 is the checklist for doing it:
       `retrieve-results-above-ceiling.yaml`, `retrieve-bytes-above-ceiling.yaml` and
       `retrieve-query-and-query-from.yaml`, and accepted `retrieve.yaml`, under
       `runtime/internal/playbook/testdata/schema/`. In `runtime/testdata/playbooks/hostile/`,
-      `retrieve-block.yaml` becomes `retrieve-undeclared-collection.yaml` — well-shaped, and refused
-      now only for what it names, which is the change of meaning plan.md warns about — beside
+      `retrieve-block.yaml` becomes `retrieve-undeclared-collection.yaml`, its content reshaped from
+      today's mapping (`retrieve: {collection: incidents}`) to a list of one retrieval carrying
+      `collection`, `as` and `query` — well-shaped, and refused now only for what it names, which is the change of meaning plan.md warns about — beside
       `retrieve-undeclared-gathered-input.yaml` and `retrieve-colliding-name.yaml`. The tables in
       `parse_test.go` and `validate_test.go` follow, `validate_test.go`'s `deployment()` declares
       one collection, and
