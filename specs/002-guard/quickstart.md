@@ -33,12 +33,16 @@ guard:
 ```
 
 ```bash
-gronin config set receiver 'https://receiver.example.com/hook'
+printf '%s' 'https://receiver.example.com/hook' | gronin config set receiver
 ```
 
 And `coordination.json` in each state directory, as in [contracts/cli.md](./contracts/cli.md),
-with the same `prefix` on both hosts, authenticating with a TLS client certificate rather than a
-password (the contract says why).
+with the same `prefix` on both hosts. It authenticates with a TLS client certificate, or with a
+username and password set the same way as the receiver, the password with `--secret`:
+
+```bash
+gronin config set --secret etcd_password < /path/to/etcd-password
+```
 
 ## 1. The reach is stated (FR-109)
 
@@ -57,7 +61,8 @@ Restore it.
 Set the playbook's schedule to the next minute on both hosts, and run `gronin serve` on both.
 
 **Expected**: the receiver logs exactly one delivery for that minute. On the host that did not run
-it, `gronin refusals` shows one `claim_held` line naming the other host's run.
+it, `gronin refusals` shows one `claim_held` line naming the other host's run — the tick found its
+playbook running and did not wait (FR-110).
 
 ## 4. A killed holder does not block the playbook (SC-102)
 
@@ -121,6 +126,26 @@ holding the waiting one.
 
 **Expected**: `gronin refusals` on A shows a `dropped` line naming when the trigger was accepted,
 and no run ever comes from it — including after `gronin serve` is started again.
+
+## 10. One tick, once, across clocks that disagree (SC-117)
+
+On B, stop time synchronisation and set the clock three minutes behind — longer than the gather
+step's 60 s sleep, so that A's run of a tick is over before B fires the same one:
+
+```bash
+sudo timedatectl set-ntp false
+sudo date -s '3 minutes ago'
+```
+
+Set the playbook's schedule to the next minute on both hosts, and run `gronin serve` on both.
+
+**Expected**: the receiver logs exactly one delivery for that tick, from A. Three minutes later, B
+fires the same tick, finds the claim free, and is refused anyway: `gronin refusals` on B shows a
+`tick_already_ran` line naming the tick and A's run. Without the record of the last tick, B would
+have run it a second time, and FR-101 — which forbids only overlap — would have been satisfied
+throughout.
+
+Restore B's clock with `sudo timedatectl set-ntp true`.
 
 ## Renaming a playbook
 

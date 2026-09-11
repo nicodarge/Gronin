@@ -1,7 +1,7 @@
 # Phase 0 — Research
 
-Four questions from the plan, and three findings that reach back into the specification. Every
-measurement below was produced on 2026-09-10 by running a throwaway program against the component
+Four questions from the plan, three findings that reached back into the specification and that
+the owner decided on 2026-09-11, and what recording the last tick requires. Every measurement below was produced on 2026-09-10 by running a throwaway program against the component
 named, not by reading its documentation; where a statement rests on reading source or
 documentation instead, it says so. Nothing here was run against a multi-host deployment: every
 experiment ran on one machine, most of them inside `scripts/no-network.sh`.
@@ -85,9 +85,9 @@ All three, because each covers the blind spot of another, and one piece stays ou
 because nothing hermetic can cover it.
 
 1. **The guard's own logic runs against the fake.** Every success criterion about what the guard
-   decides — waiting, the rate limit, refusal records, the stop decision, the time bounds — is
-   tested here, with the fake holding, severing or expiring on command and the runtime's clock and
-   timers injected.
+   decides — waiting, the rate limit, refusal records, the stop decision, the time bounds, which
+   tick it hands the backend — is tested here, with the fake holding, severing or expiring on
+   command and the runtime's clock and timers injected.
 2. **One contract suite runs against the fake, against the etcd adapter talking to an embedded
    server, and against the single-host file lock where a clause applies to it.** This is what
    makes the fake honest: a clause the fake satisfies and etcd does not fails in the etcd run,
@@ -283,10 +283,11 @@ healthy run.
 
 **Which clock.** The stop deadline is computed on the monotonic reading of the host's clock, which
 Go's `time.Since` uses, not on its wall reading: time synchronisation can step the wall reading
-backwards mid-run, which would move the deadline later. That departs from the letter of FR-118 and
-of the constitution's Time constraint, which both say "wall clock", and it is the third finding
-below. Timestamps that are recorded or compared across processes — a waiting trigger's expiry, a
-refusal's time — use the wall reading in UTC, as the runtime core already does.
+backwards mid-run, which would move the deadline later. FR-118 and the constitution's Time
+constraint said "wall clock" when this was written; that was the third finding below, and both now
+say monotonic for durations and deadlines. Timestamps that are recorded or compared across
+processes — a waiting trigger's `expires_at` as a reader sees it, a refusal's time — use the wall
+reading in UTC, as the runtime core already does.
 
 **What the margin does not cover.** The holder's clock is Go's monotonic clock, which on Linux does
 not advance while the host is suspended (a property of `CLOCK_MONOTONIC`, read, not run). A holder
@@ -333,15 +334,16 @@ the backend.
   declares. It collided with the old name's claim and was judged against the old name's window;
   running it under the new name would skip both.
 
-## Findings that reach back into the specification
+## Findings that reached back into the specification
 
-None is a Phase 0 question. All three surfaced while writing the design, and each needs the
-owner's decision rather than a plan's.
+None is a Phase 0 question. All three surfaced while writing the design, each needed the owner's
+decision rather than a plan's, and the owner decided all three on 2026-09-11. Each finding is kept
+as it was raised, followed by the decision.
 
 ### FR-110 contradicts User Story 1 on a deployment of two hosts
 
 Two hosts carry the same cron playbook. Its tick fires on both; host A takes the claim; host B's
-trigger is refused because the playbook is already running. FR-110 says that trigger MUST wait and
+trigger is refused because the playbook is already running. FR-110 said that trigger MUST wait and
 then run once — so the tick runs twice, one after the other, which is exactly what User Story 1
 says the feature exists to prevent. US1 acceptance scenario 1 says the other process "records a
 refusal naming the lock"; FR-117 says a trigger that waits and then runs "MUST NOT be recorded as"
@@ -351,39 +353,77 @@ User Story 2's own reasoning already draws the line: discarding a colliding trig
 for a cron playbook, whose next tick comes anyway, and indefensible for a trigger that will not
 come again". Its independent test uses a manual invocation.
 
-**Recommended, and what the Phase 1 design follows**: FR-110 applies to a trigger that does not
-recur — a manual invocation now, a webhook delivery later. A scheduled trigger refused because its
-playbook is already running is refused and recorded with mechanism `claim_held`, as the runtime
-core does today. If the owner decides otherwise, the design changes in one place: which trigger
-kinds enter the waiting slot.
+**Decided**: only a trigger that will not come again waits — a manual invocation now, a webhook
+delivery later. A scheduled trigger refused because its playbook is already running is discarded
+and recorded with mechanism `claim_held`, as the runtime core does today. FR-110 says so, User
+Story 2 gains a scenario for the tick, and SC-105 now delivers a tick during the run and requires
+it to leave the waiting slot free.
 
 ### A short run can let one tick run twice, one host after the other
 
 FR-101 forbids two runs *at once*. Hosts whose clocks differ by more than a run takes — or a run
 that is refused at its gather stage in milliseconds — let the later host's tick find the claim
 already released and run the same occurrence again. The specification puts deduplication out of
-scope because "a cron tick has none" of the event identity it needs. A scheduled occurrence does
+scope, as it then stood, because "a cron tick has none" of the event identity it needs. A scheduled occurrence does
 have one, though: the playbook name and the instant the schedule computed. That instant is derived
 from the expression, not from a payload, so FR-118 does not forbid comparing it.
 
-**Recommended, not adopted**: the backend records the last scheduled instant a run started for, in
-the same transaction that takes the claim, and refuses a scheduled trigger whose instant is not
-later. The coordination interface already carries the trigger's kind and instant so that adopting
-this changes an adapter and not the interface. Until the owner decides, US1's "it executes once"
-holds for runs longer than the hosts' clock offset and is not claimed beyond that.
+**Decided**: one tick runs at most once across the deployment. The backend records, per playbook,
+the scheduled time of the last tick that took the claim, in the same transaction that takes it, and
+refuses a tick at or before it (FR-128). The time recorded is the instant the schedule computed,
+never the host's clock at acceptance (FR-129). The interface already carried the trigger's kind and
+instant, so it gains only an error; the clauses are C13 and C14 of
+[contracts/coordination.md](./contracts/coordination.md), and §5 below is what adopting it
+requires.
 
-### "Wall clock" in FR-118 and the constitution also covers the stop deadline
+### "Wall clock" in FR-118 and the constitution also covered the stop deadline
 
-FR-118 says every time the guard records or compares is "anchored on the runtime's own wall clock",
-and the constitution says elapsed time "MUST be computed from wall-clock time on the host". Both
-are written against a timestamp carried by a trigger, and against that they are right. Read
-literally, they also require the stop deadline to use the wall reading, which a backward time step
+FR-118 said every time the guard records or compares is "anchored on the runtime's own wall clock",
+and the constitution said elapsed time "MUST be computed from wall-clock time on the host". Both
+were written against a timestamp carried by a trigger, and against that they were right. Read
+literally, they also required the stop deadline to use the wall reading, which a backward time step
 lengthens — the one direction in which FR-105 fails.
 
-**Recommended, and what the design follows**: the deadline uses the monotonic reading of the host's
-clock. That keeps what the rule protects — the host's own clock, never a payload's — and drops
-only a word the rule did not need. Adopting it means a wording change to FR-118 and a PATCH
-amendment to the constitution, both the owner's.
+**Recommended** at the time: the deadline uses the monotonic reading of the host's clock. That keeps
+what the rule protects — the host's own clock, never a payload's — and drops only a word the rule
+did not need.
+
+**Decided**: the rule is the runtime's own clock — monotonic for durations and deadlines, wall
+clock for recorded timestamps, never a timestamp a trigger carried. FR-118 says so, and the
+constitution was amended to 1.3.0 as a MINOR change rather than the PATCH recommended here, because
+the rule now distinguishes two readings where it named one.
+
+## 5. Recording the last tick
+
+What adopting the second finding requires, and what it rests on. Nothing in this section was run;
+each point says whether it was read or is a design choice.
+
+- **Two hosts compute the same instant for one tick.** `serve` hands the scheduler
+  `time.Now().UTC()` (read, `runtime/cmd/gronin/serve_cmd.go`), and the cron library computes the
+  next occurrence of an expression that names no zone in the location of the instant it is given
+  (read, `SpecSchedule.Next` in `robfig/cron/v3`). So every host evaluates a schedule in UTC whatever
+  its own time zone — or in the zone the expression names, since the library's parser also honours a
+  `CRON_TZ=` prefix, and that zone is the same on every host. FR-129 depends on this staying true: a
+  scheduler moved to the host's local zone would give two hosts in different zones different
+  instants for one tick.
+- **The transaction** (design). The adapter reads the record, decides, and sends one transaction
+  comparing the claim key's creation revision with zero and the record's modification revision with
+  the one it read; its success branch writes the claim, the rate slot and the new record. Comparing
+  a revision rather than the stored value keeps the adapter clear of how a comparison on a value
+  treats a key that does not exist yet, which this research did not establish. A transaction that
+  fails the revision comparison was overtaken, and the adapter reads and decides again within the
+  call's deadline.
+- **A decision that exceeds its bound may still have recorded the tick.** §3 already notes that the
+  transaction can commit after the client stopped listening. The lease is revoked on the way out, so
+  the claim frees, but the record stays: the tick then runs nowhere, and another host's refusal of
+  it names a run that never started. That is FR-128's "at most once" and not "exactly once", and
+  the refusal naming the backend is what the operator of the first host sees.
+- **SC-118 is measured on injected clocks, not on built binaries** (read, not run). A process's wall
+  clock cannot be offset on its own: Linux time namespaces offset the monotonic and boot-time
+  clocks, not the wall clock, and setting the host's clock moves every process on it and needs a
+  privilege the suite does not have. SC-117, which only needs one host to act later than the other,
+  delays its second process by stopping it with `SIGSTOP` and resuming it instead, which is how the
+  shared experiment above froze a holder.
 
 ## What changed in the plan because of this
 
@@ -391,6 +431,9 @@ amendment to the constitution, both the owner's.
   test dependency.
 - The renewal loop is the runtime's own, with the stop deadline above. The library's keep-alive
   helpers are not used.
+- The backend also holds each playbook's last tick, written in the transaction that takes the claim,
+  so that one tick runs at most once across hosts whose clocks disagree.
+- A scheduled trigger that collides with a run is refused, never made to wait.
 - The rate window moves into the backend when one is configured: a rate limit counted on one host
   would allow a deployment of two hosts twice the declared runs, which is FR-114's guarantee
   delivered at half its declared strength. Its shape is in

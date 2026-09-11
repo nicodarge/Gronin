@@ -38,7 +38,7 @@ deduplication here because a cron tick has no identity. A delivery has one — i
 or a declared value inside it for a sender that stamps each attempt differently (SC-308) — and what repeat detection is for is a sender's retry of it. It is
 explicitly not for an event that recurs: an alerting system re-notifying an unchanged, still-firing
 alert sends a body identical to the last, and suppressing it for longer than a retry takes is the
-failure the constitution's wall-clock rule was written after. The replay window is therefore short,
+failure the constitution's Time constraint was written after. The replay window is therefore short,
 per source, measured on the runtime's clock (FR-320); recurrence is the guard's rate limit's job.
 
 **A payload's reach is declared, not inferred (FR-322 through FR-326).** A playbook names every value

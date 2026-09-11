@@ -9,8 +9,10 @@
 The stage that decides, before any command runs and any token is spent, whether a trigger becomes a
 run (FR-102). Three mechanisms, one of which the runtime core already has in a narrower form: a
 claim on the playbook that holds across the hosts of one deployment (FR-101), a rate limit keyed on
-the playbook name (FR-114), and a single waiting slot so that a refused trigger is deferred rather
-than lost (FR-110).
+the playbook name (FR-114), and a single waiting slot so that a refused trigger that will not come
+again is deferred rather than lost (FR-110). Beside the claim, the backend records each playbook's
+last tick, so that one scheduled tick runs at most once across hosts whose clocks disagree
+(FR-128).
 
 Two clarifications set the technical shape, and both cost something the plan has to be honest
 about.
@@ -62,7 +64,7 @@ further writes: a waiting trigger is recorded when it is accepted (FR-127), whic
 drop reconstructible after a kill, and the Run entity the runtime core defines gains the fact that
 a run waited and for how long (FR-125) — a field its current description does not carry, so the
 runtime core's own data model changes here rather than only this feature's. The backend holds the
-claims and the rate windows and nothing else. The whole split is in [data-model.md](./data-model.md).
+claims, the rate windows and each playbook's last tick, and nothing else. The whole split is in [data-model.md](./data-model.md).
 
 **Testing**: the existing suite, under the hermeticity and mutation obligations of Principle VI.
 Three layers, chosen in [research.md](./research.md) §1:
@@ -126,10 +128,13 @@ when the process was killed, which no absence-shaped criterion can establish —
 FR-127 puts the record in at acceptance rather than on the way out.
 
 FR-118 is the trap this repository has already been bitten by, stated as a requirement: anchor on
-the runtime's own wall clock, never on a timestamp the trigger carried. It matters most for the
-deduplication this feature does *not* specify, but the rate window (FR-114) and the waiting
-trigger's expiry (FR-112) are both time comparisons, and both would be silently wrong against a
-frozen payload timestamp.
+the runtime's own clock — its monotonic reading for durations and deadlines, its wall reading for
+recorded timestamps — never on a timestamp the trigger carried. It matters most for the
+deduplication of deliveries this feature does *not* specify, but the rate window (FR-114) and the
+waiting trigger's expiry (FR-112) are both time comparisons, and both would be silently wrong
+against a frozen payload timestamp. The one deduplication this feature does specify, of scheduled
+ticks (FR-128), compares the instant the schedule computed, which is neither a clock reading nor a
+payload's timestamp (FR-129).
 
 ### IV. Playbooks Are Portable Data — PASS, and it constrains the block's shape
 
@@ -163,10 +168,9 @@ than leaving it to discipline. Every guarantee here is that something does *not*
 asserting a non-event is indistinguishable from a broken test until a mutant proves otherwise: a
 test that asserts "no second run started" passes just as well when nothing started at all, when the
 trigger never fired, and when the test's own body never executed. Each of SC-101, SC-102, SC-103,
-SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114, SC-115 and SC-116
-needs a
-mutant, and the mutation harness has to report zero on an unmodified tree for any of their counts
-to mean anything, SC-116 included.
+SC-104, SC-105, SC-106, SC-107, SC-108, SC-109, SC-110, SC-112, SC-113, SC-114, SC-115, SC-116,
+SC-117 and SC-118 needs a mutant, and the mutation harness has to report zero on an unmodified tree
+for any of their counts to mean anything, SC-116 included.
 
 Earlier drafts of this plan claimed one guarantee here escaped that — a time bound, it was argued,
 fails loudly on its own, because something runs long and a test waiting on it times out. It does
@@ -190,8 +194,15 @@ connection, because a severed connection fails fast and a held one is the case F
 a test that cuts the link proves the easy half and leaves the hang untested. SC-113 has to kill the
 process rather than stop it, because a record written on the way out satisfies a graceful stop and
 is exactly the implementation FR-127 refuses. SC-105 and SC-107 are the counting ones, and a count
-is the one shape here that fails honestly when it is wrong; SC-114 counts too, downward, to zero
-refusal records. SC-115 is the one that needs a subject built to misbehave: a run that stops when
+is the one shape here that fails honestly when it is wrong — except for SC-105's scheduled tick,
+where an implementation that lets the tick wait produces the same counts and only reading which
+trigger each record refers to tells them apart. SC-114 counts too, downward, to zero refusal
+records. SC-117 passes against an implementation with no record of the last tick if its
+run outlasts the gap between the two deliveries, because FR-101 then refuses the second on its own;
+and two deliveries in sequence can never show that the record is written in the step that takes the
+claim, which is why that mutant is killed in the coordination contract, where the test chooses the
+interleaving. SC-118 is two halves because each passes against the mutant the other catches. SC-115
+is the one that needs a subject built to misbehave: a run that stops when
 asked satisfies it without the enforcement in FR-126 ever executing, so the test needs a run that
 does not stop on its own.
 
@@ -203,8 +214,10 @@ an implementation that resolved the playbook once, at trigger time, and never lo
 
 ### Operational Constraints — one is directly relevant
 
-The constitution's wall-clock anchoring constraint is FR-118 above, and it is the reason that
-requirement is stated at all rather than left as implementation detail.
+The constitution's Time constraint is FR-118 above, and it is the reason that requirement is stated
+at all rather than left as implementation detail. Phase 0 found its wording, "wall clock", also
+covered the stop deadline, which a backward step of the wall clock lengthens; the constitution was
+amended to 1.3.0 so that both say the runtime's own clock, monotonic for durations and deadlines.
 
 ## Project Structure
 
@@ -267,27 +280,30 @@ rather than reading about them; the durations are chosen thresholds, each with i
    new names are different claims. A waiting trigger whose file no longer declares its name is
    discarded rather than run under the new one.
 
-Three findings reach back into the specification, and each is the owner's to decide rather than a
-plan's.
+Three findings reached back into the specification. Each was the owner's to decide rather than a
+plan's, and the owner decided all three on 2026-09-11.
 
-- **FR-110 contradicts User Story 1 on two hosts**: a cron tick that waits behind the same tick's
-  run on another host runs twice. The design follows the recommendation that only a trigger that
-  will not recur waits; if the owner decides otherwise, one sentence of the data model changes.
-- **A run shorter than the hosts' clock offset can let one tick run twice**, one host after the
-  other. Recommended but not adopted: the backend records the last scheduled instant that ran. The
-  coordination interface already carries that instant, so adopting it later changes an adapter.
-- **"Wall clock" in FR-118 and the constitution, read literally, covers the stop deadline**, where a
-  backward time step would lengthen it. The design uses the monotonic reading of the host's clock
-  and recommends the wording change.
+- **FR-110 contradicted User Story 1 on two hosts**: a cron tick that waits behind the same tick's
+  run on another host runs twice. Decided: only a trigger that will not come again waits; a
+  colliding scheduled tick is discarded with a refusal record (FR-110, SC-105).
+- **A run shorter than the hosts' clock offset could let one tick run twice**, one host after the
+  other. Decided: the backend records each playbook's last tick in the transaction that takes the
+  claim, and refuses a tick at or before it, compared on the instant the schedule computed rather
+  than on any host's clock (FR-128, FR-129, SC-117, SC-118; C13 and C14 of the coordination
+  contract).
+- **"Wall clock" in FR-118 and the constitution, read literally, covered the stop deadline**, where a
+  backward time step would lengthen it. Decided: the runtime's own clock — monotonic for durations
+  and deadlines, wall clock for recorded timestamps, never a timestamp a trigger carried. FR-118 says
+  so, and the constitution was amended to 1.3.0.
 
 `tasks.md` can be written against the design as it stands.
 
 ## Phase 1 — Design
 
 - [data-model.md](./data-model.md): where each piece of state lives — backend, process memory, or
-  the host's record store. It covers the claim, the rate slot, the waiting trigger and its durable
-  acceptance, the refusal record and its mechanisms, and the four fields and one status the runtime
-  core's Run gains.
+  the host's record store. It covers the claim, the rate slot, the last tick, the waiting trigger
+  and its durable acceptance, the refusal record and its mechanisms, and the four fields and one
+  status the runtime core's Run gains.
 - [contracts/coordination.md](./contracts/coordination.md): the interface the fake, the etcd
   adapter and the file lock are held to, clause by clause, each with the mutant that shows its test
   can fail; and the holder's own obligations — the stop deadline, fencing before side effects,
@@ -318,6 +334,8 @@ it".
 | A shared coordination backend | FR-101 is worthless if it holds only within one host, and a deployment run twice for availability doubles every scheduled run — doubling side effects, not just cost | Keeping the file lock on a shared filesystem was considered and refused: advisory locking over network filesystems is not reliably honoured, so the guarantee would hold on some deployments and silently not on others, which is worse than the narrow guarantee honestly stated |
 | Waiting is local to one process (FR-113) | A trigger that waits across hosts needs durable state and an ownership question of its own — a larger feature than the one it serves | Putting the waiting slot in the backend is the obvious symmetry, and it makes a process's death silently promote another host's waiting trigger into a run nobody is watching |
 | Queue depth of exactly one (FR-111) | A burst must not become a backlog of runs against a world that has since changed | An unbounded queue is simpler to implement and turns a misbehaving trigger source into a stampede the rate limit then cannot help with, because the runs were already accepted |
+| A colliding scheduled tick is discarded rather than deferred (FR-110) | On two hosts a tick waiting behind the same tick's run elsewhere runs twice, which is what User Story 1 exists to prevent | One waiting rule for every trigger kind is one code path, and it doubles every scheduled run that collides across hosts |
+| Each playbook's last tick is recorded in the backend (FR-128) | FR-101 forbids only overlap, so hosts whose clocks differ by more than a run lasts run one tick one after the other | Relying on the claim alone needs no new key, and holds only for runs longer than the hosts' clock offset — a guarantee that depends on how well two machines keep time |
 | The rate limit discards rather than defers (FR-116) | Deferring replays the burst the limit exists to refuse | Treating both refusals the same is one code path instead of two, and it makes the limit a delay rather than a limit |
 | The file lock is kept, not replaced | FR-109 needs it, and it is already proven with a mutant | Deleting it once the backend exists would make the backend mandatory, which forces the dependency on deployments that never needed it |
 | The rate window lives in the backend when there is one | Counted per host, a deployment of two hosts allows twice the declared runs | A count of the local record store's runs is one query and no new keys, and delivers FR-114 at half its declared strength on the deployments this feature exists for |

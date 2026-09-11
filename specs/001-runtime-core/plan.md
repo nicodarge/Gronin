@@ -144,8 +144,9 @@ passes on all three while each is broken.
 
 ### Operational Constraints — PASS, its one open item closed by Phase 0
 
-Wall-clock anchoring does not arise here (no dedup until the guard feature) but the record store
-timestamps every run from the host clock, in UTC, so the guard feature inherits the right base.
+The Time constraint does not arise here (no dedup until the guard feature), but the record store
+timestamps every run from the host clock's wall reading, in UTC, so the guard feature inherits the
+right base.
 Secrets never reach a command line: the agent child process receives credentials through its
 environment, never through `argv`, and FR-029's redactor is applied at the write boundary of both
 the record store and the logger.

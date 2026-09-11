@@ -65,6 +65,7 @@ doc-check is running (run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, p
 $ gronin refusals
 2026-09-10T06:00:00Z  doc-check  schedule  claim_held          held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com
 2026-09-10T06:03:11Z  doc-check  manual    waiting_slot_full   a trigger accepted at 06:01:02Z is already waiting
+2026-09-10T06:05:00Z  doc-check  schedule  tick_already_ran    tick 06:05:00Z ran as 20260910T060500Z-7b21e4c09d3a on host-b.example.com
 2026-09-10T07:30:00Z  doc-check  manual    dropped             accepted at 07:12:40Z; process 8f2c… ended before it ran
 ```
 
@@ -103,6 +104,13 @@ Every duration is optional and defaults to the value above, which is the set cho
 a literal: a credential written into this file would sit beside the deployment's other state in
 clear, and one resolved from a secret configuration value is known to the redactor.
 
-`gronin config set` takes its value as an argument, so setting the password that way puts a secret
-on a command line, which the constitution's Secrets constraint forbids. Until `config set` can read
-a value from standard input, a deployment authenticates to etcd with a TLS client certificate.
+A deployment authenticates to etcd with a username and password, with a TLS client certificate, or
+with both; which one is the etcd deployment's choice, not a constraint of this runtime's.
+`gronin config set` reads its value from standard input and refuses one given as an argument, so
+setting the password puts no secret on a command line, which the constitution's Secrets constraint
+forbids. `--secret` marks it for the redactor:
+
+```bash
+gronin config set etcd_username < /path/to/etcd-username
+gronin config set --secret etcd_password < /path/to/etcd-password
+```

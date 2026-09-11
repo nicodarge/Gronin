@@ -32,6 +32,25 @@ lost."
   guarantee under the name of the cross-host one, which is the failure this repository's first
   principle is written against.
 
+### Session 2026-09-11
+
+The owner's decisions on the three findings Phase 0 raised ([research.md](./research.md)).
+
+- Q: Does a scheduled trigger refused because its playbook is running wait, as FR-110 said of every
+  trigger? → A: no. Only a trigger that will not come again waits — a manual invocation now, a
+  webhook delivery later. A refused cron tick is discarded with a refusal record, because the next
+  tick comes anyway. On a deployment of two hosts, a tick waiting behind the same tick's run on the
+  other host would otherwise run twice, which is what User Story 1 exists to prevent.
+- Q: Does one tick run at most once across the deployment, or only never twice at the same time?
+  → A: at most once. The backend records, per playbook, the scheduled time of the last tick that
+  took the claim, in the same atomic step that takes it, and a tick at or before that time is
+  refused. Without it, hosts whose clocks differ by more than a run lasts run the same tick one
+  after the other, and FR-101 — which forbids only overlap — is satisfied throughout.
+- Q: FR-118 and the constitution say "wall clock"; the claim's stop deadline is better computed on a
+  monotonic clock, which a backward time step cannot lengthen. Which is the rule? → A: the
+  runtime's own clock — monotonic for durations and deadlines, wall clock for recorded timestamps,
+  never a timestamp a trigger carried. The constitution is amended to say so (1.3.0).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - One playbook, two hosts, one run (Priority: P1)
@@ -73,13 +92,18 @@ to exist.
 7. **Given** a run that has been told to stop, **When** it does not end on its own, **Then** the
    runtime ends it no later than the declared stop bound. A bound the runtime only measures is not
    a bound the margin can be computed from.
+8. **Given** two hosts whose clocks differ by more than the playbook's run takes, **When** the same
+   tick fires on the second host after the first host's run of it has ended, **Then** it does not
+   run again, and the second host records a refusal naming the tick that already ran.
 
 ---
 
 ### User Story 2 - A refused trigger is not lost (Priority: P2)
 
-A playbook is running when its next trigger arrives. Rather than dropping it, the runtime holds it
-until the run in progress ends, then runs it once. If a third trigger arrives while one is already
+A playbook is running when a trigger that will not come again arrives — an operator's manual
+invocation now, a webhook delivery later. Rather than dropping it, the runtime holds it until the run
+in progress ends, then runs it once. A scheduled tick that collides is not held: its next tick comes
+anyway, so it is discarded with a refusal record. If a third trigger arrives while one is already
 waiting, it is refused — the queue is one deep, deliberately, so that a burst cannot become a
 backlog of runs against a world that has since changed.
 
@@ -94,8 +118,8 @@ confirm exactly one further run happens, with the extra invocation recorded as r
 
 **Acceptance Scenarios**:
 
-1. **Given** a playbook already running, **When** a trigger fires, **Then** no second run starts
-   concurrently, and one run starts after the first ends.
+1. **Given** a playbook already running, **When** it is invoked manually, **Then** no second run
+   starts concurrently, and one run starts after the first ends.
 2. **Given** a playbook already running with a trigger already waiting, **When** a further trigger
    fires, **Then** it is refused and recorded, and the waiting trigger is the one that eventually
    runs.
@@ -104,6 +128,9 @@ confirm exactly one further run happens, with the extra invocation recorded as r
 4. **Given** a trigger waiting for a run to end, **When** the runtime process stops — gracefully
    or killed outright — **Then** nothing runs from that trigger when the process starts again, and
    the operator can see it was dropped rather than silently forgotten.
+5. **Given** a playbook already running, **When** its scheduled tick fires, **Then** the tick does
+   not wait: it is discarded and the refusal recorded, naming the run that holds the claim, and the
+   waiting slot stays free for a trigger that will not come again.
 
 ---
 
@@ -157,6 +184,12 @@ recorded.
 - **A playbook renamed between the claim and the release.** The name is the identity, so a rename
   during a run means the claim cannot be found. The load stage already refuses two playbooks
   sharing a name; what happens across a rename has to be stated rather than discovered.
+- **The same tick on two hosts whose clocks disagree.** A run shorter than the offset between them
+  ends before the later host's tick fires, so the claim is free again when that tick arrives. What
+  stops it running twice is FR-128's record of the last tick that ran, not the claim — and that
+  record compares the times the schedule computed, never either host's clock (FR-129). The tick
+  still runs once: on whichever host fires it first, which is the one whose clock is ahead, early
+  by its offset. That is what the skew costs: an early run, never a second one.
 - **A trigger waiting while the playbook is edited underneath it.** The run that eventually starts
   must be the playbook as it stands when it starts, or the operator's edit is silently ignored for
   one run.
@@ -186,10 +219,15 @@ recorded.
 - **FR-109**: A deployment with no coordination backend configured MUST still enforce FR-101
   within one host, and MUST state that single-host reach in its own status output rather than
   leaving the operator to infer which guarantee they have.
-- **FR-110**: A trigger refused because its playbook is already running MUST wait for that run to
-  end and then run once, unless FR-112 or FR-124 has discarded it in the meantime.
-- **FR-111**: At most one trigger per playbook MUST wait at a time. A trigger arriving while one
-  is already waiting MUST be refused rather than queued behind it.
+- **FR-110**: A trigger that will not come again — a manual invocation, and a webhook delivery once
+  that trigger exists — refused because its playbook is already running MUST wait for that run to
+  end and then run once, unless FR-112 or FR-124 has discarded it in the meantime. A scheduled
+  trigger refused because its playbook is already running MUST NOT wait: it is discarded and
+  recorded under FR-117, because its next tick comes anyway.
+- **FR-111**: At most one trigger per playbook MUST wait at a time among the processes sharing one
+  state directory. A trigger arriving while one is already waiting MUST be refused rather than
+  queued behind it. The limit is not per process: each manual invocation is a process of its own,
+  and a limit held per process would let every one of them wait.
 - **FR-112**: A waiting trigger MUST expire after a declared duration, and MUST NOT produce a run
   once it has. A run that starts long after the event that caused it works against a world that
   has changed.
@@ -232,9 +270,11 @@ recorded.
   operator reading a run that started well after its schedule has otherwise no way to tell a
   deferred run from a late one.
 - **FR-118**: Every time recorded or compared by the guard MUST be anchored on the runtime's own
-  wall clock, never on a timestamp carried by the trigger. A payload timestamp can be frozen at an
+  clock — its monotonic reading for durations and deadlines, its wall reading for recorded
+  timestamps — never on a timestamp carried by the trigger. A payload timestamp can be frozen at an
   event's first activation and resent unchanged, which makes every repeat look new — or, worse,
-  makes every repeat look already handled.
+  makes every repeat look already handled. The instant a playbook's schedule names is not a
+  trigger's timestamp: the runtime computes it from the expression, and FR-129 compares it.
 - **FR-119**: The runtime MUST accept a `guard` block in a playbook, validate its shape when the
   playbook loads, and refuse a `guard` block naming a key it does not implement — on the same
   terms as every other declared bound.
@@ -242,14 +282,30 @@ recorded.
   is the runtime's guarantee, not an option the playbook elects.
 - **FR-121**: A trigger that waited MUST run the playbook as it stands when the run starts, not as
   it stood when the trigger arrived.
+- **FR-128**: A scheduled tick MUST run at most once across the deployment. The backend MUST
+  record, per playbook, the scheduled time of the last tick that took the claim, in the same atomic
+  step that takes the claim, and MUST refuse a claim for a tick whose scheduled time is at or before
+  the recorded one. Recording it in a step of its own, before or after the claim, leaves a window in
+  which a second host reads the old value and takes the claim for the same tick. Only a scheduled
+  tick is judged against the record or advances it; a manual invocation, a replay and a resume do
+  neither. A deployment with no backend applies the same rule through its record store, under the
+  file lock.
+- **FR-129**: The scheduled time FR-128 records and compares MUST be the instant the playbook's
+  schedule computed for the tick, never the host's clock at the moment the tick was accepted. Two
+  hosts firing one tick compute the same instant whatever their clocks read, because the runtime
+  never evaluates a schedule in the host's own time zone ([research.md](./research.md) §5); their
+  clocks at acceptance differ by exactly the offset FR-128 exists to survive.
 
 ### Key Entities
 
 - **Claim**: the right to run one named playbook, held by exactly one run at a time across the
   deployment. Has a holder, an expiry judged by the backend, and a renewal that is itself bounded
   (FR-122) and spaced far enough beneath the expiry to leave room to act (FR-123).
-- **Waiting trigger**: at most one per playbook, held by a single process, carrying what invoked it
-  and when it arrived, and expiring on its own.
+- **Waiting trigger**: at most one per playbook per state directory, held by the single process
+  that accepted it, carrying what invoked it and when it arrived, and expiring on its own. Only a
+  trigger that will not come again becomes one.
+- **Last tick**: per playbook, the scheduled time of the most recent tick that took the claim,
+  held by the backend beside the claim and advanced only in the step that takes it (FR-128).
 - **Rate window**: the record of a playbook's recent runs against which a declared limit is judged,
   keyed on the playbook name and nothing else.
 - **Refusal record**: what the operator reads to learn why a trigger did not become a run.
@@ -268,9 +324,15 @@ recorded.
 - **SC-104**: With a coordination backend configured and unreachable, no run starts and the
   refusal names the backend — FR-107. With none configured, runs proceed and the deployment
   reports the single-host reach of its guarantee — FR-109.
-- **SC-105**: A trigger arriving during a run produces exactly one run after it ends; two further
-  triggers during that same run produce no additional run and two refusal records — FR-110,
-  FR-111 and FR-102.
+- **SC-105**: During one run, the playbook's scheduled tick fires and then it is invoked manually
+  three times. The tick produces no run and one refusal record, and does not occupy the waiting
+  slot; the first invocation produces exactly one run after the first run ends; the other two
+  produce no run and two refusal records — FR-110, FR-111 and FR-102. The tick comes first so that
+  the slot it must leave free is empty when it arrives: an implementation that lets every trigger
+  kind wait passes on manual invocations alone. Counts cannot tell that implementation apart either
+  — it too produces one run and three refusals, with the tick waiting and the first invocation
+  refused — so the test reads what each record refers to: the run comes from the first invocation,
+  and the tick's refusal is `claim_held`.
 - **SC-106**: A trigger that waits past its declared expiry produces no run, and a waiting trigger
   produces no run after a restart — FR-112 and FR-113.
 - **SC-107**: A playbook limited to N runs per window, triggered N+2 times inside one window,
@@ -300,6 +362,27 @@ recorded.
   implementation FR-127 exists to refuse.
 - **SC-114**: A trigger that waits and then runs produces no refusal record, and its run says it
   waited and for how long — FR-117 and FR-125.
+- **SC-117**: Two runtime processes sharing one backend, with the same tick delivered to the second
+  only after the first's run of it has ended, produce one run and one refusal naming the tick —
+  FR-128. The second process is delayed by being stopped before the tick and resumed once the first
+  run is over, not by having its clock set behind, which a test cannot do to one process. The run
+  is shorter than the gap between the two deliveries, because a run that outlasts it is refused by
+  FR-101 alone and the criterion would pass with FR-128 removed. The test fails when the tick is not
+  recorded, and when a tick equal to the recorded one is let through; a following tick that runs is
+  what fails an implementation refusing every tick once one is recorded. Two deliveries in sequence
+  cannot show that the record is written in the step that takes the claim — the second reader never
+  looks before the first has written — so that mutant is killed in the coordination contract,
+  where the test chooses the interleaving.
+- **SC-118**: A tick is judged by its scheduled time whatever the clock of the process accepting it
+  reads — FR-129. Two halves, each with the runtime's clock injected into two guards sharing one
+  backend. The first guard takes a tick while its clock reads later than the next tick's scheduled
+  time. With the second guard's clock well behind, that next tick runs. With it well ahead, the tick
+  the first guard already ran is refused. The first half expects a run, so it fails an
+  implementation that records or compares a clock reading and thereby refuses too much, and passes
+  one that lets too much through. The second expects a refusal, so it fails the one that lets too
+  much through and passes the other. Each passes against the mutant the other catches, which is why
+  both are needed. Measured on injected clocks rather than on two built processes, because a
+  process's wall clock cannot be offset on its own.
 - **SC-111**: Each of the above has at least one test that fails when the behaviour it asserts is
   removed, shown by the mutation harness rather than by the suite passing. A test that never
   executes its own body passes forever, and this feature's guarantees are all of the kind that look
@@ -310,11 +393,11 @@ recorded.
 
 ## Assumptions
 
-- **Deduplication is out of scope, and not by preference.** It needs an event identity, and a cron
-  tick has none: two ticks of the same expression are the same event in every respect but their
-  time. It is specified with the webhook trigger, which is what first supplies an identity. The
-  rate limit does not need one, which is why it is here — it keys on the playbook name alone,
-  per FR-114.
+- **Deduplication of events is out of scope.** It needs an event identity, which a delivery first
+  supplies; it is specified with the webhook trigger. A scheduled tick is the exception, and FR-128
+  covers it here: its identity is the playbook and the time its schedule computed, and that time is
+  the same on every host. The rate limit needs no identity at all — it keys on the playbook name
+  alone, per FR-114.
 - **Semantic retrieval and the webhook trigger are out of scope**, each specified separately. None
   of the three needs the others to ship.
 - **The coordination backend is not named here.** Whether it is a database the deployment already
@@ -325,8 +408,9 @@ recorded.
   still ships as one binary with no cgo; what changes is that a deployment wanting the cross-host
   guarantee has something to run beside it. A deployment that wants neither keeps what it has
   today, under FR-109.
-- **Waiting is local to one process, deliberately.** A trigger that waits across hosts would need
-  its own durable state and its own ownership question, which is a larger feature than the one it
-  would serve. FR-113 states the limit rather than leaving it to be discovered.
+- **Waiting is local to one host, deliberately, and held by one process.** A trigger that waits
+  across hosts would need its own durable state and its own ownership question, which is a larger
+  feature than the one it would serve. FR-113 states the limit rather than leaving it to be
+  discovered.
 - **The runtime's existing advisory file lock remains** as the mechanism behind FR-109, rather than
   being replaced. It is already proven and already has a mutant.

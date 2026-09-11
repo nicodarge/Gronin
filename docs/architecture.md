@@ -42,7 +42,7 @@ woke it.
 Runs before any tokens are spent. Holds a lock so two runs of the same playbook
 do not overlap, applies a rate limit, and deduplicates.
 
-Deduplication anchors on wall-clock time. An alerting system freezes an alert's
+Deduplication anchors on the runtime's own clock. An alerting system freezes an alert's
 start time at first activation and re-sends it unchanged on every
 re-notification, so a continuously-firing alert reports a start time that is not
 "now". Ageing a re-fire against it makes every one of them look seconds old,

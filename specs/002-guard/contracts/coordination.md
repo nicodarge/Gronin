@@ -23,8 +23,9 @@ package guard
 
 // Coordinator holds claims on playbook names for one deployment.
 type Coordinator interface {
-    // Acquire takes the claim on req.Name, and one of its rate slots when req.Rate is set,
-    // together or not at all. It returns within ctx's deadline.
+    // Acquire takes the claim on req.Name, one of its rate slots when req.Rate is set, and
+    // for a scheduled trigger the name's last tick, together or not at all. It returns
+    // within ctx's deadline.
     Acquire(ctx context.Context, req AcquireRequest) (Claim, error)
 
     // Released returns once the claim on name has been observed free, or when ctx ends. It
@@ -67,12 +68,13 @@ var (
     ErrRateLimited = errors.New("rate limit reached") // wrapped with the limit
     ErrUnavailable = errors.New("backend unavailable")
     ErrLost        = errors.New("claim lost")
+    ErrTickRan     = errors.New("tick already ran")   // wrapped with the recorded tick and its holder
 )
 ```
 
-`Trigger` carries the scheduled instant so that the second finding in
-[research.md](../research.md) — the backend refusing a scheduled occurrence that already ran —
-can be adopted inside an adapter without changing this interface. No clause below uses it yet.
+`Trigger` carries the instant the schedule computed, which is what C13 records and compares
+(FR-128, FR-129). The runtime fills it from the instant the scheduler fired for, never from its
+own clock (R6), and only for a scheduled trigger.
 
 ## Clauses
 
@@ -90,6 +92,8 @@ can be adopted inside an adapter without changing this interface. No clause belo
 | C10 | Released | yes | yes | yes |
 | C11 | Unavailable is not held | yes | yes | yes |
 | C12 | The granted expiry | yes | yes | n/a |
+| C13 | One tick, once | yes | yes | yes, against the record store |
+| C14 | The tick is the one requested | yes | yes | yes |
 
 **C1 — Exclusion.** While a claim on a name is held, `Acquire` for that name by anyone else returns
 `ErrHeld`, naming the holder. A different name is not affected.
@@ -112,7 +116,9 @@ ever happening (the SC-102 trap the plan names).
 
 **C3 — No host clock judges a claim.** No timestamp sent to the backend or read back from it takes
 part in deciding whether a claim is held. The holder's "when taken" is written for a reader, and
-nothing compares it with anything.
+nothing compares it with anything. C13's last tick is compared, but it is an instant the schedule
+computed rather than a clock reading, and it decides whether a tick may run, never whether a claim
+is held or has lapsed.
 *Fails when*: in the fake — the implementation where the runtime's clock and the backend's are
 separate and both injectable — the runtime's clock is moved forward by hours while the fake's is
 not. A claim another holder still renews must stay held. The mutant makes the fake's expiry read the
@@ -177,6 +183,46 @@ the expiry actually granted.
 *Fails when*: the grant's reply is not compared with the request. The test runs against the fake
 told to grant less than asked.
 
+**C13 — One tick, once.** An `Acquire` for a scheduled trigger takes the claim only if its `DueAt`
+is later than the last tick recorded for the name, and records its `DueAt` as the last tick in the
+same transaction that takes the claim — the one that also takes the rate slot (C8). A tick at or
+before the recorded one is refused with `ErrTickRan`, naming the recorded tick and the holder that
+took it, and leaves the claim, the slots and the record exactly as they were (FR-128). When the claim
+is held, the refusal is `ErrHeld` whatever the record says: the holder is what the operator needs to
+see, and it is usually the run of that very tick (US1 scenario 1). When the rate window is full as
+well, `ErrTickRan` is returned rather than `ErrRateLimited`, because naming the limit would suggest
+that raising it would have let the tick run. A trigger of any other kind neither reads the record nor
+advances it.
+
+For etcd the record is a key of its own, with no lease, since it has to outlive every claim. The
+adapter reads it, decides, and sends one transaction that compares the claim key's creation revision
+with zero and the record's modification revision with the one it read, then writes the claim, the
+slot and the new record. A transaction that fails the second comparison was overtaken by another
+host, and the adapter reads and decides again inside the same deadline (C4). The fake holds the same
+record behind the same comparison. For the file lock the record is a row of the record store, read
+and written while the lock is held.
+
+*Fails when*, one case per mutant:
+
+- The record is not written, or the comparison lets an equal tick through. A takes tick T and
+  releases; B's `Acquire` for T must return `ErrTickRan`, and under either mutant takes the claim.
+- The comparison refuses every tick once one is recorded. B's `Acquire` for the next tick must
+  succeed.
+- The record is written outside the transaction that takes the claim, or its revision is not
+  compared. Two calls in sequence cannot show this, because the second never reads before the first
+  has written, so the test chooses the interleaving: the adapter and the fake each call a hook the
+  contract suite sets, between their read and their transaction. The test holds B there, lets A take
+  the claim for T and release it, then lets B go. B must return `ErrTickRan`; under the mutant it
+  takes the claim for a tick that has already run.
+
+**C14 — The tick is the one requested.** `Acquire` records and compares `req.Trigger.DueAt`, and
+reads no clock to do it (FR-129).
+*Fails when*: the adapter records its host's clock instead of `DueAt`, or compares its host's clock
+with the record. The etcd adapter has no injectable clock, so the test puts the distance in the
+ticks instead: scheduled times decades before the real clock. The next tick must be taken, which
+fails an adapter that recorded its clock; the tick already taken must be refused, which fails one
+that compared its clock. SC-118 holds the runtime to the same rule with injected clocks (R6).
+
 ## The holder's side
 
 Obligations on the runtime rather than on an implementation, tested against the fake with the
@@ -220,6 +266,15 @@ seconds.
 configuration refused *only* because of the stop bound; one refused on the other terms alone
 passes the mutant (SC-112). The refusal names every duration and the expiry they exceed.
 
+**R6 — The tick handed over is the scheduler's.** The runtime sets `Trigger.DueAt` to the instant
+the scheduler fired for — the `dueAt` its fire function receives, computed in UTC — and sets it only
+for a scheduled trigger. Its own clock at acceptance never enters it (FR-129).
+*Fails when*: `DueAt` is taken from the runtime's clock when the trigger is accepted. The test is
+SC-118: two guards sharing one fake, each on an injected clock, the first taking a tick while its
+clock reads past the next one, the second's clock set behind in one half and ahead in the other. A
+process's wall clock cannot be offset on its own, so this is not measured on built binaries
+([research.md](../research.md) §5).
+
 ## Keys in the backend
 
 Under a prefix the deployment configures, so two deployments can share one etcd without sharing
@@ -229,6 +284,7 @@ claims:
 | --- | ----- | ----- |
 | `<prefix>/claims/<name>` | the holder, as JSON: host, process instance, run identifier, when taken | the claim's, renewed by the holder |
 | `<prefix>/rate/<name>/<i>`, `0 ≤ i < runs` | the run identifier that took the slot | one of its own, of `per`, never renewed |
+| `<prefix>/ticks/<name>` | the last tick, as JSON: its scheduled time in UTC, and the holder that took it | none — it outlives every claim |
 
 The token is the creation revision of the claim key, read from the reply to the transaction that
 created it.

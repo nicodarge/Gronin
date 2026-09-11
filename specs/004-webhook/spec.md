@@ -183,8 +183,9 @@ alongside is still accepted.
 - **Two hosts behind one ingress address.** Repeat detection reads the host's own record, so a retry
   that lands on the other host runs again. The runtime states that reach rather than implying a wider
   one (FR-319); the guard's claim still keeps the two runs from overlapping.
-- **The host clock jumps.** The window is judged on the host's wall clock, as the constitution
-  requires. A jump backwards lengthens the memory by the size of the jump; a jump forwards shortens
+- **The host clock jumps.** The window is judged on the host's wall clock: the identities it
+  compares against are recorded timestamps, which the constitution's Time constraint puts on the
+  wall clock. A jump backwards lengthens the memory by the size of the jump; a jump forwards shortens
   it. A monotonic clock would not survive the restart that FR-319 exists for.
 - **A source configured with no playbook bound to it.** Its deliveries are authenticated and
   recorded, and hand off to nothing. The record says so rather than the delivery vanishing.
@@ -278,8 +279,9 @@ alongside is still accepted.
 - **FR-319**: The memory of accepted identities MUST be durable and survive a restart. Its reach is
   the host's own record, and the runtime's status output MUST say so, rather than leave an operator
   with two hosts to infer it.
-- **FR-320**: Every time the ingress records or compares MUST be the runtime's own wall-clock time.
-  No timestamp carried in a header or in the body may enter any comparison, the replay window
+- **FR-320**: Every time the ingress records or compares MUST be read from the runtime's own clock,
+  as the constitution's Time constraint defines it — the replay window on the wall clock, since it
+  is compared against identities recorded durably (FR-319). No timestamp carried in a header or in the body may enter any comparison, the replay window
   included.
 
 #### What a payload may reach

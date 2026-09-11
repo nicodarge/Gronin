@@ -1,17 +1,25 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 → 1.2.0
-Bump rationale: Development Workflow's merge clause is materially changed, not clarified — a
-per-pull-request approval becomes a standing conditional one — so MINOR per the versioning rule
-below. No principle is added, removed or redefined.
+Version change: 1.2.0 → 1.3.0
+Bump rationale: the Time constraint is materially expanded, not reworded — where it named one
+reading of the host's clock it now distinguishes two, and says which one each use of time takes —
+so MINOR per the versioning rule below. No principle is added, removed or redefined.
 Modified principles: none.
 Modified sections:
-  - Development Workflow — the merge gate is now every required check being green, under a
-    standing approval the owner gave on 2026-09-08. The condition is the whole of it: what
-    replaces the owner's per-pull-request judgement is `gate`, so the clause names it and says
-    that no checks reported is not green.
+  - Operational Constraints, Time — "wall-clock time on the host" becomes the runtime's own clock:
+    monotonic for durations and deadlines, wall clock for recorded timestamps, never a timestamp a
+    trigger carried. Decided by the owner on 2026-09-11, on a finding of the guard feature's Phase 0
+    (specs/002-guard/research.md): read literally, "wall clock" also covered the guard's stop
+    deadline, which a backward step of the wall clock lengthens. The constraint also says that an
+    instant the runtime computes from a schedule is its own and not a trigger's, since the guard
+    compares one (specs/002-guard/spec.md, FR-129).
 Added sections: none
 Removed sections: none
+Documents brought in line with the new wording in the same change:
+  - README.md, docs/architecture.md
+  - specs/001-runtime-core/plan.md
+  - specs/002-guard/spec.md (FR-118), plan.md, research.md, data-model.md
+  - specs/004-webhook/spec.md (FR-320 and an edge case), plan.md
 Templates requiring review:
   - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
     Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
@@ -135,11 +143,16 @@ which Principle I already refuses.
 
 ## Operational Constraints
 
-**Time.** Elapsed time MUST be computed from wall-clock time on the host. It MUST NOT be
-computed from a timestamp carried in a trigger payload: an alerting system freezes an alert's
-start time at first activation and re-sends it unchanged on every re-notification, so ageing a
-re-fire against it makes every one look seconds old and suppresses the investigation
-permanently and silently.
+**Time.** Every time the runtime records or compares MUST be read from the runtime's own clock —
+monotonic for durations and deadlines, wall clock for recorded timestamps — and never from a
+timestamp a trigger carried. The monotonic reading is the one time synchronisation cannot step
+backwards, so a deadline measured on it cannot be lengthened; it does not survive the process, so a
+time another process or a later start has to compare is a recorded timestamp, on the wall clock. A
+timestamp carried in a trigger payload is neither: an alerting system freezes an alert's start time
+at first activation and re-sends it unchanged on every re-notification, so ageing a re-fire against
+it makes every one look seconds old and suppresses the investigation permanently and silently. An
+instant the runtime computes itself, such as the occurrence a schedule names, is the runtime's own
+and not a trigger's.
 
 **Secrets.** A secret MUST NOT appear on a command line. Commands are journalled and shipped to
 log aggregation, where the value then sits for the whole retention window. Read a secret into a
@@ -186,4 +199,4 @@ the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.2.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-08
+**Version**: 1.3.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-11
