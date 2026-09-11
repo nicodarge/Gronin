@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gronin playbook retrieve block",
+  "description": "The value that replaces the reserved `retrieve` property of specs/001-runtime-core/contracts/playbook.schema.json when this feature lands; until then that schema refuses the block outright. Shape only, like the playbook schema: whether a collection is declared, whether query_from names a gather step, and whether an `as` collides are the runtime's refusals, not this schema's. A mode, an endpoint, a model, a credential or a provider is refused as an unknown key: they belong to the deployment's collection, never to a playbook.",
+  "type": "array",
+  "minItems": 1,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "collection",
+      "as"
+    ],
+    "oneOf": [
+      {
+        "required": [
+          "query"
+        ]
+      },
+      {
+        "required": [
+          "query_from"
+        ]
+      }
+    ],
+    "properties": {
+      "collection": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+        "description": "A collection the deployment's catalogue declares."
+      },
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Interpolated like every other playbook string, against ${trigger.x} and ${config.x}. Searched as plain text: no word or character in it is search syntax."
+      },
+      "query_from": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "description": "The `as` of a gather step whose output is the query."
+      },
+      "as": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9._-]+$",
+        "description": "The file the results are written to in the run's working directory, where the agent reads them as it reads gathered input."
+      },
+      "max_results": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 10
+      },
+      "max_bytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65536,
+        "default": 16384,
+        "description": "Every byte of the results file, the lines naming each result's source included."
+      }
+    }
+  }
+}
