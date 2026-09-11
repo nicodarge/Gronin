@@ -15,7 +15,7 @@ every rule and no second path that can drift from it.
 | `gronin show <run>` | Prints one run's record | Non-zero if unknown |
 | `gronin replay <run>` | Re-runs the agent stage against the recorded inputs | Non-zero if the replay did not succeed |
 | `gronin resume <run>` | Re-runs only the sinks against the recorded report | Non-zero if a sink failed |
-| `gronin config set <key> <value>` | Sets a deployment configuration value playbooks interpolate against | Non-zero on an invalid key |
+| `gronin config set <key>` | Sets a deployment configuration value playbooks interpolate against, read from standard input | Non-zero on an invalid key, or on a value given as a second argument |
 | `gronin config list` | Lists configuration keys and values, secrets redacted | |
 | `gronin mcp list` | Lists the MCP servers this deployment provides, credentials never resolved | |
 | `gronin version` | Prints its own version and the agent version it found | Non-zero if the agent is below the floor |
@@ -24,6 +24,12 @@ every rule and no second path that can drift from it.
 holds `${config.discord_webhook}`; the value lives here, on the deployment. That separation is what
 makes a playbook committable and shareable, so the command that maintains it is part of the
 contract rather than a convenience.
+
+`config set` never takes the value as an argument: a command line is journalled and shipped to log
+aggregation, where the value then sits for the whole retention window. It reads the value from
+standard input instead — `printf '%s' "$VALUE" | gronin config set discord_webhook` or
+`gronin config set discord_webhook < file` — prompting without echo when standard input is a
+terminal. A value given as a second argument is refused.
 
 `gronin mcp` is read-only. The catalogue an operator maintains — which server a playbook's
 `agent.mcp` may name, and how to reach it — lives in a file beside the deployment configuration,

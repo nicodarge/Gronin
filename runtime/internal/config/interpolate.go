@@ -69,7 +69,7 @@ func (c *Config) Interpolate(text string, trigger map[string]string) (string, er
 				return value.Value
 			}
 			problems = append(problems, fmt.Errorf(
-				"${config.%s} is not configured; set it with `gronin config set %s <value>`",
+				"${config.%s} is not configured; set it with `printf '%%s' \"$VALUE\" | gronin config set %s`",
 				key, key))
 		case "trigger":
 			if value, ok := trigger[key]; ok {

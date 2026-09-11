@@ -459,7 +459,7 @@ func unconfigured(field, text string, known map[string]bool) []Problem {
 		problems = append(problems, Problem{
 			Field:    field,
 			Found:    fmt.Sprintf("${config.%s} is not configured", key),
-			Accepted: fmt.Sprintf("set it with `gronin config set %s <value>`", key),
+			Accepted: fmt.Sprintf("set it with `printf '%%s' \"$VALUE\" | gronin config set %s`", key),
 		})
 	}
 	return problems

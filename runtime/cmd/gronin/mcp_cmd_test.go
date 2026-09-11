@@ -159,7 +159,7 @@ func TestConfigSetIsNotBlockedByACatalogueItWouldFix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := bintest.Run(t, "--state-dir", state, "config", "set", "grafana_token", "REPLACE_ME")
+	got := bintest.RunWithStdin(t, "REPLACE_ME", "--state-dir", state, "config", "set", "grafana_token")
 
 	if got.ExitCode != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", got.ExitCode, got.Stderr)

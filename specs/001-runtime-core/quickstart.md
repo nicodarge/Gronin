@@ -50,9 +50,12 @@ lets you commit the playbook and share it. The other namespace is `${trigger.…
 run; a bare `${name}` is refused, so a payload can never shadow a configuration value.
 
 ```bash
-gronin config set discord_webhook 'https://discord.com/api/webhooks/REPLACE_ME'
-gronin config set checkout "$HOME/some-repository"
+printf '%s' 'https://discord.com/api/webhooks/REPLACE_ME' | gronin config set discord_webhook
+printf '%s' "$HOME/some-repository" | gronin config set checkout
 ```
+
+The value is read from standard input, never from the command line: a command line is journalled
+and shipped to log aggregation, where the value would then sit for the whole retention window.
 
 The second one is the repository the example reads. Both are refused at load if they are unset, so
 a value you forget is found below rather than at six in the morning.

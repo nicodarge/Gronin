@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,11 +129,12 @@ func TestServeRefusesToArmWhenAPlaybookIsRefused(t *testing.T) {
 func TestConfigSetsAValueAndRedactsASecretWhenListing(t *testing.T) {
 	stateDir := t.TempDir()
 
-	if got := bintest.Run(t, "config", "set", "ops_channel", "#ops",
+	if got := bintest.RunWithStdin(t, "#ops", "config", "set", "ops_channel",
 		"--state-dir", stateDir); got.ExitCode != 0 {
 		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
 	}
-	if got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+	if got := bintest.RunWithStdin(t, "https://example.com/hook/t0ken",
+		"config", "set", "ops_webhook",
 		"--secret", "--state-dir", stateDir); got.ExitCode != 0 {
 		t.Fatalf("set --secret failed: %q %q", got.Stdout, got.Stderr)
 	}
@@ -157,8 +159,8 @@ func TestConfigSetsAValueAndRedactsASecretWhenListing(t *testing.T) {
 func TestSettingASecretDoesNotEchoIt(t *testing.T) {
 	stateDir := t.TempDir()
 
-	got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
-		"--secret", "--state-dir", stateDir)
+	got := bintest.RunWithStdin(t, "https://example.com/hook/t0ken",
+		"config", "set", "ops_webhook", "--secret", "--state-dir", stateDir)
 
 	if strings.Contains(got.Stdout, "t0ken") || strings.Contains(got.Stderr, "t0ken") {
 		t.Fatalf("the value was echoed: %q %q", got.Stdout, got.Stderr)
@@ -166,6 +168,108 @@ func TestSettingASecretDoesNotEchoIt(t *testing.T) {
 	if !strings.Contains(got.Stdout, "ops_webhook") {
 		t.Fatalf("it does not say what was set: %q", got.Stdout)
 	}
+}
+
+// The constitution's Secrets constraint: a secret MUST NOT appear on a command line,
+// because commands are journalled and shipped to log aggregation, where the value then
+// sits for the whole retention window.
+func TestConfigSetRefusesAValueOnTheCommandLine(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.Run(t, "config", "set", "ops_webhook", "https://example.com/hook/t0ken",
+		"--state-dir", stateDir)
+
+	if got.ExitCode == 0 {
+		t.Fatalf("a value given as a second argument was accepted: %q", got.Stdout)
+	}
+	if strings.Contains(got.Stdout, "t0ken") || strings.Contains(got.Stderr, "t0ken") {
+		t.Fatalf("the refused value was echoed back: %q %q", got.Stdout, got.Stderr)
+	}
+	if !strings.Contains(got.Stderr, "standard input") && !strings.Contains(got.Stderr, "config set") {
+		t.Fatalf("the refusal does not point at the stdin form: %q", got.Stderr)
+	}
+
+	data, err := os.ReadFile(filepath.Join(stateDir, "config.json"))
+	if err == nil {
+		t.Fatalf("the refused value was stored anyway: %q", data)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
+// The value round-trips through standard input, and exactly one trailing newline —
+// the one a shell redirection or a heredoc leaves behind — is stripped, not every one.
+func TestConfigSetReadsTheValueFromStandardInput(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.RunWithStdin(t, "line one\nline two\n\n",
+		"config", "set", "multiline", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	stored := readStoredConfig(t, stateDir)
+	if got, want := stored["multiline"].Value, "line one\nline two\n"; got != want {
+		t.Fatalf("stored value = %q, want %q", got, want)
+	}
+}
+
+// A CRLF-terminated file — `gronin config set key < file`, prepared on Windows or
+// pasted through a tool that inserts "\r\n" — must not leave a trailing "\r" in the
+// stored value: it would sit on the value invisibly, and it is exactly the byte a
+// secret token would then fail to authenticate with, for no reason the operator could see.
+func TestConfigSetStripsACRLFTrailingNewline(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.RunWithStdin(t, "t0ken\r\n", "config", "set", "crlfkey", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	stored := readStoredConfig(t, stateDir)
+	if got, want := stored["crlfkey"].Value, "t0ken"; got != want {
+		t.Fatalf("stored value = %q, want %q", got, want)
+	}
+}
+
+// FR-040's sink/build.go depends on an explicitly empty value being distinct from one
+// never configured at all — `printf "" | gronin config set key` must still declare the
+// key, just with nothing in it.
+func TestConfigSetAcceptsAnExplicitlyEmptyValue(t *testing.T) {
+	stateDir := t.TempDir()
+
+	got := bintest.RunWithStdin(t, "", "config", "set", "empty_key", "--state-dir", stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("set failed: %q %q", got.Stdout, got.Stderr)
+	}
+
+	stored := readStoredConfig(t, stateDir)
+	value, present := stored["empty_key"]
+	if !present {
+		t.Fatal("declared-and-empty was not stored; it must be distinct from never configured")
+	}
+	if value.Value != "" {
+		t.Fatalf("value = %q, want empty", value.Value)
+	}
+}
+
+func readStoredConfig(t *testing.T, stateDir string) map[string]struct {
+	Value  string `json:"value"`
+	Secret bool   `json:"secret"`
+} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(stateDir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]struct {
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatal(err)
+	}
+	return stored
 }
 
 // FR-021 through the operator's own surface: run it, list it, read it back, and act on
