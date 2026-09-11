@@ -1388,6 +1388,261 @@
         "./internal/guard/guardtest",
         "-count=1"
       ]
+    },
+    {
+      "name": "the claim transaction stops comparing the creation revision",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "conditions := []clientv3.Cmp{clientv3.Compare(clientv3.CreateRevision(claimKey), \"=\", 0)}",
+      "replace": "conditions := []clientv3.Cmp{clientv3.Compare(clientv3.CreateRevision(claimKey), \">=\", 0)}",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the claim key is written without its lease",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "clientv3.OpPut(claimKey, string(holder), clientv3.WithLease(lease))",
+      "replace": "clientv3.OpPut(claimKey, string(holder))",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the expiry is sent in milliseconds",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "lease, err := c.client.Grant(ctx, int64(req.Expiry/time.Second))",
+      "replace": "lease, err := c.client.Grant(ctx, int64(req.Expiry/time.Millisecond))",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a renewal uses a context of its own",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
+      "replace": "if _, err := c.coordinator.client.KeepAliveOnce(context.Background(), c.lease); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a missing lease is reported as unavailable",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\tif lost(err) {\n\t\t\treturn fmt.Errorf(\"%w: the lease of %s is gone: %w\", guard.ErrLost, c.name, err)",
+      "replace": "\t\tif lost(err) && false {\n\t\t\treturn fmt.Errorf(\"%w: the lease of %s is gone: %w\", guard.ErrLost, c.name, err)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a fence checks that the key exists rather than its revision",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "If(clientv3.Compare(clientv3.CreateRevision(key), \"=\", c.token)).",
+      "replace": "If(clientv3.Compare(clientv3.CreateRevision(key), \">\", int64(0))).",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "release does nothing",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\tif _, err := c.coordinator.client.Revoke(ctx, c.lease); err != nil {",
+      "replace": "\tif err := error(nil); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "released returns only at its deadline",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\tif event.Type == clientv3.EventTypeDelete {",
+      "replace": "\t\t\tif event.Type == clientv3.EventTypeDelete && false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a timeout is classified as contention",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn fmt.Errorf(\"%w: %s: %w\", guard.ErrUnavailable, what, err)",
+      "replace": "\treturn fmt.Errorf(\"%w: %s: %w\", guard.ErrHeld, what, err)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the granted expiry is not compared",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\tif granted < asked {",
+      "replace": "\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestGrantedExpiry"
+      ]
+    },
+    {
+      "name": "the last tick is not written",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\twrites = append(writes, clientv3.OpPut(tickKey, string(tick)))\n",
+      "replace": "\t\t\t_ = tick\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a tick equal to the recorded one is let through",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn !req.Trigger.DueAt.After(recorded.DueAt)",
+      "replace": "\treturn req.Trigger.DueAt.Before(recorded.DueAt)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "every tick is refused once one is recorded",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn !req.Trigger.DueAt.After(recorded.DueAt)",
+      "replace": "\treturn true",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the tick's revision is not compared",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\tconditions = append(conditions, clientv3.Compare(clientv3.ModRevision(tickKey), \"=\", read.tickRev))\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "an absent tick record is not compared",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\tconditions = append(conditions, clientv3.Compare(clientv3.ModRevision(tickKey), \"=\", read.tickRev))\n",
+      "replace": "\t\t\tif read.tickRev != 0 {\n\t\t\t\tconditions = append(conditions, clientv3.Compare(clientv3.ModRevision(tickKey), \"=\", read.tickRev))\n\t\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the adapter records its clock as the tick",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\tDueAt: req.Trigger.DueAt.UTC(),",
+      "replace": "\t\tDueAt: c.clock.Wall(),",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the adapter compares its clock with the recorded tick",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn !req.Trigger.DueAt.After(recorded.DueAt)",
+      "replace": "\treturn !time.Now().After(recorded.DueAt)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
     }
   ]
 }

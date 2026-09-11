@@ -360,6 +360,10 @@ func released(t *testing.T, s Subject) {
 		returned <- time.Now()
 	}()
 
+	// Long enough for Released to have looked at all: releasing before it does leaves it
+	// finding the claim already free, which is a correct answer for the wrong reason and
+	// passes against an implementation that never notices anything afterwards.
+	time.Sleep(500 * time.Millisecond)
 	releasedAt := time.Now()
 	releaseClaim(t, claim)
 	select {

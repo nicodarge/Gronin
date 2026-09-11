@@ -168,7 +168,7 @@ it links.
       its own, never from `go test`'s timeout; C2 polls with a deadline and never sleeps a fixed time;
       C13's interleaving cases hold the second caller at the seam
 - [x] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
-- [ ] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
+- [x] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
       grant shorter than asked (C12), reads the last tick, and sends one transaction comparing the
       claim key's creation revision with zero and the tick key's modification revision with the one
       it read, writing the claim and the new tick; an overtaken transaction reads and decides again
@@ -181,9 +181,9 @@ it links.
       transaction on the creation revision; `Release` revokes and tolerates a second call; `Released`
       watches the key. Keys as in the contract, under the configured prefix. The library's
       `KeepAlive` and `concurrency.Session` are not used: they signal loss at the expiry
-- [ ] T020 `TestEtcdContract` in `runtime/internal/guard/etcd/contract_test.go`: the contract against the adapter talking to
+- [x] T020 `TestEtcdContract` in `runtime/internal/guard/etcd/contract_test.go`: the contract against the adapter talking to
       the embedded server through the proxy, which is what holds it for C4
-- [ ] T021 `TestGrantedExpiry` in `runtime/internal/guard/etcd/grant_test.go`: the adapter's comparison of granted
+- [x] T021 `TestGrantedExpiry` in `runtime/internal/guard/etcd/grant_test.go`: the adapter's comparison of granted
       and requested expiry, as a table — shorter refused, equal and longer accepted and reported. The
       embedded server can only grant longer than asked, so C12's refusing half cannot be reached
       through it; the contract exercises that half on the fake, and this is where the adapter's own
@@ -211,7 +211,7 @@ it links.
       recorded one through`; C14 `the fake records its own clock as the tick`; and
       `the embedded server listens on TCP`, a client URL on loopback, in
       `internal/guard/guardtest/etcdserver.go` (T015)
-- [ ] T025 Register the etcd adapter's mutants, in `internal/guard/etcd/etcd.go`, command
+- [x] T025 Register the etcd adapter's mutants, in `internal/guard/etcd/etcd.go`, command
       `go test ./internal/guard/etcd -count=1 -run TestEtcdContract` unless named. One per "fails
       when" of contracts/coordination.md: C1 `the claim transaction stops comparing the creation
       revision`; C2 `the claim key is written without its lease` and `the expiry is sent in
