@@ -1,0 +1,6 @@
+name: drift-check
+trigger: {type: manual}
+guard:
+  rate: {runs: 2, per: 30s}
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]

@@ -68,8 +68,8 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		// Refused by the published schema before the semantic gate sees them, which is
 		// the same rule at an earlier layer. The gate's own version is tested below,
 		// against a document the schema never reads.
-		"guard-block.yaml":    {"guard", "'not' failed"},
-		"retrieve-block.yaml": {"retrieve", "'not' failed"},
+		"guard-unknown-key.yaml": {"guard", "additional properties 'lock' not allowed"},
+		"retrieve-block.yaml":    {"retrieve", "'not' failed"},
 	}
 
 	paths := corpus(t, "../../testdata/playbooks/hostile")
@@ -238,7 +238,6 @@ func corpus(t *testing.T, dir string) []string {
 // is a comment. Reached here by constructing the playbook rather than parsing one.
 func TestTheGateRefusesAReservedBlockThatReachesIt(t *testing.T) {
 	for name, book := range map[string]*playbook.Playbook{
-		"guard":    {Name: "p", Guard: &playbook.Unknown{}},
 		"retrieve": {Name: "p", Retrieve: &playbook.Unknown{}},
 	} {
 		problems := playbook.Validate(book, deployment())
@@ -250,6 +249,59 @@ func TestTheGateRefusesAReservedBlockThatReachesIt(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("a %s block reached the gate and was not refused: %v", name, problems)
+		}
+	}
+}
+
+// SC-109, the gate's half. The schema accepts the shape of every key the guard contract
+// defines; a key whose mechanism has not landed is refused here, by name. The table says
+// which are applied, so lifting one is a change to one line of it — and a refusal of the
+// block as a whole, which the runtime core already produced, cannot pass for this.
+func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
+	applied := map[string]bool{
+		"guard.rate": false,
+		"guard.wait": false,
+	}
+	declaring := map[string]*playbook.Guard{
+		"guard.rate": {Rate: &playbook.Rate{Runs: 2, Per: "1h"}},
+		"guard.wait": {Wait: "0s"},
+	}
+	if len(declaring) != len(applied) {
+		t.Fatalf("%d keys are declared and %d are in the table", len(declaring), len(applied))
+	}
+
+	notApplied := func(problems []playbook.Problem, field string) bool {
+		for _, problem := range problems {
+			if problem.Field == field && strings.Contains(problem.Found, "does not apply it yet") {
+				return true
+			}
+		}
+		return false
+	}
+
+	for field, guard := range declaring {
+		t.Run(field, func(t *testing.T) {
+			problems := playbook.Validate(&playbook.Playbook{Name: "p", Guard: guard}, deployment())
+			refused := notApplied(problems, field)
+			switch {
+			case applied[field] && refused:
+				t.Fatalf("%s is applied and was refused: %v", field, problems)
+			case !applied[field] && !refused:
+				t.Fatalf("%s is not applied yet and was accepted: %v", field, problems)
+			}
+			for other := range applied {
+				if other != field && notApplied(problems, other) {
+					t.Fatalf("declaring %s alone was refused as %s", field, other)
+				}
+			}
+		})
+	}
+
+	// The block with nothing in it declares no bound, and is not refused for being there.
+	problems := playbook.Validate(&playbook.Playbook{Name: "p", Guard: &playbook.Guard{}}, deployment())
+	for _, problem := range problems {
+		if strings.HasPrefix(problem.Field, "guard") {
+			t.Fatalf("an empty guard block was refused: %v", problem)
 		}
 	}
 }

@@ -111,7 +111,7 @@ it links.
 
 ### The `guard` block
 
-- [ ] T010 [P] `runtime/internal/playbook/playbook.go` gains the `Guard` type (`rate.runs`,
+- [x] T010 [P] `runtime/internal/playbook/playbook.go` gains the `Guard` type (`rate.runs`,
       `rate.per`, `wait`). The reserved `guard` property of
       `specs/001-runtime-core/contracts/playbook.schema.json` is replaced by the content of
       [contracts/guard.schema.json](./contracts/guard.schema.json), and
@@ -125,7 +125,7 @@ it links.
       `guard-unknown-key.yaml`; the tables in `parse_test.go` and `validate_test.go` follow. The
       existing mutant `the gate accepts a reserved block` keeps its target and is now killed by the
       `retrieve` case alone — confirm it still is
-- [ ] T011 SC-109, the load half, `TestGuardBlock…` in `runtime/internal/playbook/parse_test.go`
+- [x] T011 SC-109, the load half, `TestGuardBlock…` in `runtime/internal/playbook/parse_test.go`
       and `validate_test.go`: the shape layer probed on what it must refuse — an unknown key, `runs: 0`,
       `per: 30s`, `per: 0m`, `wait: 5`, a `rate` without `per` — and on what it must accept, a
       shape-valid `rate` and `wait`. The gate's refusal of a not-yet-applied key is asserted by

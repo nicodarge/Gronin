@@ -1,4 +1,4 @@
-name: guard-block
+name: guard-unknown-key
 trigger:
   type: manual
 guard:

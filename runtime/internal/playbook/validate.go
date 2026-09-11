@@ -122,6 +122,7 @@ func Validate(book *Playbook, dep Deployment) []Problem {
 	problems = append(problems, validateAgent(book, dep)...)
 	problems = append(problems, validateSinks(book, dep)...)
 	problems = append(problems, validateReserved(book)...)
+	problems = append(problems, validateGuard(book)...)
 	problems = append(problems, validateInterpolation(book, dep)...)
 	return problems
 }
@@ -383,12 +384,40 @@ func validateSinks(book *Playbook, dep Deployment) []Problem {
 // where the runtime can say why, and it holds if the schema is ever loosened.
 func validateReserved(book *Playbook) []Problem {
 	var problems []Problem
-	for field, present := range map[string]bool{"guard": book.Guard != nil, "retrieve": book.Retrieve != nil} {
+	for field, present := range map[string]bool{"retrieve": book.Retrieve != nil} {
 		if present {
 			problems = append(problems, Problem{
 				Field:    field,
 				Found:    "declared, and this runtime does not apply it",
 				Accepted: "remove the block; a declared bound nothing enforces reads as enforced in review",
+			})
+		}
+	}
+	sort.Slice(problems, func(i, j int) bool { return problems[i].Field < problems[j].Field })
+	return problems
+}
+
+// appliedGuardKeys are the keys of the guard block this runtime enforces. The schema
+// accepts the shape of every key the contract defines; one whose mechanism has not landed
+// is refused here, by name, because accepting it would be a declared bound nothing
+// applies. A key is lifted by adding it.
+var appliedGuardKeys = map[string]bool{}
+
+// validateGuard applies FR-119 to the keys the schema's shape layer lets through.
+func validateGuard(book *Playbook) []Problem {
+	if book.Guard == nil {
+		return nil
+	}
+	var problems []Problem
+	for field, declared := range map[string]bool{
+		"guard.rate": book.Guard.Rate != nil,
+		"guard.wait": book.Guard.Wait != "",
+	} {
+		if declared && !appliedGuardKeys[field] {
+			problems = append(problems, Problem{
+				Field:    field,
+				Found:    "declared, and this runtime does not apply it yet",
+				Accepted: "remove the key; a declared bound nothing enforces reads as enforced in review",
 			})
 		}
 	}
