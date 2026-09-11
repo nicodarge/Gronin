@@ -172,7 +172,9 @@ it links.
       grant shorter than asked (C12), reads the last tick, and sends one transaction comparing the
       claim key's creation revision with zero and the tick key's modification revision with the one
       it read, writing the claim and the new tick; an overtaken transaction reads and decides again
-      inside the same deadline (C13); the token is the claim key's creation revision (C6); a
+      inside the same deadline (C13) — a failed transaction does not say which comparison lost, so
+      whether the refusal is `ErrHeld` or `ErrTickRan` is decided from the fresh read, never from the
+      failure itself; the token is the claim key's creation revision (C6); a
       decision that times out revokes the lease it was granted on the way out, and otherwise leaves
       it to lapse (research.md §3). `Renew` is one `KeepAliveOnce` per call, `requested lease not
       found` mapped to `ErrLost` (C5) and every other error to a failed attempt. `Fence` is a
@@ -343,8 +345,10 @@ core does today. Waiting lands in US2.
       `due_at` from the tick, and a `--trigger` value shaped like a timestamp becomes neither (FR-118)
 - [ ] T042 [P] [US1] `TestCredentials…` in `runtime/internal/guard/etcd/client_test.go`: the adapter authenticates to the
       embedded server with a TLS client certificate, and to one with authentication enabled with a
-      username and password. The certificates are generated in the test, never committed. A password
-      marked secret reaches neither the record nor the log
+      username and password. The certificates are generated in the test, never committed; the server
+      certificate names the socket's file, which is what the client verifies over a unix socket
+      (research.md §2, *Credentials, embedded*). A password marked secret reaches neither the record
+      nor the log
 
 ### Implementation for User Story 1
 
@@ -706,6 +710,10 @@ through `gronin refusals`.
 - **US3 (Phase 5)** needs US1's decision (T045) and, for FR-124, US2's wait (T077). Without US2 it
   can still land except for T087's waiting case and T096's `a waiting trigger is not judged against
   the limit again`, which follow T077.
+  Landing without US2 is not working beside it: T072 and T089 both edit
+  `runtime/internal/playbook/validate_test.go`, and T073 and T090 both edit
+  `runtime/cmd/gronin/refusals_cmd_test.go`, so where both stories are in flight those pairs run US2
+  first.
 - **Polish (Phase 6)** follows the stories it documents. T101 is last among the tasks that change the
   tree, because it is the audit of every mutant declared before it.
 

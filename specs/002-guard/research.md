@@ -129,6 +129,17 @@ question 3).
   all passed `scripts/check-static.sh` ("ok (linux, CGO_ENABLED=0)"). Linking the client grew
   `gronin` from 19,672,598 to 31,186,644 bytes. Adding the client and the embedded server to the
   module took `go list -m all` from 38 modules to 144.
+- *Credentials, embedded.* Measured 2026-09-11 with the v3.7.1 client and embedded server on unix
+  sockets inside `scripts/no-network.sh`. With authentication enabled — a user granted read-write on
+  one prefix — a client carrying that username and password put a key, granted a lease and committed
+  a transaction writing a leased key; a put outside the prefix was refused `permission denied`, one
+  with no credentials `user name is empty`, and a wrong password failed at client construction with
+  `authentication failed`. With a `unixs://` client listener and client-certificate authentication,
+  a client presenting a certificate from the test's own CA put a key, and one presenting none was
+  refused in the handshake, `tls: certificate required`. Over a unix socket the client verifies the
+  server certificate against the socket's file name, not the configured server name: a certificate
+  valid only for `localhost` failed with `certificate is valid for localhost, not client.sock`, and
+  passed once it also named the socket file.
 - *Expiry judged by the server.* Holder frozen, 5 s expiry: the contender acquired 4.999 s after
   the freeze when the holder renewed every second with `KeepAliveOnce`, and 3.813 s after it when
   the holder used the library's `KeepAlive` stream, which renews every third of the expiry.
