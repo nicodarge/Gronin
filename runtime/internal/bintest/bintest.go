@@ -7,6 +7,7 @@
 package bintest
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -15,7 +16,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // Result is what one invocation of the executable produced.
@@ -95,4 +98,166 @@ func RunWithStdin(t *testing.T, stdin string, args ...string) Result {
 		Stderr:   stderr.String(),
 		ExitCode: cmd.ProcessState.ExitCode(),
 	}
+}
+
+// Process is a built gronin held open: a `serve` kept up, or a `run` a test freezes or
+// kills mid-run. Every such test goes through it, so that none leaves a process behind.
+type Process struct {
+	cmd *exec.Cmd
+
+	mu      sync.Mutex
+	lines   []string
+	closed  bool
+	arrived chan struct{} // closed and replaced whenever a line arrives or output closes
+	stderr  bytes.Buffer
+
+	waited   chan struct{}
+	exitCode int
+	waitErr  error
+}
+
+// Start runs the executable with args and returns at once. Standard output is read line
+// by line through Next and Expect; standard error is kept whole for Stderr. The process
+// inherits this one's environment, so t.Setenv reaches it. It is killed at cleanup
+// whatever state it is in — a stopped process included, since SIGKILL ends one.
+func Start(t *testing.T, args ...string) *Process {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), Build(t), args...)
+	p := &Process{cmd: cmd, arrived: make(chan struct{}), waited: make(chan struct{})}
+	cmd.Stderr = &lockedWriter{p: p}
+	// A child of gronin still holding its standard error would otherwise keep Wait from
+	// ever returning.
+	cmd.WaitDelay = 5 * time.Second
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting gronin %v: %v", args, err)
+	}
+
+	// Read as the lines arrive rather than on demand, into a buffer with no bound: a
+	// process whose pipe fills blocks on its next write, and a test that had merely
+	// stopped reading would see a hang of its own making.
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			p.push(scanner.Text(), false)
+		}
+		p.push("", true)
+	}()
+	// exec.Cmd.Wait closes the pipe once the process exits, so it is called only after
+	// everything has been read from it; a line still in the pipe would otherwise be lost.
+	go func() {
+		<-drained
+		err := cmd.Wait()
+		p.exitCode = cmd.ProcessState.ExitCode()
+		var exitErr *exec.ExitError
+		if err != nil && !errors.As(err, &exitErr) {
+			p.waitErr = err
+		}
+		close(p.waited)
+	}()
+
+	t.Cleanup(func() {
+		_ = cmd.Process.Signal(syscall.SIGKILL)
+		_, _ = p.Wait(10 * time.Second)
+	})
+	return p
+}
+
+func (p *Process) push(line string, closed bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if closed {
+		p.closed = true
+	} else {
+		p.lines = append(p.lines, line)
+	}
+	close(p.arrived)
+	p.arrived = make(chan struct{})
+}
+
+// next returns the next unread line, or reports that output has closed, or hands back
+// the channel that is closed when either changes.
+func (p *Process) next() (line string, ok bool, closed bool, arrived <-chan struct{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.lines) > 0 {
+		line, p.lines = p.lines[0], p.lines[1:]
+		return line, true, false, nil
+	}
+	return "", false, p.closed, p.arrived
+}
+
+// Next returns the next line the process printed, failing the test if none arrives
+// within the bound or the process closed its output first.
+func (p *Process) Next(t *testing.T, within time.Duration) string {
+	t.Helper()
+	return p.Expect(t, "", within)
+}
+
+// Expect reads lines until one contains want and returns it, failing the test if none
+// does within the bound. The lines read past on the way are consumed.
+func (p *Process) Expect(t *testing.T, want string, within time.Duration) string {
+	t.Helper()
+	timeout := time.NewTimer(within)
+	defer timeout.Stop()
+	var seen []string
+	for {
+		line, ok, closed, arrived := p.next()
+		switch {
+		case ok && strings.Contains(line, want):
+			return line
+		case ok:
+			seen = append(seen, line)
+			continue
+		case closed:
+			t.Fatalf("gronin closed its output before printing a line containing %q; printed %q; stderr = %q",
+				want, seen, p.Stderr())
+		}
+		select {
+		case <-arrived:
+		case <-timeout.C:
+			t.Fatalf("gronin printed no line containing %q within %s; printed %q; stderr = %q",
+				want, within, seen, p.Stderr())
+		}
+	}
+}
+
+// Signal delivers sig: SIGSTOP freezes the process, SIGCONT resumes it, SIGTERM asks it
+// to stop, SIGKILL ends it with no chance to write anything on the way out.
+func (p *Process) Signal(sig syscall.Signal) error {
+	return p.cmd.Process.Signal(sig)
+}
+
+// Wait returns the exit code once the process has ended. It gives up after the bound
+// rather than hanging the test, and says so: a process that should have exited and did
+// not is a finding, not a timeout of the suite.
+func (p *Process) Wait(within time.Duration) (int, error) {
+	select {
+	case <-p.waited:
+		return p.exitCode, p.waitErr
+	case <-time.After(within):
+		return -1, errors.New("gronin had not exited within " + within.String())
+	}
+}
+
+// Stderr is everything the process has written to standard error so far.
+func (p *Process) Stderr() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stderr.String()
+}
+
+type lockedWriter struct{ p *Process }
+
+func (w *lockedWriter) Write(data []byte) (int, error) {
+	w.p.mu.Lock()
+	defer w.p.mu.Unlock()
+	return w.p.stderr.Write(data)
 }

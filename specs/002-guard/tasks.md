@@ -61,24 +61,24 @@ than passing silently.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `go.etcd.io/etcd/client/v3` and `go.etcd.io/etcd/server/v3` to `runtime/go.mod`
+- [x] T001 Add `go.etcd.io/etcd/client/v3` and `go.etcd.io/etcd/server/v3` to `runtime/go.mod`
       and `runtime/go.sum`, the server imported only from `internal/guard/guardtest` and
       `_test.go` files. Build `CGO_ENABLED=0 go build ./cmd/gronin` and run
       `scripts/check-static.sh` on it locally; the CI `build` job already runs the same check on
       every target, so no workflow change is needed. Confirm the `suite` and `mutation` jobs'
       `go mod download` brings the new modules into the cache the no-network run needs, since both
       run with `GOPROXY=off`
-- [ ] T002 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, with its
+- [x] T002 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, with its
       standard output readable line by line, `Signal` (SIGSTOP, SIGCONT, SIGKILL, SIGTERM), a
       `Wait` bounded by a deadline, and a cleanup that kills it. Every test that keeps `serve` up,
       freezes a process or kills one mid-run goes through it rather than rolling its own
-- [ ] T003 [P] `TestTheBinaryLinksNoEtcdServer` in `runtime/cmd/gronin/binary_test.go`: the built executable's module list, read
+- [x] T003 [P] `TestTheBinaryLinksNoEtcdServer` in `runtime/cmd/gronin/binary_test.go`: the built executable's module list, read
       with `debug/buildinfo.ReadFile` on `bintest.Build(t)`, holds no `go.etcd.io/etcd/server`
       module. It also asserts one module that must be there — `modernc.org/sqlite` now, the etcd
       client once T053 lands — because a check on an empty list passes. Nothing else notices a
       test-support import reaching a shipped package: the binary still builds, statically, and
       every other test passes
-- [ ] T004 Register T003's mutant, `the shipped binary links the embedded etcd server`: a blank
+- [x] T004 Register T003's mutant, `the shipped binary links the embedded etcd server`: a blank
       import of `go.etcd.io/etcd/server/v3/embed` added to `cmd/gronin/main.go`; command
       `go test ./cmd/gronin -count=1 -run TestTheBinaryLinksNoEtcdServer`
 

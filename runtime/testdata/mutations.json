@@ -1295,6 +1295,21 @@
         "-run",
         "TestConfigSetTurnsEchoOffBeforeItPrompts"
       ]
+    },
+    {
+      "name": "the shipped binary links the embedded etcd server",
+      "tree": "..",
+      "file": "cmd/gronin/main.go",
+      "find": "import (\n\t\"errors\"\n\t\"fmt\"\n\t\"os\"\n)",
+      "replace": "import (\n\t\"errors\"\n\t\"fmt\"\n\t\"os\"\n\n\t_ \"go.etcd.io/etcd/server/v3/embed\"\n)",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheBinaryLinksNoEtcdServer"
+      ]
     }
   ]
 }
