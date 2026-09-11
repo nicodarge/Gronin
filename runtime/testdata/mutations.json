@@ -1310,6 +1310,84 @@
         "-run",
         "TestTheBinaryLinksNoEtcdServer"
       ]
+    },
+    {
+      "name": "the fake stops consulting its claims",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tclaim, found := f.claims[name]\n\tif !found {",
+      "replace": "\tclaim, found := f.claims[name]\n\tif !found || true {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the fake's expiry reads the runtime's clock",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tif !f.clock.Monotonic().Before(claim.expires) {",
+      "replace": "\tif !f.runtime.Monotonic().Before(claim.expires) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a held fake call ignores its context",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tif held {\n\t\t<-ctx.Done()",
+      "replace": "\tif held {\n\t\t<-make(chan struct{})",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the fake lets a tick equal to the recorded one through",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "recorded && !req.Trigger.DueAt.After(tick.dueAt) {",
+      "replace": "recorded && req.Trigger.DueAt.Before(tick.dueAt) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the fake records its own clock as the tick",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "fakeTick{dueAt: req.Trigger.DueAt, holder:",
+      "replace": "fakeTick{dueAt: f.clock.Wall(), holder:",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the embedded server listens on TCP",
+      "tree": "..",
+      "file": "internal/guard/guardtest/etcdserver.go",
+      "find": "\tcfg.ListenClientUrls, cfg.AdvertiseClientUrls = []url.URL{client}, []url.URL{client}",
+      "replace": "\tcfg.ListenClientUrls, cfg.AdvertiseClientUrls = []url.URL{client, {Scheme: \"http\", Host: \"127.0.0.1:0\"}}, []url.URL{client}",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1"
+      ]
     }
   ]
 }

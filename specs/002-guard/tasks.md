@@ -133,41 +133,41 @@ it links.
 
 ### The interface, the fake and the contract
 
-- [ ] T012 [P] `runtime/internal/guard/doc.go` and `runtime/internal/guard/coordinator.go`: the
+- [x] T012 [P] `runtime/internal/guard/doc.go` and `runtime/internal/guard/coordinator.go`: the
       interface in [contracts/coordination.md](./contracts/coordination.md) as written — the
       `Coordinator` and `Claim` interfaces, `AcquireRequest`, `Holder`, `RateLimit`, `TriggerRef`
       and the sentinel errors — plus `Claim.Expiry()`, which C12 requires and the interface block
       omits; the same change adds it to contracts/coordination.md. And the C13 seam: an option the
       etcd adapter and the fake call between reading the last tick and sending the transaction, nil
       outside the contract suite
-- [ ] T013 `runtime/internal/guard/clock.go` and `runtime/internal/guard/guardtest/clock.go`: the
+- [x] T013 `runtime/internal/guard/clock.go` and `runtime/internal/guard/guardtest/clock.go`: the
       runtime's clock as an interface with its two readings kept apart — monotonic for durations and
       deadlines, wall for recorded timestamps (FR-118) — and its timers; the system implementation,
       and a fake the test advances, whose wall reading can be stepped backwards without moving the
       monotonic one
-- [ ] T014 [P] `runtime/internal/guard/guardtest/etcdserver.go` and
+- [x] T014 [P] `runtime/internal/guard/guardtest/etcdserver.go` and
       `runtime/internal/guard/guardtest/proxy.go`: an etcd server embedded in the test process, its
       client and peer URLs unix sockets under a short temporary directory — a socket path longer
       than the kernel's `sun_path` limit fails to bind, and `t.TempDir()` names grow with the test's
       name — stopped at cleanup; and a unix-socket proxy between client and server with a switch that
       holds (stops forwarding without closing) and one that severs. Research.md §1 is why this is
       not network in Principle VI's sense, and why a fixed port or a binary found on `PATH` would be
-- [ ] T015 Test in `runtime/internal/guard/guardtest/etcdserver_test.go`: every listener the embedded
+- [x] T015 Test in `runtime/internal/guard/guardtest/etcdserver_test.go`: every listener the embedded
       server opened is a unix socket, read from the server's own listeners. Not from
       `/proc/net/tcp`: the whole suite shares one network namespace, and other packages' loopback
       servers would show there
-- [ ] T016 `runtime/internal/guard/guardtest/fake.go`: the fake `Coordinator`. It judges expiry on a
+- [x] T016 `runtime/internal/guard/guardtest/fake.go`: the fake `Coordinator`. It judges expiry on a
       clock of its own, separate from the runtime's (C3), and can be told, per handle, to hold every
       response or to sever — per handle, so that one holder loses the backend while a contender still
       reaches it (SC-103). It can expire a claim now, grant less than it was asked (C12), and call the
       C13 seam. A held call returns only when its context ends and never completes late: that is
       what makes a hang distinguishable from a slow success
-- [ ] T017 `runtime/internal/guard/guardtest/contract.go`: `Contract(t, subject)` running every clause
+- [x] T017 `runtime/internal/guard/guardtest/contract.go`: `Contract(t, subject)` running every clause
       of contracts/coordination.md except C8 and C9, which T085 adds with the rate slots. A clause is
       skipped for a subject only where the contract's table says n/a. C4 asserts from a watchdog of
       its own, never from `go test`'s timeout; C2 polls with a deadline and never sleeps a fixed time;
       C13's interleaving cases hold the second caller at the seam
-- [ ] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
+- [x] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
 - [ ] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
       grant shorter than asked (C12), reads the last tick, and sends one transaction comparing the
       claim key's creation revision with zero and the tick key's modification revision with the one
@@ -204,7 +204,7 @@ it links.
 
 ### Mutants for the foundation
 
-- [ ] T024 Register the fake's and the embedded server's mutants, each with command
+- [x] T024 Register the fake's and the embedded server's mutants, each with command
       `go test ./internal/guard/guardtest -count=1`, all in `internal/guard/guardtest/fake.go` unless
       named: C1 `the fake stops consulting its claims`; C3 `the fake's expiry reads the runtime's
       clock`; C4 `a held fake call ignores its context`; C13 `the fake lets a tick equal to the
