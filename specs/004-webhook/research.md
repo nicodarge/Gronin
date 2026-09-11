@@ -151,3 +151,123 @@ sink field allowed to reference the payload would refuse every replay and every 
 for a missing value. FR-324 is not needed for replay — the resolved prompt is recorded — and is
 justified on its own terms in the plan; what replay does rely on is that the declared values reach
 the agent as a gathered input, which a replay already restores.
+
+## 7. Which senders can produce the signature, and in which header (read, not run)
+
+**Question**: FR-307 fixes the scheme — HMAC-SHA256 over the exact body bytes, in one header. This
+repository's standard is that a claim about third-party software is read off that software, not
+recalled. Which real senders can present a signature that fits, and in which header?
+
+**Method**: for each sender, read its own source (where it is open and the sending code is
+identifiable) or its own current documentation, fetched on 2026-09-11. Every citation below names
+the file and line, or the page, read that day.
+
+**Answer**:
+
+| Sender | Signs? | Header | Format | Bytes signed | Configurable | Source |
+| ------ | ------ | ------ | ------ | ------------- | ------------- | ------ |
+| GitHub | yes | `X-Hub-Signature-256` | `sha256=<hex>` | exact body | secret per webhook | [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries), fetched 2026-09-11: "The hash signature will appear in each delivery as the value of the `X-Hub-Signature-256` header", computed as "an HMAC hex digest" of "your webhook's secret token and the payload contents" |
+| Gitea | yes | `X-Gitea-Signature` (also sent as `X-Gogs-Signature` and `X-Hub-Signature-256`) | hex, no prefix on the Gitea/Gogs headers; `sha256=<hex>` on the GitHub-compatible one | exact body | secret per webhook | `services/webhook/deliver.go`, function `addDefaultHeaders`, lines 97–146, commit `4d434455322a4780064ce67524ceb3711d865320` of `go-gitea/gitea`: `sig256 := hmac.New(sha256.New, secret)`; `io.MultiWriter(sig1, sig256).Write(payloadContent)`; `req.Header.Add("X-Gitea-Signature", signatureSHA256)` |
+| Forgejo | yes | `X-Forgejo-Signature` (also `X-Gitea-Signature`, `X-Gogs-Signature`, `X-Hub-Signature-256`) | hex, no prefix on the Forgejo/Gitea/Gogs headers | exact body | secret per webhook | `services/webhook/shared/payloader.go`, function `AddDefaultHeaders`, branch `forgejo` of `codeberg.org/forgejo/forgejo`, fetched 2026-09-11 — a near-verbatim fork of Gitea's `addDefaultHeaders`, with `X-Forgejo-Signature` added alongside the inherited headers; only the raw body is signed |
+| GitLab, secret token (legacy) | no — a static shared value | `X-Gitlab-Token` | plain text, not a signature | nothing — the header itself is the secret, compared directly | secret per webhook | [Webhooks](https://docs.gitlab.com/user/project/integrations/webhooks/), fetched 2026-09-11: "Secret token for the webhook, sent as plain text"; "The secret token only provides a plain-text value in a header, which offers weaker guarantees" |
+| GitLab, signing token | yes, but not to FR-307's scheme | `webhook-signature`, alongside `webhook-id` and `webhook-timestamp` | `v1,<base64>` | `{webhook-id}.{webhook-timestamp}.{body}`, not the body alone | secret per webhook | same page: "The signature is computed over the string `{message_id}.{timestamp}.{body}}`"; "Each signature has the format `v1,{base64_signature}`" |
+| Prometheus Alertmanager | no | — | — | — | — | `notify/webhook/webhook.go`, `Notify`, commit `4b400e67d6dafee92409ba8e06a28dfe80ca9046` of `prometheus/alertmanager`: the message is JSON-encoded into `buf` and posted with `notify.PostJSON(ctx, n.client, url, &buf)` — no header is added beyond what `http_config` sets, and `WebhookConfig`'s documented fields (`url`/`url_file`, `http_config`, `max_alerts`, `timeout`, `payload`) carry no signing option |
+| Grafana alerting | yes, and can match FR-307 exactly | configurable, default `X-Grafana-Alerting-Signature`; timestamp, if used, in a second configurable header | hex | exact body when no timestamp header is configured; `timestamp + ":" + body` when one is | secret, header name and the optional timestamp header are all configuration fields (`HMACConfig.Secret`, `.Header`, `.TimestampHeader`) | `http/hmac.go`, function `sign`, commit `f7a71a734a8e9d7b3145ac74c5a926b9ebd46af5` of `grafana/alerting`: `hash := hmac.New(sha256.New, []byte(rt.secret))`; when `rt.timestampHeader != ""` the timestamp and a `:` separator are written first; `hash.Write(body)` always runs; `signature := hex.EncodeToString(hash.Sum(nil))` |
+| Stripe (generic, for contrast) | yes, but not to FR-307's scheme | `Stripe-Signature` | `t=<ts>,v1=<hex>,v0=<hex>` | `{timestamp}.{body}` | secret per endpoint | [Webhook signatures](https://docs.stripe.com/webhooks/signature), fetched 2026-09-11: the signature parameter looks like `t=xxx,v1=yyy,v0=zzz`; Stripe's own troubleshooting guide for this page states the signed payload is the timestamp concatenated with the raw body |
+
+**Consequence for the design**: three findings, against the owner's decision that a per-source
+header name is admissible and a second signing scheme is not.
+
+- **A fixed header name does not fit what real senders do.** GitHub, Gitea/Forgejo and Grafana each
+  default to a different header, and Grafana's is a configuration field with no fixed default at
+  all. FR-306 therefore carries a fourth declared property per source — the header — alongside the
+  name, the secret, the identity location and the replay window, and the plan's Phase 1 sketch names
+  the header as that per-source property rather than as one fixed header. GitHub's
+  and Gitea's formats also differ in whether the value carries a `sha256=` prefix; that is a format
+  the runtime already has to parse per source once the header itself is per source, so it costs the
+  design nothing further to declare.
+- **Gitea and Forgejo need nothing changed to fit exactly**: HMAC-SHA256, hex, over the exact body,
+  in a header of their own. Grafana fits exactly provided the operator leaves its timestamp header
+  unconfigured — which is the operator's choice, not the runtime's to enforce, so it is worth saying
+  in the deployment-facing documentation this feature eventually needs.
+- **Three senders are flagged rather than accommodated, as the owner's decision requires.**
+  Prometheus Alertmanager signs nothing at all; GitLab's recommended mechanism and Stripe's both
+  sign a composite string, not the body alone, in a format this ingress does not parse. Each needs
+  something in front of the ingress that verifies what that sender actually sends and re-signs
+  the exact body under a secret this deployment holds — the assumption the specification already
+  states ("A sender that cannot sign cannot deliver directly"). Widening FR-307 to a second scheme
+  to accommodate any of them is explicitly not the answer the owner gave.
+
+## 8. Repeat detection and the guard's coordination backend
+
+**Question**: the guard's Phase 0 (PR #26, branch `add_guard_research`) has since chosen a
+backend. Does FR-319's single-host reach for repeat detection widen through it?
+
+**Method**: read `specs/002-guard/research.md` and `specs/002-guard/contracts/coordination.md` on
+`origin/add_guard_research`, at the commit that branch carries the research and contract from.
+
+**Answer**: no, not automatically, and the interface the guard settled on gives no path to "yes"
+without a further decision. The guard's `Coordinator` interface (`contracts/coordination.md`) has
+exactly four operations — `Acquire`, `Released`, `Reach`, and the methods on the `Claim` it
+returns (`Renew`, `Fence`, `Release`) — and every one of them is about a claim on a **playbook
+name**, keyed by `AcquireRequest.Name`, with an optional rate limit keyed the same way. Nothing in
+it carries a delivery's identity, its source, or its replay window; `TriggerRef` carries only a
+trigger's kind and, for a schedule, the instant it was due. FR-316 through FR-319's decision —
+"is this identity new" — is answered by the webhook's own record store, established in question 5
+above as one atomic SQL statement against the SQLite database opened per host, which is a
+different mechanism from the guard's claim on a name entirely. Choosing etcd as the guard's
+backend widens the *guard's* reach (`Reach()` returns `"cross-host"` for the etcd adapter and
+`"single-host"` for the file lock, per the interface's own doc comment) and says nothing about the
+webhook's dedup, because the webhook's dedup does not go through this interface at all.
+
+**Consequence for the design**: FR-319 is unaffected by the guard's choice, and nothing here
+commits the webhook to etcd. Stated as an option, not adopted: since the chosen backend is etcd,
+which the guard's research already measured providing a server-judged expiry and an atomic
+compare-and-set primitive (the fencing token, from a key's creation revision), a later change could
+record an accepted delivery's identity as an etcd key with a lease equal to the replay window,
+instead of — or alongside — the SQLite row, and have `Acquire`-shaped logic answer "new" or
+"repeat" the same way the guard's claim does. That would need its own Phase 0: this document's
+question 5 established FR-312's kill-survival property for the SQLite path specifically ("the
+process being killed the moment the answer leaves"), and nothing here has measured whether an
+etcd lease commit gives the same guarantee, at the same or a different bound, under the same test.
+It would also turn a backend the webhook does not need today into one every deployment wanting
+webhooks must run, which is a cost FR-319's own wording — stating the narrower reach rather than
+implying a wider one — was written to avoid taking on silently. The narrower reach stands.
+
+## 9. Power loss: what SQLite's own documentation establishes (read, not run)
+
+**Question**: question 5 measured a killed process, not a lost machine, against a store opened
+with `synchronous=FULL` in `wal` mode — the setting SQLite documents as meant to cover the second.
+What does SQLite's own documentation establish about that, and what remains this repository's
+assumption rather than something shown?
+
+**Method**: read `https://www.sqlite.org/pragma.html#pragma_synchronous` and
+`https://www.sqlite.org/atomiccommit.html`, fetched 2026-09-11.
+
+**Answer**: `pragma.html` states that with `synchronous` FULL "the SQLite database engine will use
+the `xSync` method of the VFS to ensure that all content is safely written to the disk surface
+prior to continuing" and that "this ensures that an operating system crash or power failure will
+not corrupt the database." For WAL mode specifically, it says FULL adds an extra fsync of the WAL
+file after every transaction commit, beyond what NORMAL does before each checkpoint, and that this
+"extra WAL sync following each transaction helps ensure that transactions are durable across a
+power loss" — the sentence FULL exists for, and the reason NORMAL is not this store's setting.
+
+`atomiccommit.html` states the guarantee's own precondition: SQLite's use of fsync "assumes that
+the flush or fsync will not return until all pending write operations for the file that is being
+flushed have completed," and then qualifies it: "we have received reports that neither of these
+interfaces works as advertised on many systems… often the IDE disk control lies and says that data
+has reached oxide while it is still held only in the volatile disk cache." Its own conclusion:
+"SQLite assumes that the operating system that it is running on works as advertised. If that is
+not quite the case, well then hopefully you will not lose power too often."
+
+**Consequence for the design**: established, by reading rather than by running anything, is that
+`synchronous=FULL` in WAL mode is the setting SQLite's own documentation names as the one meant to
+survive an OS crash or power failure, and that the record store is opened with it (question 5).
+Not established, and not establishable from a repository's development machine: whether the disks
+and filesystems a deployment actually runs on honestly complete the fsync `synchronous=FULL`
+issues — SQLite's own documentation names this as the precise way the guarantee can fail, on
+hardware that lies about a flush having reached the physical medium. Question 5's kill test is
+evidence for a related but narrower claim — a process killed the instant its answer left survives,
+which is what FR-312 requires — and is not evidence for a lost machine, which FR-312 does not
+claim to cover and this question does not close. The gap stays named as an assumption in the plan
+rather than presented as measured.

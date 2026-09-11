@@ -220,14 +220,16 @@ alongside is still accepted.
 #### Sources and authentication
 
 - **FR-306**: A source MUST be declared in the deployment's configuration and never in a playbook:
-  its name, its secret, and optionally where its deliveries carry their identity (FR-316) and its
-  replay window (FR-317). The secret is a secret value, redacted in every record, log line and
-  listing, and an operator MUST be able to set it without it appearing on a command line — the
-  constitution forbids a secret there, and setting a configuration value today takes it as an
-  argument.
+  its name, its secret, the header carrying its signature, and optionally where its deliveries
+  carry their identity (FR-316) and its replay window (FR-317). The header is a declared property
+  rather than one the ingress fixes, because real senders do not agree on one — GitHub, Gitea and
+  Forgejo each default to a header of their own. The secret is a secret value, redacted in every
+  record, log line and listing, and an operator MUST be able to set it without it appearing on a
+  command line — the constitution forbids a secret there, and setting a configuration value today
+  takes it as an argument.
 - **FR-307**: Every delivery MUST carry an HMAC-SHA256 signature computed over the exact bytes of
-  its body under its source's secret, and the runtime MUST verify it before parsing the body,
-  before storing any of it, and before handing it anywhere.
+  its body under its source's secret, in the header its source declares, and the runtime MUST
+  verify it before parsing the body, before storing any of it, and before handing it anywhere.
 - **FR-308**: The signature MUST be compared in constant time over the full MAC. A signature that is
   absent, empty, not decodable, of the wrong length, or carried more than once MUST be refused.
 - **FR-309**: A delivery naming a source the deployment does not configure and a delivery failing
