@@ -260,8 +260,10 @@ indexed?
 - The densest text measured was 3.41 bytes per token (Markdown), the median 3.8 to 4.8 depending on
   the set. Model A, with its 512-token context, refused 20 of the 40 Markdown passages of 1.5 to
   2 KiB and 1 of the 40 English ones; model B refused none.
-- Granularity did not move ranking by more than the noise §10 measures: the mean reciprocal rank
-  was 0.619 whole and 0.599 as passages in French, 0.679 whole and 0.691 as passages in English.
+- Granularity did not move ranking measurably: the mean reciprocal rank was 0.619 whole and 0.599
+  as passages in French, 0.679 whole and 0.691 as passages in English, with unicode61. Paired over
+  the same 233 queries, passages minus whole is −0.020 ± 0.017 in French and +0.012 ± 0.018 in
+  English (standard error), each within about one standard error of zero.
   What it moved is what the agent is handed per result: a whole page, 99 KB at the largest, or at
   most 1 KiB.
 - Indexed as JSON text, a query for `findings` matched all three reports, the empty one included;
@@ -310,7 +312,7 @@ A lexical update, for comparison, indexed 2,989 passages in 0.11 seconds.
 | ----- | ----- | ----------- | ------ |
 | Query length (FR-227) | 1,024 bytes, cut at the last whitespace before it and recorded as truncated | the runtime | Lexical cost grows faster than the query: from 1 to 4 KiB, four times the length cost six times the time, and from 4 to 16 KiB nineteen times; and a webhook's sender writes the query. At 3.41 bytes per token, 1 KiB also fits the smallest context seen, past which the API cuts silently (§7). A playbook's author cannot know the model's context, which belongs to the deployment |
 | Passage size | 1,024 bytes | the runtime | §8 |
-| Results per retrieval (FR-227) | 10 unless the playbook says otherwise; at most 50 | the playbook, refused at load above the ceiling | On §10's probe the right page was among the first five results for 77% of French and 86% of English queries, and among the first ten for 86% and 93%. The ceiling is the most that fits the byte ceiling at the passage size |
+| Results per retrieval (FR-227) | 10 unless the playbook says otherwise; at most 50 | the playbook, refused at load above the ceiling | On §10's probe the right page was among the first five results for 77% of French and 86% of English queries, and among the first ten for 86% and 93%. The ceiling is a round figure under the 64 full passages the byte ceiling would hold at the passage size, leaving room for the lines naming their sources |
 | Retrieved bytes (FR-227) | 16 KiB unless the playbook says otherwise; at most 64 KiB | the playbook, refused at load above the ceiling | The default carries the default count of full passages with the lines naming their sources; the ceiling carries the largest count. A retrieval supplements what gather hands the agent, and a need for more than 64 KiB from one query is better met by two queries |
 | Each request (FR-208) | 60 seconds unless the collection says otherwise | the deployment, per collection | The slowest 16-input batch took 20.9 seconds and a cold model load 5.1, on a CPU-only server; 60 seconds is a little over twice their sum. How fast an endpoint answers is a fact of the deployment, which a portable playbook cannot know |
 | Inputs per request | 16 | the runtime | Batching saved 11 to 14% per input on this server (0.81 to 0.70 seconds per input on model A), so its purpose is fewer requests against a hosted API. Sixteen keeps a request inside the default bound on the slowest server measured |

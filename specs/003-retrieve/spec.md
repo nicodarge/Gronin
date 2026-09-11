@@ -305,17 +305,16 @@ under any mode.
   case is refused within the request bound, measured by the test's own clock with a deadline well
   short of the suite's, so that an unenforced bound fails as an assertion rather than as a hung
   suite.
-- **SC-206**: A semantic retrieval whose index update needs more requests than fit in the stage
-  bound, each answered just inside the request bound, is refused within the stage bound — FR-209.
-  A stub that answers promptly passes whether or not the stage bound exists, which is why the
-  answers are slowed.
+- **SC-206**: A semantic retrieval whose index update needs more requests than fit in its
+  collection's retrieval bound, each answered just inside the request bound, is refused within the
+  retrieval bound — FR-209. A stub that answers promptly passes whether or not the retrieval bound
+  exists, which is why the answers are slowed.
 - **SC-207**: A collection directory holding a text file, a file that is not text, a text file larger
   than the document bound, a symbolic link to a file outside it and one to its own parent is listed
   with the first text file indexed and the other four skipped, each with its reason — FR-212, FR-213
-  and FR-215. The listing is asserted exactly,
-  so an implementation that follows the link to its parent lists the text file more than once, or
-  never finishes. The outside file's content carries a marker, and the
-  marker appears in no result, no record, and no request the stub received.
+  and FR-215. The listing is asserted exactly, so an implementation that follows the link to its
+  parent lists the text file more than once, or never finishes. The outside file's content carries
+  a marker, and the marker appears in no result, no record, and no request the stub received.
 - **SC-208**: A record store holding a run whose report validated, a run whose report did not, a
   replay of the first and a resume of the first returns, from a collection over that playbook's
   reports, exactly one result, naming the first run — FR-214. The resume's report is a copy of the
