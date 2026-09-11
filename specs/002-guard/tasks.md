@@ -166,7 +166,10 @@ it links.
       of contracts/coordination.md except C8 and C9, which T085 adds with the rate slots. A clause is
       skipped for a subject only where the contract's table says n/a. C4 asserts from a watchdog of
       its own, never from `go test`'s timeout; C2 polls with a deadline and never sleeps a fixed time;
-      C13's interleaving cases hold the second caller at the seam
+      C13's interleaving cases hold the second caller at the seam.
+      *Deviation*: C13's interleaving cases are skipped for the file lock, which has no seam to hold
+      a caller at — it reads and writes the tick under the lock it has already taken, so no
+      interleaving puts a second caller between the two; the suite says so where it skips them
 - [x] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
 - [x] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
       grant shorter than asked (C12), reads the last tick, and sends one transaction comparing the
@@ -194,13 +197,24 @@ it links.
       `Renew` and `Fence` are no-ops, since the lock cannot be lost while its holder lives; `Released`
       returns once the lock can be taken or the context ends; the last tick is read and written
       through `record/ticks.go` while the lock is held (C13); `Reach` is `single-host`.
-      `Manager.Begin` stops taking the lock itself and is handed the claim the guard took
+      `Manager.Begin` stops taking the lock itself and is handed the claim the guard took.
+      *Deviation*: the in-process claim map is gone rather than kept. C1 requires the refusal to name
+      the holder, which across processes only the lock file can carry; once it does, the map excluded
+      nothing the flock did not and named nothing the file did not, so its mutant `two runs of one
+      playbook are allowed at once` had become unkillable and goes with the state it mutated.
+      `acquireLock`, `releaseLock` and the name check stay in `run.go` and keep their mutants.
+      *Deviation*: until the guard stage lands (T045, T047), `Execute`, `Replay` and `Resume` take the
+      claim themselves through `Executor.Coordinator`, which defaults to the file lock, and pass no
+      trigger kind — so no run consults the last tick until the scheduler's occurrence reaches it
 - [x] T023 `TestFileLockContract` in `runtime/internal/run/filelock_contract_test.go`: the contract against the file lock where
       the contract's table applies. C2's equivalent stays
       `TestALockHeldByAKilledProcessIsAcquirable`, re-pointed at `filelock.go`; C11 inherits the
       existing mutant `a filesystem failure is reported as a concurrent run`. The existing tests that
       reached the lock through `Manager.Begin` go through the file lock instead, and every existing
-      lock mutant is confirmed still killed
+      lock mutant is confirmed still killed.
+      *Deviation*: `finishing a run does not release its cross-process lock` is re-pointed at
+      `Finish`'s release of the claim, where that release now happens; it is the same mutation and is
+      still killed by `TestASecondManagerOverTheSameStateDirIsRefused`
 
 ### Mutants for the foundation
 
