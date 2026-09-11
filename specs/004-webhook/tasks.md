@@ -368,7 +368,7 @@ hand with their values held to their declarations. `serve` refuses them: there i
 
 ---
 
-## Phase 4: User Story 1 — A signed delivery becomes one run (P1) 🎯 MVP
+## Phase 4: User Story 1 — A signed delivery becomes one run (P1)
 
 **Goal**: a correctly signed delivery is recorded durably before it is answered, handed to each bound
 playbook exactly once by the process that recorded it, and recognised as a repeat inside its window
