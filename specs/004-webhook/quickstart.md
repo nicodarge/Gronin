@@ -106,7 +106,8 @@ Send a signed delivery with `sign` and `curl`, and kill `serve` with `SIGKILL` a
 Whether the kill landed before or after the hand-off is not something this step can choose — the
 suite forces it — so read what happened: `gronin deliveries` shows the delivery `handed_off` with its
 run, or `dropped` with nothing run. If it is dropped, start `serve` again and resend the same body: it
-is handed off once, and runs.
+is handed off once, and runs. A delivery killed while it waited under the guard behind another run
+reads the same way — a wait is not a hand-off, and `gronin refusals` shows the drop naming it.
 
 ## 6. Behind a TLS proxy (FR-334)
 

@@ -10,7 +10,7 @@ surface is [ingress.md](./ingress.md).
 | ------- | ------ | --------- |
 | `gronin serve` | `--ingress-address`, no default. Absent, nothing listens for deliveries (FR-305). Refuses to start when a loaded playbook has a webhook trigger and no ingress address is set, and when the ingress and the API are set on one port (FR-304). Marks dropped every delivery whose process is gone, before either listener opens (FR-315). Prints the ingress address and the reach of repeat detection (FR-319) | Non-zero, nothing armed and nothing listening, on any refusal |
 | `gronin sources list` | New. Every configured source: name, signature header, identity location, replay window. Never the secret, and never resolves its reference (FR-311) | |
-| `gronin deliveries` | New. Deliveries, most recent first: when received, source, state, repeats, and the runs each hand-off became. First marks dropped every delivery whose process is gone, as `gronin refusals` does for the guard's waiting triggers | |
+| `gronin deliveries` | New. Deliveries, most recent first: when received, source, state — `accepted`, `waiting`, `handed_off`, `dropped` or `unbound` — repeats, and the runs each hand-off became. First marks dropped every delivery whose process is gone, hand-offs still waiting under the guard included, as `gronin refusals` does for the guard's waiting triggers | |
 | `gronin deliveries show <id>` | New. One delivery in full: its identity, peer, body, and each hand-off with its outcome — the run, the guard refusal, the wait, or the value refused | Non-zero if no delivery has that identifier |
 | `gronin deliveries refused` | New. Authenticated refusals one per line, then unauthenticated counts per minute, reason and source bucket (FR-332, FR-333) | |
 | `gronin run <playbook>` | For a playbook with a webhook trigger, `--trigger` values are held to its declarations before anything runs, with the message a delivery would get; an undeclared name is refused (FR-327) | Non-zero, and no run, if refused |
@@ -62,9 +62,10 @@ forge    header X-Forgejo-Signature            identity /delivery_uuid       win
 
 ```text
 $ gronin deliveries
-2026-09-10T06:12:14Z  alerts  handed_off  repeats 1  alert-triage → 20260910T061214Z-a41c09e7b6f2
-2026-09-10T06:31:02Z  alerts  dropped     repeats 0  alert-triage (not reached)
+2026-09-10T06:35:12Z  alerts  waiting     repeats 0  alert-triage (waiting under the guard)
 2026-09-10T06:33:40Z  forge   unbound     repeats 0  no playbook is bound to forge
+2026-09-10T06:31:02Z  alerts  dropped     repeats 0  alert-triage (not reached)
+2026-09-10T06:12:14Z  alerts  handed_off  repeats 1  alert-triage → 20260910T061214Z-a41c09e7b6f2
 ```
 
 ```text

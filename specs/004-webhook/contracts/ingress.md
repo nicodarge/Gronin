@@ -36,7 +36,7 @@ Load-bearing: each step refuses before the next costs anything.
 | 6. The body as JSON, and its identity (FR-316) | `400`, naming the reason | a delivery refusal, with the body |
 | 7. The acceptance, bounded by the durable step (FR-312, FR-313, FR-317, FR-318) | `503` past the bound | the delivery, if the write lands at all |
 | 8. The answer | `202` whether new or a repeat | — |
-| 9. The hand-off, one per bound playbook, driven by step 7 completing (FR-314) | — | a run, a guard refusal, a waiting trigger, or a delivery refusal |
+| 9. The hand-off, one per bound playbook, driven by step 7 completing (FR-314) | — | decided by a run, a guard refusal or a delivery refusal; a waiting trigger leaves it `waiting` until one of those, or its drop (FR-315) |
 
 Nothing about the body is stored or parsed before step 5 passes. Every record written at any step
 takes the connection's own peer address; a forwarding header is never read (FR-334).
@@ -91,9 +91,34 @@ from the request, so the write may land after the answer; if it does, its hand-o
 sender's retry is then a repeat (FR-314). What `503` does guarantee is that nothing was accepted *by
 that answer*, and a retry is safe.
 
-**Accepted hand-offs are each decided once by the process that recorded them.** A process that dies
-with a hand-off undecided never runs it later: the next start marks the delivery dropped, and the
-next retry of its identity inside the window is handed to the playbooks it had not reached (FR-315).
+**Accepted hand-offs are each decided once by the process that recorded them.** A hand-off is
+decided when a run of it starts, or when a durable refusal of it is recorded — by the guard, at
+arrival or ending a wait (`wait_expired`, `playbook_changed`, `backend_unavailable`, `rate_limited`),
+or for one of its values. A hand-off the guard accepted into its waiting slot is not decided yet: the
+wait lives in the accepting process and dies with it (requirement 113 of
+[the guard's specification](../../002-guard/spec.md)). A process that dies with a hand-off
+undecided — never handed to the guard, or waiting under it — never runs it later: the delivery is
+marked dropped, the guard's drop record names it for a wait, and the next retry of its identity
+inside the window is accepted as new and handed to the playbooks no earlier attempt decided
+(FR-315). A retry of a delivery whose wait ended in a durable refusal is a repeat: the refusal
+stands.
+
+**A rate-limited delivery is discarded, not deferred.** The guard's rate limit discards the trigger
+it refuses rather than making it wait (requirement 116 of the guard's specification), and a webhook
+trigger is no exception: at arrival, or when a waiting one is judged again before it runs, the
+refusal is recorded naming the delivery and the hand-off is decided. Nothing holds the delivery to
+try later, and a retry inside the window is a repeat. The same event sent after the window is a new
+delivery and meets the limit again.
+
+**Who notices a dead process.** The drop is found by reading the dead process's instance lock — the
+guard's — which the kernel releases however the process died. That reading happens when `serve`
+starts, before either listener opens; when `gronin deliveries` reads; and inside the acceptance of a
+retry whose identity points at the dead process's delivery. So when one of two `serve` processes on a
+state directory dies and the other stays up, a retry reaching the survivor is judged new and runs
+without waiting for anything to restart. Nothing sweeps on a timer: until one of the three happens,
+the dead process's deliveries keep their last state in the table, nothing runs from them, and every
+reader reconciles before it shows them. The lock is a file in the state directory, so this reach is
+one host's, like repeat detection's (FR-319).
 
 ## The acceptance, and how a test of it fails
 
@@ -125,6 +150,13 @@ header takes part, or the comparison is strict.
 **A6 — A dropped delivery's retry is new, once.** *Fails when*: the dropped state is not consulted, so
 the retry is a repeat and nothing ever runs; or the retry's hand-offs include playbooks the dropped
 delivery had already reached.
+
+**A7 — A wait is not a decision.** A delivery whose hand-off was waiting under the guard when its
+process died is dropped, and its retry inside the window runs; one whose wait ended in a durable
+refusal is decided, and its retry is a repeat. *Fails when*: the reconciliation counts an accepted
+wait as decided, so the retry is a repeat and the event never runs; or the acceptance of a retry
+reaching a surviving process does not read the dead process's instance lock, with the same result
+until something restarts.
 
 ## Bounds
 

@@ -63,13 +63,17 @@ to treat as data. That is a weaker claim than containment, and it is not offered
 authenticate it, and the record store's existing SQLite driver holds deliveries. Phase 0 established
 that the store, opened exactly as it is today, gives FR-312's durability, and one statement that
 decides "new" across processes — for an identity never seen, one past its window (FR-317, FR-318),
-and one whose earlier delivery was dropped (FR-315) — research question 5.
+and one whose earlier delivery was dropped (FR-315) — research question 5. A retry whose identity
+points at a delivery of a process that is gone is judged in the same transaction, after that delivery
+has been reconciled there.
 
 **Storage**: the record store gains three things and changes one.
 
 - **Deliveries**: source, identity, receipt time, peer address, body blob and digest, repeat count,
-  and a state — accepted, handed off, dropped, bound to nothing. Keyed on source and identity, which
-  is what makes FR-318's decision one statement.
+  and a state — accepted, waiting, handed off, dropped, bound to nothing. Keyed on source and
+  identity, which is what makes FR-318's decision one statement. `waiting` is not a decided state: a
+  hand-off the guard has taken into its waiting slot can still end with nothing run, because the
+  guard's wait dies with the process holding it.
 - **Hand-offs**, one per delivery and bound playbook. Per playbook rather than per delivery, because
   a process killed partway through handing one delivery to three playbooks has handed it to some of
   them, and FR-315's retry must reach only the rest.
@@ -117,7 +121,7 @@ is configured.
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-Checked against [constitution.md](../../.specify/memory/constitution.md), at 1.2.0.
+Checked against [constitution.md](../../.specify/memory/constitution.md), at 1.3.0.
 
 ### I. Bounds Are Declared and Enforced — PASS, and the ingress is a new bound to test
 
@@ -340,8 +344,12 @@ SC-321), so the manual path is also the cheapest way to exercise a declaration.
 Its startup output names the ingress address and says that repeat detection reaches this host only
 (FR-319, SC-307). The operator API's `--api-address` and its credential rule are unchanged (FR-303).
 
-**Restart.** Before either listener opens, deliveries still accepted and not handed off are marked
-dropped (FR-315) — the same moment `serve` already marks runs interrupted, for the same reason.
+**Restart.** Before either listener opens, and after the guard's own waiting reconciliation, every
+delivery of a process that is gone with a hand-off still undecided — never handed to the guard, or
+waiting under it — is marked dropped (FR-315), the same moment `serve` already marks runs
+interrupted, for the same reason. The same reconciliation runs when `gronin deliveries` reads, and
+for one delivery inside the acceptance of a retry, so a retry reaching a surviving process on a
+shared state directory runs rather than deduplicating against a delivery nothing will run.
 
 ## Phase 0 — Resolved
 

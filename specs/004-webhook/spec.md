@@ -59,9 +59,11 @@ again and confirm the answer is an acceptance and no second run exists.
    **Then** the ingress answers that the delivery was not accepted, so the sender retries — and if
    the write lands after that answer, exactly one run follows and the retry is recognised as a
    repeat.
-6. **Given** a delivery recorded but not yet handed to the guard, **When** the process is killed,
-   **Then** nothing runs from it on restart, its record says it was dropped, and a retry of it from
-   the sender is handed to the guard rather than treated as a repeat.
+6. **Given** a delivery recorded but not yet handed to the guard, or waiting in the guard's slot
+   behind a run of its playbook, **When** the process is killed, **Then** nothing runs from it on
+   restart, its record says it was dropped, and a retry of it from the sender is handed to the guard
+   rather than treated as a repeat. A delivery the guard refused durably — its wait expired, say —
+   stays refused, and a retry of it is a repeat.
 7. **Given** several playbooks bound to one source, **When** one delivery arrives, **Then** each of
    them is handed the delivery once, and each one's guard decision is its own.
 
@@ -196,7 +198,19 @@ alongside is still accepted.
   it are absent values, refused under FR-322, not a parse failure.
 - **A delivery accepted while the playbook is already running.** It is a trigger like any other: the
   guard makes it wait or refuses it, and the sender's answer does not change, because the answer
-  reports the record and not the run.
+  reports the record and not the run. While it waits it is not yet handed off: if its process dies,
+  the wait is dropped with it, and the sender's retry runs (FR-315).
+- **A delivery the rate limit refuses.** The guard's rate limit discards the trigger it refuses rather
+  than deferring it ([the guard's specification](../002-guard/spec.md), its requirement 116), and a
+  webhook trigger is no exception: the refusal names the delivery (FR-328), the hand-off is decided,
+  and a retry inside the window is a repeat that runs nothing. Deferring it would replay the burst the
+  limit exists to refuse. The same event sent after the window is a new delivery, judged afresh.
+- **One of two processes on a state directory dies.** Its undecided deliveries are found through its
+  instance lock, which the kernel releases however it died — when a process starts, when an operator
+  lists deliveries, and when a retry of one of them is accepted. A retry reaching the surviving
+  process therefore runs without anything restarting (FR-315). Nothing sweeps on a timer, so until
+  one of those happens the dead process's deliveries keep their last recorded state; nothing runs from
+  them, and every listing reconciles before it shows them.
 
 ## Requirements *(mandatory)*
 
@@ -258,10 +272,17 @@ alongside is still accepted.
   source exactly once by the process that recorded it, whether or not its answer reached the
   sender. The hand-off follows the record, not the answer: a write that lands after its answer said
   "not accepted" still produces its runs, and the sender's retry is then a repeat.
-- **FR-315**: A delivery recorded and not yet handed off when its process stops MUST NOT run when
-  the runtime starts again, and MUST be marked dropped in its record. A later delivery of the same
-  identity inside the window MUST then be handed off — once, under FR-318 — rather than treated as a
-  repeat, because nothing ran from the first.
+- **FR-315**: A delivery counts as handed off to a playbook only once that hand-off is decided: a
+  run of it has started, or a refusal of it is recorded durably — by the guard, at arrival or ending
+  a wait, or for one of its values. A hand-off the guard has accepted into its waiting slot is not
+  yet decided, because the guard's waiting trigger does not survive its process. A delivery with a
+  hand-off undecided when its process stops — never handed to the guard, or waiting under it — MUST
+  NOT run when the runtime starts again, and MUST be marked dropped in its record, a dropped wait
+  named by the guard's own drop record. A later delivery of the same identity inside the window MUST
+  then be handed off — once, under FR-318, and only to the playbooks no earlier attempt decided —
+  rather than treated as a repeat, because nothing ran from the first. This holds whether the retry
+  reaches a process started after the drop or another process on the same state directory that
+  outlived the one whose deliveries were dropped.
 
 #### Identity and repeats
 
@@ -273,7 +294,7 @@ alongside is still accepted.
   float, so two identities that differ only past a float's precision stay two identities.
 - **FR-317**: A delivery whose identity was accepted within its source's replay window — measured on
   the runtime's clock from the acceptance — MUST be answered as accepted, MUST NOT be handed off
-  unless FR-315 marked the accepted one dropped, and MUST be counted on the accepted delivery's
+  unless the accepted one was dropped under FR-315, and MUST be counted on the accepted delivery's
   record instead of adding one of its own. After the window the same identity is a new delivery.
 - **FR-318**: Deciding that an identity is new and recording it MUST be one atomic step across every
   process sharing the state directory, so that deliveries of one identity arriving together produce
@@ -371,10 +392,14 @@ alongside is still accepted.
 - **SC-303**: A write that lands after its "not accepted" answer produces exactly one run, and the
   sender's retry is answered as accepted and produces none — FR-314. Fails against an implementation
   that hands off from the answer path, which produces zero runs here.
-- **SC-304**: A process killed between recording a delivery and handing it off runs nothing on
-  restart, the delivery reads as dropped through the operator's surface, and a retry of it then
-  produces one run — FR-315. The process is killed rather than stopped, because a record written on
-  the way out passes a graceful stop.
+- **SC-304**: A process killed between recording a delivery and handing it off, and one killed while
+  a delivery's hand-off waits under the guard behind a run, each run nothing from it on restart; the
+  delivery reads as dropped through the operator's surface, a dropped wait is named by the guard's
+  drop record, and a retry of it then produces one run — also when the retry reaches a second process
+  on the same state directory that outlived the killed one — FR-315. The process is killed rather
+  than stopped, because a record written on the way out passes a graceful stop. The waiting case
+  fails against an implementation that counts an accepted wait as handed off, whose retry is a
+  repeat and runs nothing.
 - **SC-305**: The same body sent twice inside the window produces one run and a repeat count of one;
   sent again one second past the window on an injected clock, it produces a second run; a body
   carrying a timestamp that would place it outside the window is still judged on the runtime's clock
@@ -481,6 +506,10 @@ alongside is still accepted.
 - **Transport security is the deployment's.** The ingress speaks plain HTTP; a deployment that
   exposes it terminates TLS in front of it. The signature proves who wrote a body, not that nobody
   else read it. Behind such a proxy the recorded peer address is the proxy's, by FR-334.
+- **An acceptance survives power loss only if the storage honours a flush.** The record store's
+  `synchronous=FULL` relies on the operating system and the disk completing the flush SQLite asks
+  for, which this repository cannot test — [research.md](./research.md) §9, and what a `202`
+  promises in [contracts/ingress.md](./contracts/ingress.md).
 - **Sources and bindings are read at startup**, as playbooks are. Changing either takes a restart.
 - **Secret rotation with two secrets live at once is out of scope.** A rotation refuses deliveries
   in the interval between the two sides changing, and FR-333 counts them.

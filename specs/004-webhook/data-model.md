@@ -15,6 +15,11 @@ Three places hold this feature's state.
 The guard's records — its refusals and its waiting triggers — gain a delivery link and a trigger kind.
 They stay the guard's: this feature adds a column to each, and nothing else.
 
+The guard's requirements are cited here as GFR and its tasks as G, each followed by the guard's own
+number — GFR-113 is requirement 113 of [specs/002-guard/spec.md](../002-guard/spec.md) — so that
+`scripts/check-spec-refs.py`, which resolves identifiers within one feature directory, does not read
+them as this feature's.
+
 ## Entities
 
 ### Source (in the deployment)
@@ -111,15 +116,23 @@ One authenticated request that was accepted — new, or a retry of a dropped one
 | `body_ref` | blob ref | The body, redacted at the write boundary like every blob |
 | `body_sha256` | hex | Over the exact bytes received, before redaction |
 | `repeats` | integer | Repeats counted inside the window (FR-317) |
-| `instance` | identifier | The accepting process, whose instance lock — the guard's — decides whether an `accepted` delivery is really in flight |
+| `instance` | identifier | The accepting process, whose instance lock — the guard's — decides whether an `accepted` or `waiting` delivery is really in flight |
 | `supersedes` | identifier, nullable | For a retry of a dropped delivery, the dropped one |
 | `state` | enum | See below |
 
 ```text
-accepted ─ every hand-off decided ─────────────────────────▶ handed_off
-         ─ accepting process gone with a hand-off pending ─▶ dropped
+accepted ─ every hand-off decided ────────────────────────────────▶ handed_off
+         ─ every hand-off decided or waiting, one or more waiting ─▶ waiting
+         ─ accepting process gone, a hand-off undecided ──────────▶ dropped
+waiting  ─ every waiting hand-off's wait resolved durably ────────▶ handed_off
+         ─ accepting process gone, a hand-off still waiting ──────▶ dropped
 unbound    (no playbook was bound to the source at acceptance)
 ```
+
+`waiting` is not a decided state. A delivery in it has a hand-off the guard accepted into its
+waiting slot, and a waiting trigger does not survive its process (GFR-113): until the
+wait resolves, the delivery can still end with nothing run from it. Where each transition is
+decided is in *Hand-off* below.
 
 A delivery's body is readable through the operator's surface and through no surface the ingress
 serves (FR-335).
@@ -144,10 +157,15 @@ statement, so a second acceptance of the same identity waits for the first to co
 reading around it:
 
 - the identity is **new** when no row holds it; when `now − accepted_at ≥ replay_window`; or when the
-  delivery it points at is `dropped` (FR-315);
+  delivery it points at is `dropped` (FR-315). When that delivery is still `accepted` or `waiting`
+  and its accepting instance's lock can be taken — its process is gone and no reconciliation has
+  reached it yet — the acceptance first reconciles that one delivery, as *On restart* below does and
+  inside the same transaction: its guard waiting rows are dropped with their drop records, through
+  the record function the guard's own reconciliation uses (G074, G075), and the delivery is marked
+  `dropped` or `handed_off`. The identity is then judged against the state that leaves;
 - new: a delivery row is inserted, the identity row inserted or repointed with `accepted_at = now`,
   and one hand-off row per playbook bound to the source — for a retry of a dropped delivery, only
-  the bound playbooks the dropped one had not reached;
+  the bound playbooks for which no delivery in the chain it supersedes has a decided hand-off;
 - a repeat: the delivery the identity points at gains one in `repeats`, and nothing else is written.
 
 `now` is the runtime clock's wall reading (FR-320). The window is compared against a recorded
@@ -161,25 +179,59 @@ One per delivery and bound playbook, created with the delivery.
 | Field | Type | Notes |
 | ----- | ---- | ----- |
 | `delivery_id`, `playbook_name` | key | |
-| `state` | enum | `pending`, `handed_off`, `refused`, `dropped` |
+| `state` | enum | `pending`, `waiting`, `handed_off`, `refused`, `dropped` |
 | `decided_at` | timestamp, nullable | |
 
 A hand-off is **decided** when one of these durable records names its delivery and playbook: a run
-(FR-336), a guard refusal (FR-328), a waiting trigger accepted by the guard, or a delivery refusal for
-one of its values (FR-322, FR-326). The state column is written after that record, for a reader; what
-the restart reads is the records themselves, so a kill between the two leaves nothing to reconcile
-wrongly.
+(FR-336); a guard refusal other than `dropped` (FR-328) — at arrival (`waiting_slot_full`,
+`rate_limited`, `backend_unavailable`), or ending a wait (`wait_expired`, `playbook_changed`,
+`backend_unavailable`, or `rate_limited` on re-judgement, GFR-124); or a delivery refusal for one of
+its values (FR-322, FR-326), including one made when a waiting trigger comes to run and its values
+are checked again. The owner decided on
+2026-09-11 that a hand-off the guard accepted into its waiting slot is **not** decided: a waiting
+trigger does not survive its process (GFR-113), and a wait that ends `dropped` has run
+nothing.
 
-**On restart** — before either listener opens, and before `gronin deliveries` reads — every
-`accepted` delivery whose instance lock can be taken has each undecided hand-off marked `dropped`,
-and the delivery `dropped` if any was, `handed_off` otherwise (FR-315). A delivery whose accepting
-process still holds its instance lock is left alone: two processes on one state directory each hold
-their own.
+| Hand-off state | Written when | By |
+| -------------- | ------------ | -- |
+| `pending` | the delivery is accepted | the acceptance (T049) |
+| `waiting` | the guard's waiting-trigger row, outcome `waiting`, names the delivery and playbook (GFR-127) | the dispatcher, after the guard returns that it waits (T054) |
+| `handed_off` | a run names them | the dispatcher, after the run starts (T054) |
+| `refused` | a guard refusal other than `dropped`, or a delivery refusal, names them | the hand-off (T028) for a value, the dispatcher for the guard (T054) |
+| `dropped` | the accepting process is gone and no decision names them — never handed to the guard, or their waiting row `dropped` | the reconciliation (T051), or the acceptance of a retry (T049) |
 
-**What "handed off" covers.** Once the guard has accepted a hand-off into its waiting slot, the
-hand-off is decided. If the process then dies, the guard marks its waiting trigger dropped, and a
-retry of the delivery is a repeat: FR-315 is written for a delivery not yet handed to the guard, and
-the guard's own drop record names the delivery.
+The delivery's state follows its hand-offs': `handed_off` once all are `handed_off` or `refused`;
+`waiting` while every one is decided or `waiting`; `dropped` once any is. The state columns are
+written after the records they summarise, for a reader; what the reconciliation reads is the records
+themselves — runs, the guard's refusals and waiting rows, delivery refusals — so a kill between a
+record and its column leaves nothing to reconcile wrongly.
+
+**On restart** — before either listener opens, and before `gronin deliveries` reads — the guard's
+own reconciliation runs first (G075), so every `waiting` row whose instance lock can be taken is
+`dropped` and has its drop record, which names the delivery. Then every `accepted` or `waiting`
+delivery whose instance lock can be taken has each hand-off no decision names marked `dropped` — one
+never handed to the guard and one whose wait was dropped alike — and is itself marked `dropped` if
+any was, `handed_off` otherwise (FR-315). A delivery whose accepting process still holds its
+instance lock is left alone: two processes on one state directory each hold their own.
+
+**What a retry of a dropped wait does.** A delivery dropped because its wait was dropped ran nothing,
+so a retry of it inside the window is new: it is accepted, and handed anew to the playbooks the wait
+never ran. A delivery whose wait ended in a durable refusal — `wait_expired`, say — stays decided, and
+its retry is a repeat: a refusal the guard recorded on purpose is not undone by the sender asking
+again.
+
+**When the reconciliation runs.** Not at startup only. It runs when `serve` starts, before either
+listener opens; when `gronin deliveries` reads (T055), as the guard's runs when `gronin refusals`
+reads (G079); and, for one delivery, inside the acceptance of a retry whose identity points at it
+(*Delivery identity* above). Two `serve` processes may share a state directory, each under its own
+instance lock (G075). If one dies while the other stays up, nothing sweeps its deliveries
+on a timer, and they keep reading `accepted` or `waiting` in the table until one of those three
+reaches them. Nothing runs from them in the meantime — the only process that could have run them is
+gone — and every reader reconciles before it shows them, so the stale column is never what an
+operator sees. A sender's retry reaching the surviving process is judged against the dead instance's
+lock inside its own acceptance, so it runs rather than being counted as a repeat of a delivery
+nothing will ever run. The instance lock is a file lock in the state directory, so this holds among
+the processes of one host; a second host has a record of its own (FR-319).
 
 ### Delivery refusal (in the record store)
 
@@ -243,6 +295,17 @@ again from the delivery's body — held in memory by the waiting trigger, not re
 and checked against the declaration as it now stands. A value the edited declaration refuses is a
 delivery refusal, as it would have been at hand-off.
 
+A waiting webhook trigger whose process dies is marked `dropped` by the guard's reconciliation
+(G075), and the drop record it writes names the delivery. That hand-off is then `dropped`, not
+decided, and the delivery's retry inside its window runs (*Hand-off* above).
+
 A webhook run counts toward the playbook's rate limit like a scheduled or manual one, on both the
 backend and the single-host window: a limit that did not count the trigger coming from outside
 would not bound the sender it exists for.
+
+**A rate-limited webhook trigger is discarded, not deferred** (GFR-116). Refused by the limit at
+arrival, it leaves a guard refusal `rate_limited` naming its delivery, and its hand-off is decided —
+`refused`. A waiting webhook trigger the limit refuses when it comes to run (GFR-124) ends the same
+way. Neither the guard nor the ingress holds the delivery to try again later, and a retry of it inside
+the replay window is a repeat that runs nothing: waiting would replay the burst the limit exists to
+refuse. The same event sent after the window is a new delivery and is judged by the limit afresh.

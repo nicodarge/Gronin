@@ -32,9 +32,9 @@ from being lost, and its rate limit is what bounds a sender that fires too often
 *Assumptions*). So US1 onwards needs every story of the guard landed, not only its MVP. The guard's
 tasks are cited here as **G** followed by their number — G077 is the guard's task numbered 077 — so
 that `scripts/check-spec-refs.py`, which resolves task identifiers within one feature directory,
-does not read them as this file's own. They are cited as they stand on the branch that proposes them
-(`add_guard_tasks`, pull request #31, not yet merged); if that list is renumbered before it merges,
-the citations here move with it.
+does not read them as this file's own. They are cited as they stand in
+[specs/002-guard/tasks.md](../002-guard/tasks.md); if that list is renumbered, the
+citations here move with it.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -70,27 +70,28 @@ because `cmd/gronin` is the one package allowed to know all three.
 The guard is being implemented on other branches. These are the places a webhook branch will meet its
 code, named so a conflict there is expected rather than discovered:
 
-- **Migration numbering.** T005 is written as `0003_webhook.sql`, after the guard's
-  `0002_guard.sql` (G005). The retrieve feature also plans a migration; whichever lands second takes
-  the next free number, because `schema.go` applies migrations by name and a renumbered file is
-  re-applied somewhere and skipped elsewhere. T005 also alters two tables G005 creates, so it cannot
-  land before it.
+- **Migration numbering.** T005 takes the next free number in
+  `runtime/internal/record/migrations/` when it lands, read from the directory then rather than
+  predicted here: the guard adds one (G005) and the retrieve feature's task list adds another, and
+  which of the three lands first is not knowable from here. The number matters because `schema.go`
+  applies migrations by name, so a file renumbered after it has been applied somewhere is re-applied
+  there and skipped elsewhere. T005 also alters two tables G005 creates, so it cannot land before it.
 - **`cmd/gronin/serve_cmd.go`.** The guard adds its reach line, its duration refusal, its waiting
-  reconciliation and a fire function that hands the guard its `dueAt` (G049, G079). T030 and T053
+  reconciliation and a fire function that hands the guard its `dueAt` (G049, G079). T030 and T054
   add the webhook refusal, the ingress listener, the delivery reconciliation and the dispatcher
-  after the API listener, and T073 the port check. Rebase onto the guard's version and keep its order:
+  after the API listener, and T075 the port check. Rebase onto the guard's version and keep its order:
   refusals, then reconciliation, then listeners.
 - **The record store.** `record/store.go`, `record/runs.go` (G006), `record/refusals.go` (G007) and
   `record/waiting.go` (G074) each gain a field in T006. `runtime/testdata/mutations.json` is
   append-only on both branches; conflicts there are resolved by keeping both sides.
 - **`internal/run/execute.go` and `internal/run/replay.go`.** G047 moves `Begin` behind the guard and
-  mints the run identifier first. T027 and T052 edit the same functions and are written against that
+  mints the run identifier first. T027 and T053 edit the same functions and are written against that
   shape, not against today's `Execute`.
 - **The playbook schema and gate.** G010 replaces the reserved `guard` property and adds
   `validateGuard`; T014 replaces the `trigger` property and adds `validateTrigger` beside it. Both
   edit `specs/001-runtime-core/contracts/playbook.schema.json`, its embedded copy, `validate.go`, and
   the tables in `parse_test.go` and `validate_test.go`.
-- **`internal/guard`.** T051 edits `coordinator.go` (G012), `guard.go` (G045), `wait.go` (G077) and
+- **`internal/guard`.** T052 edits `coordinator.go` (G012), `guard.go` (G045), `wait.go` (G077) and
   `internal/run/filelock.go` (G093) to make `webhook` a trigger kind the guard treats like `manual`.
 
 ## Mutants
@@ -138,18 +139,21 @@ here needs the guard's decision or its wait.
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/0003_webhook.sql`: the `deliveries`,
+- [ ] T005 `runtime/internal/record/migrations/<next free number>_webhook.sql`: the `deliveries`,
       `delivery_identities`, `handoffs`, `delivery_refusals` and `ingress_refusal_counts` tables per
       [data-model.md](./data-model.md), with `delivery_identities` keyed on `(source, identity)` and
       `ingress_refusal_counts` on `(interval_start, reason, source_bucket)`; and `delivery_id` added to
       `runs` and to the guard's `refusals` and `waiting_triggers`. A new file rather than an edit, for
-      the reason the guard's G005 gives; its number is the next free one when it lands
+      the reason G005 gives; its number is read from the directory when it lands, never predicted here
 - [ ] T006 `runtime/internal/record/store.go`, `runtime/internal/record/runs.go`,
       `runtime/internal/record/refusals.go` and `runtime/internal/record/waiting.go`: the trigger kind
       `webhook`; `DeliveryID` on the Run, the guard's refusal record and its waiting trigger, written
       and read by the functions that already write and read each
 - [ ] T007 [P] `runtime/internal/record/deliveries.go`: the Delivery and HandOff types and their
-      states; `GetDelivery`, `ListDeliveries` most recent first, `HandOffsOf`, `SetHandOffState`. A
+      states — the delivery's `accepted`, `waiting`, `handed_off`, `dropped` and `unbound`, the
+      hand-off's `pending`, `waiting`, `handed_off`, `refused` and `dropped`
+      ([data-model.md](./data-model.md), *Delivery* and *Hand-off*); `GetDelivery`, `ListDeliveries`
+      most recent first, `HandOffsOf`, `SetHandOffState` and `SetDeliveryState`. A
       delivery's body goes through the blob store under the delivery's identifier, so the blob
       store's own identifier check and the redactor apply unchanged
 - [ ] T008 [P] `runtime/internal/record/delivery_refusals.go`: `AddDeliveryRefusal`, one row with its
@@ -293,7 +297,7 @@ test writes into the record.
       `runtime/cmd/gronin/serve_webhook_test.go`: `gronin serve` with a webhook playbook exits non-zero
       before arming anything, naming the playbook and the missing `--ingress-address`; the same
       directory with that playbook removed arms and serves. FR-305's refusal, before there is an ingress
-      to configure; T053 narrows it and T064 tests the whole requirement
+      to configure; T054 narrows it and T066 tests the whole requirement
 
 ### Implementation for User Story 3
 
@@ -319,7 +323,10 @@ test writes into the record.
       which for each playbook bound to the delivery's source — found by the source in the loaded set,
       never by anything in the body (FR-321) — extracts and checks the values, records a refusal
       through T008 and marks the hand-off `refused` when they fail, and otherwise dispatches exactly the
-      declared values
+      declared values. What the dispatcher returns decides the hand-off: a run or a guard refusal other
+      than `dropped` marks it `handed_off` or `refused`, and a wait the guard accepted marks it
+      `waiting`, which is not a decision; the delivery follows its hand-offs — `waiting` while any of
+      them is, `handed_off` once all are decided ([data-model.md](./data-model.md), *Hand-off*)
 - [ ] T029 [US3] `runtime/cmd/gronin/run_cmd.go`: for a webhook playbook, `--trigger` values go through
       `Check` before anything runs, and an undeclared name is refused (FR-327)
 - [ ] T030 [US3] `runtime/cmd/gronin/serve_cmd.go`: a loaded webhook playbook refuses startup before
@@ -360,7 +367,7 @@ test writes into the record.
       `cmd/gronin/run_cmd.go`, `a manual webhook run skips its declarations`, command
       `go test ./cmd/gronin -count=1 -run TestAManualWebhookRunIsHeldToItsDeclarations`; in
       `cmd/gronin/serve_cmd.go`, `serve arms a webhook playbook with no ingress`, command
-      `go test ./cmd/gronin -count=1 -run TestServeRefusesAWebhookPlaybookWithNoIngress` — T053
+      `go test ./cmd/gronin -count=1 -run TestServeRefusesAWebhookPlaybookWithNoIngress` — T054
       rewrites the line it targets and re-declares it
 
 **Checkpoint**: webhook playbooks load, are refused wherever the payload could steer them, and run by
@@ -422,7 +429,7 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       an outcome, because the window is judged on the injected clock's wall reading alone
 - [ ] T039 [P] [US1] SC-306, `TestOneIdentityIsNewOnce` in `runtime/internal/record/accept_test.go`: a
       re-execution of the test binary opens the store on the test's state directory and stops inside
-      its acceptance of identity X at the seam T048 adds, after its decision and before its commit, and
+      its acceptance of identity X at the seam T049 adds, after its decision and before its commit, and
       says so. The test then issues its own acceptance of X with a bound longer than the hold, and tells
       the child to commit. Exactly one of the two is new, and the delivery has exactly one set of
       hand-offs. Forced, not raced: an implementation that reads the identity before its write
@@ -449,94 +456,132 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
 - [ ] T044 [P] [US1] `TestFileLockRateCountsWebhookRuns` in `runtime/internal/run/filelock_rate_test.go`:
       the single-host window (G088) counts webhook runs beside scheduled and manual ones, on the injected
       clock
+- [ ] T045 [P] [US1] SC-304's waiting half, in `runtime/cmd/gronin/webhook_wait_drop_test.go`, on a
+      single-host deployment with one source, one playbook bound to it whose gather step appends its
+      declared value to a file the test owns and then sleeps, and `serve` started with `bintest.Start`.
+      `TestADroppedWaitRunsOnRetry`: delivery `one` runs; delivery `two`, sent while it runs, is `202`
+      and waits — polled until `gronin deliveries` shows it `waiting`, never slept for; `serve` is
+      SIGKILLed while it waits. After a restart on the same state directory, `gronin deliveries` shows
+      `two` `dropped` and `gronin refusals` a `dropped` naming it, and resending `two` inside the window
+      produces exactly one line `two`. Resending `one`, whose run was recorded, is a repeat and adds no
+      line — the pair is what separates "a wait is not a decision" from "nothing is a decision".
+      `TestARetryAtASurvivingServeRuns`: two `serve` processes on one state directory, each with its
+      own API and ingress addresses. Delivery `one` to the first runs and holds the playbook; delivery
+      `two` to the second waits behind it; the second process is SIGKILLed while it waits, and `two` is
+      then sent to the first — nothing restarted, `gronin deliveries` not read in between, so the
+      acceptance's own probe of the dead instance is the only thing that can find the drop. It produces
+      exactly one line `two`, and sending it once more is a repeat that adds none. `gronin deliveries`
+      afterwards shows the dead process's delivery `dropped` and the retry superseding it
 
 ### Implementation for User Story 1
 
-- [ ] T045 [US1] `runtime/internal/ingress/limits.go`: the bounds as options with the plan's defaults,
+- [ ] T046 [US1] `runtime/internal/ingress/limits.go`: the bounds as options with the plan's defaults,
       and the `http.Server` built from them — header read timeout, read timeout, write timeout, header
       size. US4 adds the body and in-progress bounds to the same options
-- [ ] T046 [US1] `runtime/internal/ingress/signature.go`: one MAC and one `hmac.Equal` per request, the
+- [ ] T047 [US1] `runtime/internal/ingress/signature.go`: one MAC and one `hmac.Equal` per request, the
       header read only when it appears once and starts with the declared prefix, the remainder decoded
       from hexadecimal only when it is 32 bytes, and a buffer no MAC equals compared otherwise
       ([contracts/ingress.md](./contracts/ingress.md), *Step 5*)
-- [ ] T047 [US1] `runtime/internal/ingress/identity.go`: the body parsed as JSON with number literals
+- [ ] T048 [US1] `runtime/internal/ingress/identity.go`: the body parsed as JSON with number literals
       kept, the identity read at the source's pointer as a single value in `values.go`'s sense, or the
       SHA-256 of the exact bytes when the source declares none (FR-316)
-- [ ] T048 [US1] `runtime/internal/record/accept.go`: `Accept`, one write transaction holding the write
+- [ ] T049 [US1] `runtime/internal/record/accept.go`: `Accept`, one write transaction holding the write
       lock from its first statement, deciding newness and writing the delivery, the identity and the
       hand-offs or the repeat together ([data-model.md](./data-model.md), *Delivery identity*); a dropped
-      delivery's identity is new, and its retry's hand-offs are the bound playbooks the dropped one had
-      not reached; the accepting instance is recorded. A seam between the decision and the commit, nil
-      outside tests, for T039
-- [ ] T049 [US1] `runtime/internal/ingress/ingress.go`: the handler, in contracts/ingress.md's order — the
+      delivery's identity is new, and its retry's hand-offs are the bound playbooks no delivery in the
+      chain it supersedes decided; the accepting instance is recorded. An identity pointing at an
+      `accepted` or `waiting` delivery whose instance lock can be taken is reconciled first, inside the
+      same transaction and through the same record functions T051 uses — its waiting rows dropped with
+      their drop records (G074, G075), the delivery marked `dropped` or `handed_off` — and only then
+      judged, so a retry reaching a process that outlived the accepting one runs (FR-315). The liveness
+      probe is passed in, since `record` does not import `guard`. A seam between the decision and the
+      commit, nil outside tests, for T039
+- [ ] T050 [US1] `runtime/internal/ingress/ingress.go`: the handler, in contracts/ingress.md's order — the
       route matched on the path and the method checked in the handler, the signature, the identity; the
       acceptance on a context detached from the request, bounded by the durable step, the answer `503`
       when the bound passes first; and the hand-off started by the acceptance completing, whichever of
       the two came first (FR-314). A delivery for a source no playbook is bound to is `unbound`. Every
-      failure before the signature passes gets one answer, which T074 makes one amount of work
-- [ ] T050 [US1] `runtime/internal/ingress/reconcile.go`: every `accepted` delivery whose instance lock
-      (G075) can be taken has each hand-off no run, guard refusal, waiting trigger or delivery refusal
-      names marked `dropped`, and is itself marked `dropped` or `handed_off` (FR-315)
-- [ ] T051 [US1] The guard's side of a webhook trigger: `runtime/internal/guard/coordinator.go` —
+      failure before the signature passes gets one answer, which T076 makes one amount of work. A path
+      or method the ingress does not serve is counted `not_found` through T077, under the
+      `(unconfigured)` bucket: it has no source to attribute
+- [ ] T051 [US1] `runtime/internal/ingress/reconcile.go`: the guard's own waiting reconciliation (G075)
+      runs first, so a dead process's waiting rows are `dropped` and their drop records name their
+      deliveries; then every `accepted` or `waiting` delivery whose instance lock (G075) can be taken has
+      each hand-off no decision names — no run, no guard refusal other than `dropped`, no delivery
+      refusal — marked `dropped`, a hand-off whose waiting row was dropped included, and is itself
+      marked `dropped` or `handed_off` (FR-315). A waiting row consulted, never counted as a decision:
+      that is the owner's decision of 2026-09-11, and T064's mutant is what holds it
+- [ ] T052 [US1] The guard's side of a webhook trigger: `runtime/internal/guard/coordinator.go` —
       `TriggerRef.Kind` may be `webhook` (G012); `runtime/internal/guard/guard.go` — a refusal of a
-      webhook trigger records its delivery (G045, FR-328); `runtime/internal/guard/wait.go` — a webhook
+      webhook trigger records its delivery (G045, FR-328), a refusal that drops a waiting webhook
+      trigger included, so the drop names what was lost; `runtime/internal/guard/wait.go` — a webhook
       trigger waits like a manual one, the waiting row records its delivery, and when it comes to run
       its values are extracted again from the body it holds in memory and checked against the playbook
       as re-read (G077); `runtime/internal/run/filelock.go` — the single-host rate window counts webhook
       runs (G093)
-- [ ] T052 [US1] `runtime/internal/run/execute.go`: `Execute` is handed the delivery identifier with the
+- [ ] T053 [US1] `runtime/internal/run/execute.go`: `Execute` is handed the delivery identifier with the
       trigger kind `webhook`, records it on the run, and passes it to the guard with the trigger
-- [ ] T053 [US1] `runtime/cmd/gronin/serve_cmd.go` and `runtime/cmd/gronin/webhook.go`:
+- [ ] T054 [US1] `runtime/cmd/gronin/serve_cmd.go` and `runtime/cmd/gronin/webhook.go`:
       `--ingress-address`, with no default; T030's refusal narrowed to a webhook playbook with no ingress
       address, and T034's mutant `serve arms a webhook playbook with no ingress` re-declared against the
       new line; the delivery reconciliation before either listener opens; the ingress listener bound
       after the API's; the startup line of contracts/cli.md naming the address, the sources and the
       single-host reach of repeat detection (FR-319); and the dispatcher, which runs each hand-off in a
       goroutine of its own through the guard and the executor, so that a waiting trigger never holds up
-      another playbook's hand-off
-- [ ] T054 [US1] `runtime/cmd/gronin/deliveries_cmd.go` and `runtime/cmd/gronin/root.go`: `gronin
-      deliveries` and `gronin deliveries show`, running T050's reconciliation first, as the guard's
-      `gronin refusals` does; `runtime/cmd/gronin/records_cmd.go` — `gronin show` names a webhook run's
-      delivery; `runtime/cmd/gronin/refusals_cmd.go` — a refusal of a webhook trigger names its delivery
+      another playbook's hand-off, and which reports back what the guard did with each — ran, refused,
+      or accepted into its waiting slot, and then what ended that wait — so T028 can carry the hand-off
+      and the delivery through the states of [data-model.md](./data-model.md), *Hand-off*
+- [ ] T055 [US1] `runtime/cmd/gronin/deliveries_cmd.go` and `runtime/cmd/gronin/root.go`: `gronin
+      deliveries` and `gronin deliveries show`, listing the delivery's state and each hand-off's, and
+      running T051's reconciliation first, as the guard's `gronin refusals` does — which, with the
+      acceptance's own probe (T049), is the whole of when a dead process's deliveries are found;
+      `runtime/cmd/gronin/records_cmd.go` — `gronin show` names a webhook run's delivery; `runtime/cmd/gronin/refusals_cmd.go` — a refusal of a webhook trigger names its delivery
       (G050)
 
 ### Mutants for User Story 1
 
-- [ ] T055 [US1] SC-301 and SC-307: in `internal/record/accept.go`, `a repeat is handed off again`, and
+- [ ] T056 [US1] SC-301 and SC-307: in `internal/record/accept.go`, `a repeat is handed off again`, and
       in `internal/run/execute.go`, `a webhook run records no delivery`, both with command
       `go test ./cmd/gronin -count=1 -run TestASignedDeliveryRunsOnce`; in `internal/record/accept.go`,
       `the identity lookup sees only this process's acceptances`, and in `cmd/gronin/serve_cmd.go`,
       `serve does not state the reach of repeat detection`, both with command
       `go test ./cmd/gronin -count=1 -run TestADeliveryIsARepeatAcrossARestart`
-- [ ] T056 [US1] SC-302 and SC-303, in `internal/ingress/ingress.go`: `the acceptance is answered before
+- [ ] T057 [US1] SC-302 and SC-303, in `internal/ingress/ingress.go`: `the acceptance is answered before
       the write` and `a write past its bound is answered as accepted`, command
       `go test ./internal/ingress -count=1 -run TestTheAnswerWaitsForTheRecord`; `the hand-off follows
       the answer rather than the write` and `the write runs on the request's context`, command
       `go test ./internal/ingress -count=1 -run TestALateWriteStillRuns`
-- [ ] T057 [US1] SC-304, all with command `go test ./cmd/gronin -count=1 -run TestAKilledHandOffIsDropped`:
+- [ ] T058 [US1] SC-304, all with command `go test ./cmd/gronin -count=1 -run TestAKilledHandOffIsDropped`:
       in `internal/ingress/reconcile.go`, `an undecided hand-off is dispatched on restart`, `an undecided
       hand-off is left accepted` and `a live process's delivery is dropped`; in
       `internal/record/accept.go`, `a dropped delivery's retry is a repeat`
-- [ ] T058 [US1] SC-305, all with command `go test ./internal/ingress -count=1 -run TestTheReplayWindow`:
+- [ ] T059 [US1] SC-305, all with command `go test ./internal/ingress -count=1 -run TestTheReplayWindow`:
       in `internal/record/accept.go`, `an acceptance exactly one window old is a repeat` and `the window
       is never applied`; in `internal/ingress/ingress.go`, `the acceptance is dated by the request's Date
       header`
-- [ ] T059 [US1] SC-306, in `internal/record/accept.go`: `the identity is read before the write
+- [ ] T060 [US1] SC-306, in `internal/record/accept.go`: `the identity is read before the write
       transaction`, command `go test ./internal/record -count=1 -run TestOneIdentityIsNewOnce`
-- [ ] T060 [US1] SC-308, in `internal/ingress/identity.go`, command
+- [ ] T061 [US1] SC-308, in `internal/ingress/identity.go`, command
       `go test ./internal/ingress -count=1 -run TestADeclaredIdentity`: `the declared identity location
       is ignored`, `a missing identity falls back to the digest`, `a number identity is decoded as a
       float`
-- [ ] T061 [US1] SC-322 and the rate window: in `internal/guard/wait.go`, `a webhook trigger is refused
+- [ ] T062 [US1] SC-322 and the rate window: in `internal/guard/wait.go`, `a webhook trigger is refused
       rather than made to wait`, and in `internal/guard/guard.go`, `a refusal of a webhook trigger names
       no delivery`, both with command `go test ./cmd/gronin -count=1 -run TestADeliveryWaitsUnderTheGuard`;
       in `internal/run/filelock.go`, `the single-host window ignores webhook runs`, command
       `go test ./internal/run -count=1 -run TestFileLockRateCountsWebhookRuns`
-- [ ] T062 [US1] SC-329 and FR-313: T034's `the data file is not recorded as a gathered input` declared a
+- [ ] T063 [US1] SC-329 and FR-313: T034's `the data file is not recorded as a gathered input` declared a
       second time with command `go test ./internal/run -count=1 -run TestAWebhookRunReplays`, so the
       replay test is shown to fail on its own; in `internal/ingress/limits.go`, `the answer's write limit
       is shorter than the durable step`, command
       `go test ./internal/ingress -count=1 -run TestTheDurableStepFitsInsideTheWriteLimit`
+- [ ] T064 [US1] SC-304's waiting half, all with command
+      `go test ./cmd/gronin -count=1 -run TestADroppedWaitRunsOnRetry` unless named: in
+      `internal/ingress/reconcile.go`, `a hand-off the guard accepted into its waiting slot is decided`,
+      which makes the retry a repeat and runs nothing; in `internal/guard/wait.go`, `dropping a waiting
+      webhook trigger records no delivery`; in `internal/record/accept.go`, `the acceptance does not
+      reconcile a delivery whose process is gone`, command
+      `go test ./cmd/gronin -count=1 -run TestARetryAtASurvivingServeRuns`
 
 **Checkpoint**: deliveries run. Not yet to be released on its own: US2 is what proves the ingress's
 refusals, makes an unknown source cost what a wrong signature costs, refuses two listeners on one
@@ -558,12 +603,15 @@ Needs Phase 4.
 
 ### Tests for User Story 2
 
-- [ ] T063 [P] [US2] SC-309 and SC-328's ingress half, `TestTheIngressServesOneRoute` in
+- [ ] T065 [P] [US2] SC-309 and SC-328's ingress half, `TestTheIngressServesOneRoute` in
       `runtime/internal/ingress/routes_test.go`, against the handler with a delivery accepted in the same
       test: `GET /runs`, `GET /runs/<the run's id>`, `GET /deliveries`, `GET /deliveries/refused`,
       `GET /hooks/alerts`, `PUT /hooks/alerts` and `POST /hooks` are each `404` with the fixed body, and
-      no answer holds the run's identifier or anything from the record
-- [ ] T064 [P] [US2] SC-309, SC-310 and SC-311 through the built executable, in
+      no answer holds the run's identifier or anything from the record. Each of those also leaves a
+      count row for the minute under `not_found` and the `(unconfigured)` bucket, read back through
+      `record` and summing to the number of requests made — the reason is in the enum and the contract,
+      so a `404` that counts nothing is a row an operator would look for and not find
+- [ ] T066 [P] [US2] SC-309, SC-310 and SC-311 through the built executable, in
       `runtime/cmd/gronin/listeners_binary_test.go`. `TestTheListenersAreSeparate`: a signed delivery to
       the ingress is `202`; `GET /runs/<its run>` on the ingress is `404`; the same delivery `POST`ed to
       the API address is `404`, and `gronin deliveries` still shows one. `TestAWebhookSettingDoesNotWidenTheAPI`:
@@ -575,88 +623,90 @@ Needs Phase 4.
       `/proc/net/tcp` and `/proc/net/tcp6`, never counted from those tables alone, which the whole
       suite shares; with the address set, two, and a signed delivery is accepted in the same test; with
       a webhook playbook and no address, startup is refused
-- [ ] T065 [P] [US2] SC-310, `TestCheckAddresses` in `runtime/internal/ingress/address_test.go`: one port
+- [ ] T067 [P] [US2] SC-310, `TestCheckAddresses` in `runtime/internal/ingress/address_test.go`: one port
       under two hosts refused, naming both addresses; the same host on two ports accepted; port 0 on both
       accepted, because each binds a port of its own
-- [ ] T066 [P] [US2] SC-312, `TestTheSignatureCorpus` in `runtime/internal/ingress/signature_test.go`,
+- [ ] T068 [P] [US2] SC-312, `TestTheSignatureCorpus` in `runtime/internal/ingress/signature_test.go`,
       against the handler: absent, empty, not hexadecimal, one byte short, the correct value carried
       twice, without the declared prefix, computed over a different body, and computed under another
       configured source's secret are each `403` with no hand-off and no stored body; the correct
       signature, in upper- and lower-case hexadecimal, is `202`
-- [ ] T067 [P] [US2] SC-313, `TestTheComparisonIsConstantTime` in
+- [ ] T069 [P] [US2] SC-313, `TestTheComparisonIsConstantTime` in
       `runtime/internal/ingress/constanttime_test.go`: parses `signature.go` with `go/parser` and asserts
       that the function comparing the MAC calls `hmac.Equal`, and that no `bytes.Equal`, `==` or
       `subtle` call on byte slices appears anywhere else in the file. It asserts no time
-- [ ] T068 [P] [US2] SC-314, `TestAnUnknownSourceIsAnsweredLikeAWrongSignature` in
+- [ ] T070 [P] [US2] SC-314, `TestAnUnknownSourceIsAnsweredLikeAWrongSignature` in
       `runtime/internal/ingress/unknown_test.go`: with a verifier that records its calls injected, a
       delivery to an unconfigured name and one to a configured source with a wrong signature get
       answers identical in status, headers and body, and the verifier is called exactly once for each
-- [ ] T069 [P] [US2] SC-326, the count half, `TestUnauthenticatedRefusalsAreCounted` in
+- [ ] T071 [P] [US2] SC-326, the count half, `TestUnauthenticatedRefusalsAreCounted` in
       `runtime/internal/ingress/refusals_test.go`, the clock injected: ten thousand requests, each with a
       distinct unconfigured source name and a body holding the sentinel, leave one count row for that
       minute holding ten thousand, and the sentinel is found nowhere under the state directory. One
       authenticated refusal sent in the same test is a row of its own, with its body — which is what
       shows the store was being written at all
-- [ ] T070 [P] [US2] SC-327, `TestThePeerIsTheConnections` in `runtime/internal/ingress/peer_test.go`:
+- [ ] T072 [P] [US2] SC-327, `TestThePeerIsTheConnections` in `runtime/internal/ingress/peer_test.go`:
       requests from `127.0.0.1` carrying `X-Forwarded-For: 192.0.2.7` and `Forwarded: for=192.0.2.7` —
       an accepted delivery, an authenticated refusal and an unauthenticated count — each record
       `127.0.0.1`
-- [ ] T071 [P] [US2] SC-326's readable half and SC-328, in `runtime/cmd/gronin/deliveries_cmd_test.go`,
+- [ ] T073 [P] [US2] SC-326's readable half and SC-328, in `runtime/cmd/gronin/deliveries_cmd_test.go`,
       records seeded through `record`: `TestRefusedDeliveriesAreReadable` — `gronin deliveries refused`
       prints each authenticated refusal with its source, reason, value, receipt time in UTC and peer, and
       each count with its interval, reason, bucket and last peer; `TestDeliveriesAreListed` — `gronin
       deliveries` lists each delivery with its state and repeats, and `gronin deliveries show` its body
       and hand-offs
-- [ ] T072 [P] [US2] SC-328, `TestTheAPIListsDeliveries` in `runtime/internal/api/api_test.go`:
+- [ ] T074 [P] [US2] SC-328, `TestTheAPIListsDeliveries` in `runtime/internal/api/api_test.go`:
       `GET /deliveries`, `/deliveries/{id}` and `/deliveries/refused` read the seeded records back, behind
       the token when one is configured
 
 ### Implementation for User Story 2
 
-- [ ] T073 [US2] `runtime/internal/ingress/address.go`: `CheckAddresses(api, ingress)` refusing one port,
+- [ ] T075 [US2] `runtime/internal/ingress/address.go`: `CheckAddresses(api, ingress)` refusing one port,
       whatever the hosts, port 0 excepted (FR-304); `runtime/cmd/gronin/serve_cmd.go` calls it before
       binding either, and leaves the API's own address check exactly as it is (FR-303)
-- [ ] T074 [US2] `runtime/internal/ingress/unknown.go` and `runtime/internal/ingress/ingress.go`: the key
+- [ ] T076 [US2] `runtime/internal/ingress/unknown.go` and `runtime/internal/ingress/ingress.go`: the key
       generated at startup for unconfigured names, never stored; a delivery to one goes through the same
       verification as a configured source with no usable signature (FR-309)
-- [ ] T075 [US2] `runtime/internal/ingress/refusals.go`: every refusal before the signature passes is
+- [ ] T077 [US2] `runtime/internal/ingress/refusals.go`: every refusal before the signature passes is
       counted through T008 under its reason and bucket, every unconfigured name sharing
       `(unconfigured)`, with the interval from the clock's wall reading; every authenticated refusal is a
       row with its body; the peer is the connection's `RemoteAddr` and nothing else (FR-332 to FR-334)
-- [ ] T076 [US2] `runtime/internal/api/api.go`: the three read-only delivery routes (FR-335)
-- [ ] T077 [US2] `runtime/cmd/gronin/deliveries_cmd.go`: `gronin deliveries refused`
+- [ ] T078 [US2] `runtime/internal/api/api.go`: the three read-only delivery routes (FR-335)
+- [ ] T079 [US2] `runtime/cmd/gronin/deliveries_cmd.go`: `gronin deliveries refused`
 
 ### Mutants for User Story 2
 
-- [ ] T078 [US2] SC-309 and SC-328: in `internal/ingress/ingress.go`, `the delivery route answers
+- [ ] T080 [US2] SC-309 and SC-328: in `internal/ingress/ingress.go`, `the delivery route answers
       another method`, command `go test ./internal/ingress -count=1 -run TestTheIngressServesOneRoute`;
       in `cmd/gronin/serve_cmd.go`, `serve mounts the operator API behind the ingress` and `serve mounts
       the ingress on the operator API`, command
-      `go test ./cmd/gronin -count=1 -run TestTheListenersAreSeparate`
-- [ ] T079 [US2] SC-310 and SC-311: in `internal/ingress/address.go`, `one port under two hosts is
+      `go test ./cmd/gronin -count=1 -run TestTheListenersAreSeparate`; in `internal/ingress/ingress.go`,
+      `a request for another route is answered without being counted`, command
+      `go test ./internal/ingress -count=1 -run TestTheIngressServesOneRoute`
+- [ ] T081 [US2] SC-310 and SC-311: in `internal/ingress/address.go`, `one port under two hosts is
       allowed`, command `go test ./internal/ingress -count=1 -run TestCheckAddresses`; in
       `cmd/gronin/serve_cmd.go`, `a configured source skips the API's address check`, command
       `go test ./cmd/gronin -count=1 -run TestAWebhookSettingDoesNotWidenTheAPI`, and `serve binds an
       ingress when no address is configured`, command
       `go test ./cmd/gronin -count=1 -run TestTheIngressListensOnlyWhenConfigured`
-- [ ] T080 [US2] SC-312, in `internal/ingress/signature.go`, command
+- [ ] T082 [US2] SC-312, in `internal/ingress/signature.go`, command
       `go test ./internal/ingress -count=1 -run TestTheSignatureCorpus`: `a doubled signature header is
       read as its first value`, `the comparison covers only the offered bytes`, `a signature that does
       not decode is accepted`, `the declared prefix is not required`, `every configured secret is
       tried`, `the MAC is compared with itself`
-- [ ] T081 [US2] SC-313, in `internal/ingress/signature.go`: `the MAC is compared with bytes.Equal`,
+- [ ] T083 [US2] SC-313, in `internal/ingress/signature.go`: `the MAC is compared with bytes.Equal`,
       command `go test ./internal/ingress -count=1 -run TestTheComparisonIsConstantTime`
-- [ ] T082 [US2] SC-314, in `internal/ingress/ingress.go`, command
+- [ ] T084 [US2] SC-314, in `internal/ingress/ingress.go`, command
       `go test ./internal/ingress -count=1 -run TestAnUnknownSourceIsAnsweredLikeAWrongSignature`: `an
       unknown source is answered before any MAC is computed`, `an unknown source is answered 404`
-- [ ] T083 [US2] SC-326: in `internal/ingress/refusals.go`, command
+- [ ] T085 [US2] SC-326: in `internal/ingress/refusals.go`, command
       `go test ./internal/ingress -count=1 -run TestUnauthenticatedRefusalsAreCounted`: `an
       unauthenticated refusal stores its body` and `each unconfigured name is a bucket of its own`; in
       `cmd/gronin/deliveries_cmd.go`, `the refusal listing drops the peer`, command
       `go test ./cmd/gronin -count=1 -run TestRefusedDeliveriesAreReadable`
-- [ ] T084 [US2] SC-327, in `internal/ingress/refusals.go`: `the peer is read from X-Forwarded-For`,
+- [ ] T086 [US2] SC-327, in `internal/ingress/refusals.go`: `the peer is read from X-Forwarded-For`,
       command `go test ./internal/ingress -count=1 -run TestThePeerIsTheConnections`
-- [ ] T085 [US2] SC-328: in `cmd/gronin/deliveries_cmd.go`, `the delivery listing omits the state`,
+- [ ] T087 [US2] SC-328: in `cmd/gronin/deliveries_cmd.go`, `the delivery listing omits the state`,
       command `go test ./cmd/gronin -count=1 -run TestDeliveriesAreListed`; in `internal/api/api.go`,
       `the API's delivery listing returns nothing`, command
       `go test ./internal/api -count=1 -run TestTheAPIListsDeliveries`
@@ -679,41 +729,49 @@ of a real connection (research.md §1).
 
 ### Tests for User Story 4
 
-- [ ] T086 [P] [US4] SC-323, `TestTheSizeBounds…` in `runtime/internal/ingress/size_test.go`, the body
+- [ ] T088 [P] [US4] SC-323, `TestTheSizeBounds…` in `runtime/internal/ingress/size_test.go`, the body
       bound set to 1 KiB and a `CountingListener`: a declared length of 1 MiB with no body sent is `413`
       before the sender sends a byte of it; a chunked body of 3 KiB is `413` with the server having
       consumed no more than the headers, the bound plus one byte, and the chunk framing; 32 KiB of
-      headers is `431`. A signed delivery of 1 KiB exactly, sent in the same test, is `202`
-- [ ] T087 [P] [US4] SC-324, `TestAStalledSender…` in `runtime/internal/ingress/stall_test.go`, the header
+      headers is `431`. A signed delivery of 1 KiB exactly, sent in the same test, is `202`. The two
+      `413`s each leave a `body_too_large` count row for the minute, read back through `record`; the
+      `431` leaves none, since the server ends it before any handler runs (contracts/ingress.md)
+- [ ] T089 [P] [US4] SC-324, `TestAStalledSender…` in `runtime/internal/ingress/stall_test.go`, the header
       and request timeouts set to 200 ms and 400 ms: a sender that stops partway through its headers,
       and one that stops partway through its body, each have their connection closed within the bound
       plus slack — read from the test's own deadline on the connection — with no status line and no
-      delivery recorded. A signed delivery sent while both stall is `202`
-- [ ] T088 [P] [US4] SC-325, `TestTheInProgressBound` in `runtime/internal/ingress/inprogress_test.go`,
+      delivery recorded. A signed delivery sent while both stall is `202`. The sender that stalls in its
+      body leaves a `body_timeout` count row for the minute, read back through `record`; the one that
+      stalls in its headers leaves none, for the reason the `431` above leaves none
+- [ ] T090 [P] [US4] SC-325, `TestTheInProgressBound` in `runtime/internal/ingress/inprogress_test.go`,
       the bound set to 2: two deliveries stall mid-body and hold both slots; a third is `503` within
-      50 ms of sending; once one stalled sender is closed by the test, a signed delivery is `202`
+      50 ms of sending; once one stalled sender is closed by the test, a signed delivery is `202`. The
+      `503` leaves a `busy` count row for the minute, read back through `record`
 
 ### Implementation for User Story 4
 
-- [ ] T089 [US4] `runtime/internal/ingress/limits.go`: the body bound and the in-progress bound join the
+- [ ] T091 [US4] `runtime/internal/ingress/limits.go`: the body bound and the in-progress bound join the
       options, with the plan's defaults; T043's test gains them
-- [ ] T090 [US4] `runtime/internal/ingress/ingress.go`: a slot taken without waiting before the body is
+- [ ] T092 [US4] `runtime/internal/ingress/ingress.go`: a slot taken without waiting before the body is
       read, released when the request ends; a declared length over the bound refused before reading; the
       body read through a byte-capped reader; `busy`, `body_too_large` and `body_timeout` counted through
-      T075 (FR-329 to FR-331)
+      T077 (FR-329 to FR-331)
 
 ### Mutants for User Story 4
 
-- [ ] T091 [US4] SC-323, command `go test ./internal/ingress -count=1 -run TestTheSizeBounds`: in
+- [ ] T093 [US4] SC-323, command `go test ./internal/ingress -count=1 -run TestTheSizeBounds`: in
       `internal/ingress/ingress.go`, `a declared length over the bound is read anyway` and `the body is
       read without a cap`; in `internal/ingress/limits.go`, `the header bound is left at the library's
-      default`
-- [ ] T092 [US4] SC-324, in `internal/ingress/limits.go`, command
+      default`; in `internal/ingress/ingress.go`, `a body over the bound is refused without being
+      counted`
+- [ ] T094 [US4] SC-324, in `internal/ingress/limits.go`, command
       `go test ./internal/ingress -count=1 -run TestAStalledSender`: `the header timeout is not set`,
-      `the request timeout is not set`
-- [ ] T093 [US4] SC-325, in `internal/ingress/ingress.go`, command
+      `the request timeout is not set`; and in `internal/ingress/ingress.go`, `a body that stalls is cut
+      off without being counted`
+- [ ] T095 [US4] SC-325, in `internal/ingress/ingress.go`, command
       `go test ./internal/ingress -count=1 -run TestTheInProgressBound`: `a delivery waits for a slot
-      rather than being refused`, `a slot is not released when its delivery ends`
+      rather than being refused`, `a slot is not released when its delivery ends`, `a delivery refused
+      for want of a slot is not counted`
 
 **Checkpoint**: what an exposed listener can cost is bounded, and each bound is shown against a
 subject that exceeds it.
@@ -722,25 +780,25 @@ subject that exceeds it.
 
 ## Phase 7: Polish
 
-- [ ] T094 [P] `specs/001-runtime-core/data-model.md`: the `webhook` trigger, the Run's `delivery_id`,
+- [ ] T096 [P] `specs/001-runtime-core/data-model.md`: the `webhook` trigger, the Run's `delivery_id`,
       and the *deliberately absent* section no longer naming webhook deliveries — after the guard's
       G098 has made its own change there
-- [ ] T095 [P] `docs/playbook-format.md` documents the webhook trigger and its declared values, and
+- [ ] T097 [P] `docs/playbook-format.md` documents the webhook trigger and its declared values, and
       `docs/architecture.md` describes the ingress as built — its own listener, the order of a delivery,
       the hand-off through the guard. Neither calls the trigger a "webhook sink": that name is taken by
       the outbound sink
-- [ ] T096 [P] `README.md` and `runtime/README.md`: webhook triggers are no longer refused; a deployment
+- [ ] T098 [P] `README.md` and `runtime/README.md`: webhook triggers are no longer refused; a deployment
       that exposes the ingress terminates TLS in front of it; which senders sign in the shape the ingress
       accepts and which need a re-signing proxy, pointing at research.md §7 rather than restating it;
       and that an accepted delivery survives a killed process and, on storage that honours a flush, a
       lost machine — the gap contracts/ingress.md states
-- [ ] T097 SC-330: `scripts/check-mutation.py --self-test`, then `scripts/check-mutation.py`, report zero
+- [ ] T099 SC-330: `scripts/check-mutation.py --self-test`, then `scripts/check-mutation.py`, report zero
       survivors with every mutant above declared; each success criterion from SC-301 to SC-329 has at
       least one declared mutant whose command is scoped to that criterion's own test, per the table
       below. Run the suite through `scripts/run-suite.sh` under its declared timeout, and let the repeat
       workflow run it against the unchanged tree: the acceptance, the kill, the stalls and the guard's
       wait are all races or clocks, and a flake is a failure
-- [ ] T098 Follow [quickstart.md](./quickstart.md) on a real host with a real sender. It is the one place
+- [ ] T100 Follow [quickstart.md](./quickstart.md) on a real host with a real sender. It is the one place
       a signature is produced by software this repository did not write; what it finds that the suite
       could not becomes a task here rather than a note
 
@@ -750,20 +808,20 @@ subject that exceeds it.
 
 | Criterion | Test tasks | Mutant tasks |
 | --------- | ---------- | ------------ |
-| SC-301 | T035 | T055 |
-| SC-302 | T036 | T056 |
-| SC-303 | T036 | T056 |
-| SC-304 | T037 | T057 |
-| SC-305 | T038 | T058 |
-| SC-306 | T039 | T059 |
-| SC-307 | T035 | T055 |
-| SC-308 | T040 | T060 |
-| SC-309 | T063, T064 | T078 |
-| SC-310 | T064, T065 | T079 |
-| SC-311 | T023, T064 | T034, T079 |
-| SC-312 | T066 | T080 |
-| SC-313 | T067 | T081 |
-| SC-314 | T068 | T082 |
+| SC-301 | T035 | T056 |
+| SC-302 | T036 | T057 |
+| SC-303 | T036 | T057 |
+| SC-304 | T037, T045 | T058, T064 |
+| SC-305 | T038 | T059 |
+| SC-306 | T039 | T060 |
+| SC-307 | T035 | T056 |
+| SC-308 | T040 | T061 |
+| SC-309 | T065, T066 | T080 |
+| SC-310 | T066, T067 | T081 |
+| SC-311 | T023, T066 | T034, T081 |
+| SC-312 | T068 | T082 |
+| SC-313 | T069 | T083 |
+| SC-314 | T070 | T084 |
 | SC-315 | T017, T018 | T032 |
 | SC-316 | T011, T013 | T016 |
 | SC-317 | T019, T020 | T033 |
@@ -771,15 +829,15 @@ subject that exceeds it.
 | SC-319 | T019 | T033 |
 | SC-320 | T020 | T033 |
 | SC-321 | T022 | T034 |
-| SC-322 | T041 | T061 |
-| SC-323 | T086 | T091 |
-| SC-324 | T087 | T092 |
-| SC-325 | T088 | T093 |
-| SC-326 | T069, T071, T009 | T083, T016 |
-| SC-327 | T070 | T084 |
-| SC-328 | T063, T071, T072 | T078, T085 |
-| SC-329 | T042 | T062 |
-| SC-330 | T097 | every task in the column above, and T004 |
+| SC-322 | T041 | T062 |
+| SC-323 | T088 | T093 |
+| SC-324 | T089 | T094 |
+| SC-325 | T090 | T095 |
+| SC-326 | T071, T073, T009 | T085, T016 |
+| SC-327 | T072 | T086 |
+| SC-328 | T065, T073, T074 | T080, T087 |
+| SC-329 | T042 | T063 |
+| SC-330 | T099 | every task in the column above, and T004 |
 
 ---
 
@@ -793,12 +851,14 @@ subject that exceeds it.
   T026 → T027; T024 → T028; T024 → T029; T030 is independent. The mutant tasks follow the code they
   mutate.
 - **US1 (Phase 4)** needs US3 — its hand-off is T028 — and the guard through its last story, the
-  G-tasks listed at the head of the phase. T045 → T046 → T047 → T048 → T049 → T050; T051 → T052 →
-  T053 → T054. T053 needs T049 and T050.
-- **US2 (Phase 5)** needs US1. T073, T074 and T075 edit `ingress.go` or `serve_cmd.go` and run in that
-  order; T076 and T077 are independent of them.
-- **US4 (Phase 6)** needs US1, and T090 needs T075's counting. It does not need US2 beyond that.
-- **Polish (Phase 7)** follows the stories it documents, and T094 follows G098. T097 is last among the
+  G-tasks listed at the head of the phase. T046 → T047 → T048 → T049 → T050 → T051; T052 → T053 →
+  T054 → T055. T054 needs T050 and T051. T045 needs the guard's wait (G077) and its instance lock
+  (G075) as well as T054, since it drives the built executable; T064 follows T049, T051 and T052,
+  whose lines it mutates.
+- **US2 (Phase 5)** needs US1. T075, T076 and T077 edit `ingress.go` or `serve_cmd.go` and run in that
+  order; T078 and T079 are independent of them.
+- **US4 (Phase 6)** needs US1, and T092 needs T077's counting. It does not need US2 beyond that.
+- **Polish (Phase 7)** follows the stories it documents, and T096 follows G098. T099 is last among the
   tasks that change the tree, because it is the audit of every mutant declared before it.
 
 ### Parallel opportunities
@@ -825,16 +885,17 @@ T036 internal/ingress/accept_test.go       T041 cmd/gronin/webhook_guard_test.go
 T037 cmd/gronin/webhook_drop_test.go       T042 internal/run/webhook_replay_test.go
 T038 internal/ingress/window_test.go       T043 internal/ingress/limits_test.go
 T039 internal/record/accept_test.go        T044 internal/run/filelock_rate_test.go
+T045 cmd/gronin/webhook_wait_drop_test.go
 ```
 
 ### Parallel example: User Story 2
 
 ```text
-T063 internal/ingress/routes_test.go       T068 internal/ingress/unknown_test.go
-T064 cmd/gronin/listeners_binary_test.go   T069 internal/ingress/refusals_test.go
-T065 internal/ingress/address_test.go      T070 internal/ingress/peer_test.go
-T066 internal/ingress/signature_test.go    T071 cmd/gronin/deliveries_cmd_test.go
-T067 internal/ingress/constanttime_test.go T072 internal/api/api_test.go
+T065 internal/ingress/routes_test.go       T070 internal/ingress/unknown_test.go
+T066 cmd/gronin/listeners_binary_test.go   T071 internal/ingress/refusals_test.go
+T067 internal/ingress/address_test.go      T072 internal/ingress/peer_test.go
+T068 internal/ingress/signature_test.go    T073 cmd/gronin/deliveries_cmd_test.go
+T069 internal/ingress/constanttime_test.go T074 internal/api/api_test.go
 ```
 
 ---
