@@ -184,11 +184,12 @@ under any mode.
   embedding — the API unreachable, answering with an error, or exceeding FR-208's bound — MUST
   refuse the run and name the API. It MUST NOT search lexically instead, and MUST NOT hand the
   agent anything as retrieved.
-- **FR-208**: Every request to an embeddings API MUST be bounded in time, and exceeding the bound
-  MUST count as the API being unreachable.
-- **FR-209**: The retrieval stage MUST complete within a declared bound, and exceeding it MUST
-  refuse the run. FR-208 bounds each request; a stage making many requests, each inside its own
-  bound, is not bounded by it.
+- **FR-208**: Every request to an embeddings API MUST be bounded in time, by a bound the deployment
+  sets for the collection, and exceeding the bound MUST count as the API being unreachable.
+- **FR-209**: Each retrieval MUST complete within a bound the deployment sets for its collection,
+  covering the index update and the search, and exceeding it MUST refuse the run. FR-208 bounds each
+  request; a retrieval making many requests, each inside its own bound, is not bounded by it. The
+  stage's bound is therefore the sum of its retrievals' bounds, known when the playbook loads.
 - **FR-210**: The same index generation and the same query MUST produce the same results in the
   same order, in either mode. Equal scores MUST be ordered by where the passage came from — its
   source document or run, then its position within it — rather than by whatever order the index
@@ -204,8 +205,8 @@ under any mode.
   the configuration names.
 - **FR-213**: Indexing a directory MUST NOT follow a symbolic link, wherever it points, so that
   nothing outside the directory is read through one and a link loop cannot hold the update. A file
-  that is not text MUST be skipped, and every skipped file or link MUST carry the reason it was
-  skipped.
+  that is not text, or that is larger than the runtime's document bound, MUST be skipped, and every
+  skipped file or link MUST carry the reason it was skipped.
 - **FR-214**: A collection over reports MUST hold only reports that validated against their
   playbook's output schema, and MUST exclude the report of a replay — an experiment against
   recorded inputs — and of a resume, which records a copy of the report it resumed. Each result
@@ -255,7 +256,9 @@ under any mode.
   search an index or send anything to an embeddings API.
 - **FR-227**: Each retrieval MUST be bounded in how many results it returns, how many bytes of
   retrieved content it hands the agent, and how long its query may be. Anything cut to fit MUST be
-  recorded as truncated.
+  recorded as truncated. A playbook MAY declare the result count and the byte bound, within ceilings
+  the runtime fixes, and a declaration above a ceiling MUST be refused at load; the query's bound is
+  the runtime's own and a playbook cannot change it.
 - **FR-228**: A retrieval that cannot be performed as declared — a source that cannot be read, a
   query empty once resolved — MUST refuse the run and name the cause. Only a search that ran and
   matched nothing is an empty result; the agent is then told nothing was found, and the record says
@@ -288,9 +291,9 @@ under any mode.
   semantic collection, which is what shows the stub was reachable the whole time: a stub nothing
   could reach records none either.
 - **SC-203**: A corpus of playbooks whose `retrieve` blocks name a mode, an endpoint, a model, a
-  credential, an unknown key, an undeclared collection, an undeclared gathered input, and a
-  colliding results name is refused at load with the field named, and a valid block is accepted —
-  FR-203 and FR-204. The runtime refuses every `retrieve` block today, so a test that only observes
+  credential, an unknown key, an undeclared collection, an undeclared gathered input, a colliding
+  results name, and a result count or byte bound above its ceiling is refused at load with the field
+  named, and a valid block is accepted — FR-203, FR-204 and FR-227. The runtime refuses every `retrieve` block today, so a test that only observes
   a refusal passes before the feature exists; the valid case is what makes this one able to fail.
 - **SC-204**: Against a stub API whose vectors put the nearest passage sharing no word with the
   query, a semantic retrieval returns that passage first and the record says semantic — FR-206. A
@@ -302,16 +305,16 @@ under any mode.
   case is refused within the request bound, measured by the test's own clock with a deadline well
   short of the suite's, so that an unenforced bound fails as an assertion rather than as a hung
   suite.
-- **SC-206**: A semantic retrieval whose index update needs more requests than fit in the stage
-  bound, each answered just inside the request bound, is refused within the stage bound — FR-209.
-  A stub that answers promptly passes whether or not the stage bound exists, which is why the
-  answers are slowed.
-- **SC-207**: A collection directory holding a text file, a file that is not text, a symbolic link
-  to a file outside it and one to its own parent is listed with the text file indexed and the other
-  three skipped, each with its reason — FR-212, FR-213 and FR-215. The listing is asserted exactly,
-  so an implementation that follows the link to its parent lists the text file more than once, or
-  never finishes. The outside file's content carries a marker, and the
-  marker appears in no result, no record, and no request the stub received.
+- **SC-206**: A semantic retrieval whose index update needs more requests than fit in its
+  collection's retrieval bound, each answered just inside the request bound, is refused within the
+  retrieval bound — FR-209. A stub that answers promptly passes whether or not the retrieval bound
+  exists, which is why the answers are slowed.
+- **SC-207**: A collection directory holding a text file, a file that is not text, a text file larger
+  than the document bound, a symbolic link to a file outside it and one to its own parent is listed
+  with the first text file indexed and the other four skipped, each with its reason — FR-212, FR-213
+  and FR-215. The listing is asserted exactly, so an implementation that follows the link to its
+  parent lists the text file more than once, or never finishes. The outside file's content carries
+  a marker, and the marker appears in no result, no record, and no request the stub received.
 - **SC-208**: A record store holding a run whose report validated, a run whose report did not, a
   replay of the first and a resume of the first returns, from a collection over that playbook's
   reports, exactly one result, naming the first run — FR-214. The resume's report is a copy of the
