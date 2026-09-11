@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Gronin playbook trigger",
+  "description": "The value that replaces the `trigger` property of specs/001-runtime-core/contracts/playbook.schema.json when this feature lands. Shape only, like the playbook schema: whether the source is configured, whether a pattern compiles, and where the payload may be referenced are checked by the runtime at load, not here. cron and manual are unchanged except that neither may declare a source or values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type"
+  ],
+  "properties": {
+    "type": {
+      "enum": [
+        "cron",
+        "manual",
+        "webhook"
+      ]
+    },
+    "schedule": {
+      "type": "string",
+      "description": "Required when type is cron. Standard five-field cron expression."
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Required when type is webhook. A source the deployment configures in sources.json; the playbook is refused at load when it does not (FR-310)."
+    },
+    "values": {
+      "type": "object",
+      "description": "Every payload value the playbook uses (FR-322). Nothing else in a delivery reaches the run (FR-323).",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "pattern",
+          "max_length"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "pattern": "^(/([^~/]|~[01])*)*$",
+            "description": "A JSON Pointer into the delivery's body."
+          },
+          "pattern": {
+            "type": "string",
+            "minLength": 1,
+            "description": "An RE2 expression the whole value must match. The runtime anchors it."
+          },
+          "max_length": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The most Unicode code points the value may hold."
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "cron"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "schedule"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "webhook"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "source"
+        ],
+        "not": {
+          "required": [
+            "schedule"
+          ]
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "source"
+              ]
+            },
+            {
+              "required": [
+                "values"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

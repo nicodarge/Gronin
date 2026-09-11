@@ -233,8 +233,14 @@ it is for values that are not secrets; that it accepts secrets too is the runtim
 specs/004-webhook/
 ├── spec.md          # this feature's requirements
 ├── plan.md          # this file
-├── research.md      # Phase 0 — the six questions answered by running or reading
-└── tasks.md         # not yet written
+├── research.md      # Phase 0 — the questions answered by running or reading
+├── data-model.md    # Phase 1 output
+├── quickstart.md    # Phase 1 output
+├── contracts/
+│   ├── ingress.md                  # the route, the order of a delivery, the answers, what they promise
+│   ├── webhook-trigger.schema.json # the trigger block, replacing the runtime core's trigger property
+│   └── cli.md                      # the operator surface and sources.json
+└── tasks.md         # the task list, built on the guard's
 ```
 
 ### Source Code (repository root)
@@ -264,7 +270,10 @@ reference (FR-311).
 
 ## Phase 1 — Design sketch
 
-Not a contract yet; the shape the tasks will be written against.
+The sketch below is what the Phase 1 artifacts were written from. Where they refine it — the data
+file written when the run begins rather than at hand-off, the identity kept in a table of its own, a
+declared signature prefix — [data-model.md](./data-model.md) and [contracts/](./contracts/) are the
+contract and say why; this section is kept as the reasoning that led there.
 
 **The delivery route.** `POST /hooks/{source}` on the ingress, and nothing else (FR-302). The body is
 JSON. The signature is HMAC-SHA256 over the exact body bytes, hexadecimal, in the header the
