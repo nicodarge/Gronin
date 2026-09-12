@@ -288,7 +288,7 @@ core does today. Waiting lands in US2.
       `Acquire` then succeeds within the claim expiry plus a stated slack. The pattern is
       `TestALockHeldByAKilledProcessIsAcquirable`'s; a fixed sleep shorter than the expiry would pass
       without the recovery ever running
-- [ ] T030 [P] [US1] SC-103, `TestHolder…` in `runtime/internal/guard/holder_test.go`: holder A and contender B on
+- [x] T030 [P] [US1] SC-103, `TestHolder…` in `runtime/internal/guard/holder_test.go`: holder A and contender B on
       one fake, the runtime's clock injected. A's handle is severed; A decides to stop at
       `sent + claim expiry − stop bound − margin floor` to the tick (R1), with `sent` the instant the
       last successful renewal was sent, not answered — the fake answers a round trip later on the
@@ -417,7 +417,7 @@ core does today. Waiting lands in US2.
 
 ### Mutants for User Story 1
 
-- [ ] T054 [US1] SC-101: `a playbook without a guard block takes no claim` in
+- [x] T054 [US1] SC-101: `a playbook without a guard block takes no claim` in
       `internal/guard/guard.go`, command `go test ./internal/run -count=1 -run TestGuard`; `the guard
       decides after the gather stage` in `internal/run/execute.go`, same command; `a resume takes no
       claim` in `internal/run/replay.go`, same command; `a guard refusal is recorded as a missed
@@ -426,46 +426,46 @@ core does today. Waiting lands in US2.
       mutant from T025 declared a second time with command
       `go test ./cmd/gronin -count=1 -run TestTwoServesRunOneTickOnce`, so that the test driving the
       built binaries is shown to fail on its own
-- [ ] T055 [US1] SC-102: C2's two etcd mutants from T025, declared again with command
+- [x] T055 [US1] SC-102: C2's two etcd mutants from T025, declared again with command
       `go test ./internal/guard/etcd -count=1 -run TestAKilledHoldersClaimLapses`
-- [ ] T056 [US1] SC-103, in `internal/guard/holder.go`, command
+- [x] T056 [US1] SC-103, in `internal/guard/holder.go`, command
       `go test ./internal/guard -count=1 -run TestHolder`: `sent is taken when the reply arrives`,
       `the stop deadline omits the stop bound`, `a lost claim is one more failed attempt`, `the stop
       deadline is read from the wall clock`; in `internal/run/replay.go`, `the sink loop does not
       fence`, and in `internal/run/execute.go`, `a run that lost its claim is recorded failed`, both
       with command `go test ./internal/run -count=1 -run TestFence`
-- [ ] T057 [US1] SC-104: `an unavailable backend admits the run` in `internal/guard/guard.go`, and
+- [x] T057 [US1] SC-104: `an unavailable backend admits the run` in `internal/guard/guard.go`, and
       `an unreachable backend falls back to the file lock` in `cmd/gronin/coordination.go`, both with
       command `go test ./cmd/gronin -count=1 -run TestAnUnreachableBackendRefuses`; `serve does not
       state its reach` and `serve exits when the backend is unreachable at startup` in
       `cmd/gronin/serve_cmd.go`, and `a single-host run records a cross-host reach` in
       `internal/run/filelock.go`, each with command
       `go test ./cmd/gronin -count=1 -run TestTheReachIsStated`
-- [ ] T058 [US1] SC-112: `the duration comparison is inverted`, `the stop bound is left out of the
+- [x] T058 [US1] SC-112: `the duration comparison is inverted`, `the stop bound is left out of the
       sum`, `coordination.json accepts an unknown key`, `a literal credential is accepted`, all in
       `internal/guard/config.go`, command `go test ./internal/guard -count=1 -run TestConfig`; `a
       renewal attempt is not bounded` and `an attempt counts as renewed when it is sent`, in
       `internal/guard/holder.go`, command `go test ./internal/guard -count=1 -run TestRenew`; and
       `a refused configuration still arms` in `cmd/gronin/serve_cmd.go`, command
       `go test ./cmd/gronin -count=1 -run TestServeRefusesDurationsThatCannotHold`
-- [ ] T059 [US1] SC-115: `a run that outlives the stop bound does not end the process`, in
+- [x] T059 [US1] SC-115: `a run that outlives the stop bound does not end the process`, in
       `internal/guard/holder.go`, command `go test ./internal/guard -count=1 -run TestTheStopBound`
-- [ ] T060 [US1] SC-116: `the decision is made under the caller's context`, in
+- [x] T060 [US1] SC-116: `the decision is made under the caller's context`, in
       `internal/guard/guard.go`, command `go test ./internal/guard -count=1 -run TestTheDecisionBound`
-- [ ] T061 [US1] SC-117: `serve hands the guard its own clock instead of the tick`, in
+- [x] T061 [US1] SC-117: `serve hands the guard its own clock instead of the tick`, in
       `cmd/gronin/serve_cmd.go`; and C13's `the last tick is not written`, `a tick equal to the
       recorded one is let through` and `every tick is refused once one is recorded` from T025,
       declared again. All with command `go test ./cmd/gronin -count=1 -run
       TestADelayedHostDoesNotRunATickAgain`. The two C13 mutants about the transaction stay killed
       by the contract alone, which chooses the interleaving: two deliveries in sequence cannot show
       that the tick is written in the step that takes the claim
-- [ ] T062 [US1] SC-118: `the guard hands over its own clock as the tick`, in `internal/guard/guard.go`,
+- [x] T062 [US1] SC-118: `the guard hands over its own clock as the tick`, in `internal/guard/guard.go`,
       command `go test ./internal/guard -count=1 -run TestATickIsJudgedByItsSchedule`
-- [ ] T063 [US1] SC-108, this story's half: `gronin refusals drops the mechanism`, in
+- [x] T063 [US1] SC-108, this story's half: `gronin refusals drops the mechanism`, in
       `cmd/gronin/refusals_cmd.go`, command `go test ./cmd/gronin -count=1 -run TestRefusals`; and
       `a refusal is dated by its tick`, in `internal/guard/guard.go`, command
       `go test ./internal/guard -count=1 -run TestARefusalIsDatedByTheRuntime`
-- [ ] T064 [US1] The credential mutants for T042: `the client certificate is not presented` and
+- [x] T064 [US1] The credential mutants for T042: `the client certificate is not presented` and
       `the password is not sent`, in `internal/guard/etcd/client.go`, command
       `go test ./internal/guard/etcd -count=1 -run TestCredentials`
 

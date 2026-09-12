@@ -1812,6 +1812,546 @@
         "-run",
         "TestRetrievals"
       ]
+    },
+    {
+      "name": "a playbook without a guard block takes no claim",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\tclaim, err := g.Coordinator.Acquire(decide, ask)\n",
+      "replace": "\tif book.Guard == nil {\n\t\treturn nil, nil\n\t}\n\tclaim, err := g.Coordinator.Acquire(decide, ask)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestGuard"
+      ]
+    },
+    {
+      "name": "the guard decides after the gather stage",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tadmitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)\n",
+      "replace": "\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: os.TempDir()}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestGuard"
+      ]
+    },
+    {
+      "name": "a resume takes no claim",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tadmitted, err := e.admit(ctx, book, record.TriggerResume, time.Time{})\n\tif err != nil {\n\t\treturn record.Run{}, err\n\t}\n",
+      "replace": "\tadmitted, err := e.admit(ctx, book, record.TriggerResume, time.Time{})\n\tif err != nil {\n\t\tadmitted, err = &guard.Admitted{}, nil\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestGuard"
+      ]
+    },
+    {
+      "name": "a guard refusal is recorded as a missed occurrence",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\tvar refused *guard.Refused\n\tif errors.As(err, &refused) {\n\t\treturn nil\n\t}\n",
+      "replace": "\tvar refused *guard.Refused\n\tif errors.As(err, &refused) && false {\n\t\treturn nil\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAGuardRefusalIsNotAMissedOccurrence"
+      ]
+    },
+    {
+      "name": "the claim transaction stops comparing the creation revision, through two built serves",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "conditions := []clientv3.Cmp{clientv3.Compare(clientv3.CreateRevision(claimKey), \"=\", 0)}",
+      "replace": "conditions := []clientv3.Cmp{clientv3.Compare(clientv3.CreateRevision(claimKey), \">=\", 0)}",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTwoServesRunOneTickOnce"
+      ]
+    },
+    {
+      "name": "the claim key is written without its lease, against a killed holder",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "clientv3.OpPut(claimKey, string(holder), clientv3.WithLease(lease))",
+      "replace": "clientv3.OpPut(claimKey, string(holder))",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestAKilledHoldersClaimLapses"
+      ]
+    },
+    {
+      "name": "the expiry is sent in milliseconds, against a killed holder",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "lease, err := c.client.Grant(ctx, int64(req.Expiry/time.Second))",
+      "replace": "lease, err := c.client.Grant(ctx, int64(req.Expiry/time.Millisecond))",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestAKilledHoldersClaimLapses"
+      ]
+    },
+    {
+      "name": "sent is taken when the reply arrives",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\t\t\tsent = attempt\n",
+      "replace": "\t\t\tsent = h.now()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestHolder"
+      ]
+    },
+    {
+      "name": "the stop deadline omits the stop bound",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\treturn sent.Add(expiry - c.StopBound - MarginFloor)\n",
+      "replace": "\treturn sent.Add(expiry - MarginFloor)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestHolder"
+      ]
+    },
+    {
+      "name": "a lost claim is one more failed attempt",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\t\tcase errors.Is(err, ErrLost):\n",
+      "replace": "\t\tcase errors.Is(err, ErrLost) && false:\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestHolder"
+      ]
+    },
+    {
+      "name": "the stop deadline is read from the wall clock",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "func (h *Hold) now() Instant { return h.guard.clock().Monotonic() }\n",
+      "replace": "func (h *Hold) now() Instant {\n\treturn InstantAt(time.Duration(h.guard.clock().Wall().UnixNano()))\n}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestHolder"
+      ]
+    },
+    {
+      "name": "the sink loop does not fence",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\tdelivered, fenceErr := sink.DeliverAll(stages, sinks, delivery, hold.Fence)\n",
+      "replace": "\tdelivered, fenceErr := sink.DeliverAll(stages, sinks, delivery, nil)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFence"
+      ]
+    },
+    {
+      "name": "a run that lost its claim is recorded failed",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\toutcome.Status = record.StatusClaimLost\n",
+      "replace": "\toutcome.Status = record.StatusFailed\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFence"
+      ]
+    },
+    {
+      "name": "an unavailable backend admits the run",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\tclaim, err := g.Coordinator.Acquire(decide, ask)\n\tif err != nil {\n",
+      "replace": "\tclaim, err := g.Coordinator.Acquire(decide, ask)\n\tif err != nil && !errors.Is(err, ErrUnavailable) {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUnreachableBackendRefuses"
+      ]
+    },
+    {
+      "name": "an unreachable backend falls back to the file lock",
+      "tree": "..",
+      "file": "cmd/gronin/coordination.go",
+      "find": "\t\tcoordinator: etcd.New(client, etcd.Options{Prefix: declared.Etcd.Prefix}),\n",
+      "replace": "\t\tcoordinator: manager.FileLock(),\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUnreachableBackendRefuses"
+      ]
+    },
+    {
+      "name": "serve exits when the backend is unreachable at startup",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\t\t\t\tcmd.Println(deployment.coordination.unreachable(err))\n",
+      "replace": "\t\t\t\treturn errSilent{err}\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUnreachableBackendRefuses"
+      ]
+    },
+    {
+      "name": "serve does not state its reach",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\t\t\tcmd.Println(deployment.coordination.describe())\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheReachIsStated"
+      ]
+    },
+    {
+      "name": "a single-host run records a cross-host reach",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "func (l *FileLock) Reach() string { return guard.ReachSingleHost }\n",
+      "replace": "func (l *FileLock) Reach() string { return guard.ReachCrossHost }\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheReachIsStated"
+      ]
+    },
+    {
+      "name": "the duration comparison is inverted",
+      "tree": "..",
+      "file": "internal/guard/config.go",
+      "find": "\tif sum > c.ClaimExpiry {\n",
+      "replace": "\tif sum < c.ClaimExpiry {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestConfig"
+      ]
+    },
+    {
+      "name": "the stop bound is left out of the sum",
+      "tree": "..",
+      "file": "internal/guard/config.go",
+      "find": "\tsum := c.RenewEvery + c.RenewBound + c.StopBound + MarginFloor\n",
+      "replace": "\tsum := c.RenewEvery + c.RenewBound + MarginFloor\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestConfig"
+      ]
+    },
+    {
+      "name": "coordination.json accepts an unknown key",
+      "tree": "..",
+      "file": "internal/guard/config.go",
+      "find": "\tdecoder.DisallowUnknownFields()\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestConfig"
+      ]
+    },
+    {
+      "name": "a literal credential is accepted",
+      "tree": "..",
+      "file": "internal/guard/config.go",
+      "find": "\t\tif !reference.MatchString(credential.text) {\n",
+      "replace": "\t\tif !reference.MatchString(credential.text) && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestConfig"
+      ]
+    },
+    {
+      "name": "a renewal attempt is not bounded",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\tctx, cancel := bound(context.Background(), h.guard.clock(), h.guard.Config.RenewBound)\n",
+      "replace": "\tctx, cancel := context.WithCancel(context.Background())\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestRenew"
+      ]
+    },
+    {
+      "name": "an attempt counts as renewed when it is sent",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\t\tattempt = h.now()\n\t\terr := h.attempt()\n",
+      "replace": "\t\tattempt = h.now()\n\t\terr := h.attempt()\n\t\tsent = attempt\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestRenew"
+      ]
+    },
+    {
+      "name": "a refused configuration still arms",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\t\t\t\tcmd.PrintErrln(\"Nothing was armed.\")\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestServeRefusesDurationsThatCannotHold"
+      ]
+    },
+    {
+      "name": "a run that outlives the stop bound does not end the process",
+      "tree": "..",
+      "file": "internal/guard/holder.go",
+      "find": "\tcase <-timer.C():\n\t\th.guard.exit()\n",
+      "replace": "\tcase <-timer.C():\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheStopBound"
+      ]
+    },
+    {
+      "name": "the decision is made under the caller's context",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\tdecide, cancel := bound(ctx, g.clock(), g.Config.DecisionBound)\n",
+      "replace": "\tdecide, cancel := context.WithCancel(ctx)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheDecisionBound"
+      ]
+    },
+    {
+      "name": "serve hands the guard its own clock instead of the tick",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\t\tKind: record.TriggerSchedule, DueAt: dueAt,\n",
+      "replace": "\t\tKind: record.TriggerSchedule, DueAt: time.Now().UTC(),\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestADelayedHostDoesNotRunATickAgain"
+      ]
+    },
+    {
+      "name": "the last tick is not written, through two built serves",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\twrites = append(writes, clientv3.OpPut(tickKey, string(tick)))\n",
+      "replace": "\t\t\t_ = tick\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestADelayedHostDoesNotRunATickAgain"
+      ]
+    },
+    {
+      "name": "a tick equal to the recorded one is let through, through two built serves",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn !req.Trigger.DueAt.After(recorded.DueAt)",
+      "replace": "\treturn req.Trigger.DueAt.Before(recorded.DueAt)",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestADelayedHostDoesNotRunATickAgain"
+      ]
+    },
+    {
+      "name": "every tick is refused once one is recorded, through two built serves",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\treturn !req.Trigger.DueAt.After(recorded.DueAt)",
+      "replace": "\treturn true",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestADelayedHostDoesNotRunATickAgain"
+      ]
+    },
+    {
+      "name": "the guard hands over its own clock as the tick",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\t\tTrigger: TriggerRef{Kind: kindOf(req.Kind), DueAt: dueOf(req)},\n",
+      "replace": "\t\tTrigger: TriggerRef{Kind: kindOf(req.Kind), DueAt: g.clock().Wall()},\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestATickIsJudgedByItsSchedule"
+      ]
+    },
+    {
+      "name": "gronin refusals drops the mechanism",
+      "tree": "..",
+      "file": "cmd/gronin/refusals_cmd.go",
+      "find": "\t\t\t\t\tone.TriggerKind, one.Mechanism, one.Detail)\n",
+      "replace": "\t\t\t\t\tone.TriggerKind, \"\", one.Detail)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestRefusals"
+      ]
+    },
+    {
+      "name": "a refusal is dated by its tick",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\t\tRefusedAt:    g.clock().Wall(),\n",
+      "replace": "\t\tRefusedAt:    dueOf(req),\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestARefusalIsDatedByTheRuntime"
+      ]
+    },
+    {
+      "name": "the client certificate is not presented",
+      "tree": "..",
+      "file": "internal/guard/etcd/client.go",
+      "find": "\ttransport.Certificates = []tls.Certificate{pair}\n",
+      "replace": "\t_ = pair\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestCredentials"
+      ]
+    },
+    {
+      "name": "the password is not sent",
+      "tree": "..",
+      "file": "internal/guard/etcd/client.go",
+      "find": "\t\tPassword:    cfg.Password,\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestCredentials"
+      ]
     }
   ]
 }
