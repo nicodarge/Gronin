@@ -78,6 +78,15 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -o "../gronin-${GOOS}-${GOARCH}" ./cmd/gronin
+      # A build compiles no test file, so a per-OS file's tests are checked by nothing
+      # until the day someone runs the suite on that OS. vet compiles them.
+      - name: The tests compile for this target
+        working-directory: runtime
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go vet ./...
       - name: The artifact is self-contained
         run: scripts/check-static.sh "gronin-${{ matrix.goos }}-${{ matrix.goarch }}"
 
