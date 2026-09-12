@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"golang.org/x/sys/unix"
 
 	"github.com/nicodarge/Gronin/runtime/internal/bintest"
 )
@@ -64,15 +63,4 @@ func TestConfigSetRestoresTheTerminalOnInterrupt(t *testing.T) {
 	if !echoOn(t, ptmx) {
 		t.Fatal("echo was not restored after the interrupt")
 	}
-}
-
-// echoOn reads the pty's current termios directly: golang.org/x/term's own State is
-// opaque, and what this asserts on is exactly the bit it does not expose.
-func echoOn(t *testing.T, ptmx interface{ Fd() uintptr }) bool {
-	t.Helper()
-	termios, err := unix.IoctlGetTermios(int(ptmx.Fd()), unix.TCGETS)
-	if err != nil {
-		t.Fatalf("reading termios: %v", err)
-	}
-	return termios.Lflag&unix.ECHO != 0
 }

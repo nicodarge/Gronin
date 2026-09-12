@@ -1265,6 +1265,36 @@
         "-run",
         "TestConfigSetRestoresTheTerminalOnInterrupt"
       ]
+    },
+    {
+      "name": "config set writes its label before turning echo off",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\tif err := disableEcho(fd); err != nil {\n\t\treturn \"\", fmt.Errorf(\"reading the value from the terminal: %w\", err)\n\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestConfigSetTurnsEchoOffBeforeItPrompts"
+      ]
+    },
+    {
+      "name": "config set leaves echo off after a value is read",
+      "tree": "..",
+      "file": "cmd/gronin/config_cmd.go",
+      "find": "\tcompleted.Store(true)\n\t_ = term.Restore(fd, state)\n",
+      "replace": "\tcompleted.Store(true)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestConfigSetTurnsEchoOffBeforeItPrompts"
+      ]
     }
   ]
 }
