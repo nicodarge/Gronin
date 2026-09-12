@@ -2230,7 +2230,9 @@
         "./cmd/gronin",
         "-count=1",
         "-run",
-        "TestADelayedHostDoesNotRunATickAgain"
+        "TestADelayedHostDoesNotRunATickAgain",
+        "-timeout",
+        "20m"
       ]
     },
     {
@@ -2245,7 +2247,9 @@
         "./cmd/gronin",
         "-count=1",
         "-run",
-        "TestADelayedHostDoesNotRunATickAgain"
+        "TestADelayedHostDoesNotRunATickAgain",
+        "-timeout",
+        "20m"
       ]
     },
     {
@@ -2260,7 +2264,9 @@
         "./cmd/gronin",
         "-count=1",
         "-run",
-        "TestADelayedHostDoesNotRunATickAgain"
+        "TestADelayedHostDoesNotRunATickAgain",
+        "-timeout",
+        "20m"
       ]
     },
     {
@@ -2275,7 +2281,9 @@
         "./cmd/gronin",
         "-count=1",
         "-run",
-        "TestADelayedHostDoesNotRunATickAgain"
+        "TestADelayedHostDoesNotRunATickAgain",
+        "-timeout",
+        "20m"
       ]
     },
     {

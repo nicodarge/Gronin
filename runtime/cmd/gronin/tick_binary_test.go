@@ -24,8 +24,9 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// Every two minutes, not every one. On resume the scheduler fires only the most
 	// recent due occurrence, so B reaches tick_already_ran only while that occurrence is
 	// still the one A ran; once the next falls due, B races A for it and is refused as
-	// claim_held instead. A's run has to end, and B catch up, inside one period — and
-	// under -race on a loaded runner A's run alone has taken about a minute and a half.
+	// claim_held instead. That is a margin, not a guarantee: under -race on a loaded
+	// runner A's run alone has taken about a minute and a half, which leaves B roughly
+	// thirty seconds of the period to catch up in.
 	c := newCluster(t, "*/2 * * * *", "0")
 
 	c.serve(t, 0)
@@ -38,7 +39,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// says the run started, not that it ended — and A holds its claim until it ends.
 	// Resuming B before then gets it refused as claim_held, which is FR-101 and not what
 	// this test is about, so wait for A's run to leave the running state as well.
-	c.waitForRuns(t, 1, 3*time.Minute)
+	c.waitForRuns(t, 1, 150*time.Second)
 	waitFor(t, 2*time.Minute, func() bool {
 		return !strings.Contains(c.runs(t, 0), string(record.StatusRunning))
 	}, func() string {
@@ -51,7 +52,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// B catches up and fires the same tick. It must be refused, and the record is where
 	// that is readable — the absence of a second line alone would also be satisfied by a
 	// B that never woke up.
-	waitFor(t, 2*time.Minute, func() bool {
+	waitFor(t, time.Minute, func() bool {
 		return strings.Contains(c.refusals(t, 1), string(record.MechanismTickAlreadyRan))
 	}, func() string {
 		return "host B recorded no tick_already_ran refusal; it recorded:\n" + c.refusals(t, 1)
@@ -61,13 +62,16 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	if !strings.Contains(refused, "ran as run 20") {
 		t.Fatalf("the refusal does not name the run that took the tick:\n%s", refused)
 	}
+	// Two runs here is either the defect, or the next occurrence falling due before this
+	// line and A running it. Both hosts' runs are what tell them apart.
 	if ran := c.ran(t); ran != 1 {
-		t.Fatalf("%d runs of one tick", ran)
+		t.Fatalf("%d runs where one tick was expected; host A ran:\n%s\nhost B ran:\n%s",
+			ran, c.runs(t, 0), c.runs(t, 1))
 	}
 
 	// And the next tick, with both hosts live, produces exactly one further run — which
 	// is what fails an implementation that refuses every tick once one is recorded.
-	c.waitForRuns(t, 2, 3*time.Minute)
+	c.waitForRuns(t, 2, 150*time.Second)
 }
 
 // waitFor polls until done reports true, and fails with why if it never does. why is

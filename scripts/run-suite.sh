@@ -100,7 +100,7 @@ echo "==> go test -race"
 output="$(mktemp)"
 trap 'rm -f "$output"; rm -rf "$shim"' EXIT
 set +e
-go test ./... -v -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-10m}" "$@" 2>&1 \
+go test ./... -v -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-20m}" "$@" 2>&1 \
     | tee "$output" \
     | command grep -vE '^(=== (RUN|PAUSE|CONT)|--- PASS|    )'
 status=${PIPESTATUS[0]}
