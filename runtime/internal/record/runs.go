@@ -19,11 +19,14 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO runs (id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref,
-		                  trigger_kind, parent_run_id, status, started_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                  trigger_kind, parent_run_id, status, started_at,
+		                  waiting_trigger_id, waited_ms, claim_reach, claim_token)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.ID, s.redactor.Redact(run.PlaybookName), nullable(run.ResolvedPlaybookRef),
 		nullable(run.ReportRef), nullable(run.PromptRef), string(run.TriggerKind), parent,
-		string(run.Status), formatTime(run.StartedAt))
+		string(run.Status), formatTime(run.StartedAt),
+		nullable(run.WaitingTriggerID), waited(run), nullable(string(run.ClaimReach)),
+		nullableInt(run.ClaimToken))
 	if err != nil {
 		return fmt.Errorf("recording run %s: %w", run.ID, err)
 	}
@@ -58,13 +61,19 @@ func (s *Store) FinishRun(ctx context.Context, run Run) error {
 		       credential_source = coalesce(?, credential_source),
 		       report_ref        = coalesce(?, report_ref),
 		       prompt_ref        = coalesce(?, prompt_ref),
-		       resolved_playbook_ref = coalesce(?, resolved_playbook_ref)
+		       resolved_playbook_ref = coalesce(?, resolved_playbook_ref),
+		       waiting_trigger_id    = coalesce(?, waiting_trigger_id),
+		       waited_ms             = coalesce(?, waited_ms),
+		       claim_reach           = coalesce(?, claim_reach),
+		       claim_token           = coalesce(?, claim_token)
 		 WHERE id = ?`,
 		string(run.Status), formatTime(run.EndedAt),
 		nullable(s.redactor.Redact(run.Error)),
 		nullableFloat(run.CostUSD), nullableInt(run.Tokens),
 		nullable(run.AgentSessionID), nullable(run.CredentialSource),
 		nullable(run.ReportRef), nullable(run.PromptRef), nullable(run.ResolvedPlaybookRef),
+		nullable(run.WaitingTriggerID), waited(run), nullable(string(run.ClaimReach)),
+		nullableInt(run.ClaimToken),
 		run.ID)
 	if err != nil {
 		return fmt.Errorf("finishing run %s: %w", run.ID, err)
@@ -75,7 +84,8 @@ func (s *Store) FinishRun(ctx context.Context, run Run) error {
 const runColumns = `
 		SELECT id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref, trigger_kind,
 		       parent_run_id, status, started_at, ended_at, cost_usd, tokens, agent_session_id,
-		       credential_source, error`
+		       credential_source, error, waiting_trigger_id, waited_ms, claim_reach,
+		       claim_token`
 
 // scanner is what sql.Row and sql.Rows have in common, so one scan serves both.
 type scanner interface{ Scan(dest ...any) error }
@@ -85,15 +95,18 @@ func scanRun(from scanner) (Run, error) {
 		run                                       Run
 		resolved, report, prompt, parent, session sql.NullString
 		credential, failure, started, ended       sql.NullString
+		waitingTrigger, reach                     sql.NullString
 		cost                                      sql.NullFloat64
-		tokens                                    sql.NullInt64
+		tokens, waitedMS, token                   sql.NullInt64
 		trigger, status                           string
 	)
 	if err := from.Scan(&run.ID, &run.PlaybookName, &resolved, &report, &prompt, &trigger,
 		&parent, &status, &started, &ended, &cost, &tokens, &session, &credential,
-		&failure); err != nil {
+		&failure, &waitingTrigger, &waitedMS, &reach, &token); err != nil {
 		return Run{}, err
 	}
+	run.WaitingTriggerID, run.WaitedMS = waitingTrigger.String, waitedMS.Int64
+	run.ClaimReach, run.ClaimToken = Reach(reach.String), token.Int64
 
 	run.ResolvedPlaybookRef, run.ReportRef, run.PromptRef = resolved.String, report.String, prompt.String
 	run.TriggerKind, run.Status = TriggerKind(trigger), Status(status)
@@ -354,6 +367,15 @@ func nullable(value string) any {
 		return nil
 	}
 	return value
+}
+
+// waited is a run's time waited as stored: null for a run that did not wait, which is
+// not the same as one that waited no time at all.
+func waited(run Run) any {
+	if run.WaitingTriggerID == "" {
+		return nil
+	}
+	return run.WaitedMS
 }
 
 func nullableFloat(value float64) any {

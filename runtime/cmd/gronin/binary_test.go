@@ -1,10 +1,12 @@
 package main
 
 import (
+	"debug/buildinfo"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/bintest"
 	"github.com/nicodarge/Gronin/runtime/internal/fakeagent"
@@ -132,5 +134,46 @@ func TestValidateSaysWhyItCannotReadTheConfiguration(t *testing.T) {
 	}
 	if !strings.Contains(got.Stderr, "configuration") {
 		t.Errorf("the refusal does not name what it could not read: %q", got.Stderr)
+	}
+}
+
+// The embedded etcd server is a test dependency: the contract suite runs against it. A
+// test-support import reaching a shipped package links it into the binary anyway, and
+// nothing else notices — the binary still builds, statically, and every other test
+// passes. The module list is read from the executable itself, so the answer is the
+// linker's rather than the import graph's.
+func TestTheBinaryLinksNoEtcdServer(t *testing.T) {
+	info, err := buildinfo.ReadFile(bintest.Build(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linked := map[string]bool{}
+	for _, module := range info.Deps {
+		linked[module.Path] = true
+		if strings.HasPrefix(module.Path, "go.etcd.io/etcd/server") {
+			t.Errorf("the shipped binary links %s %s", module.Path, module.Version)
+		}
+	}
+	// A check that finds nothing forbidden in an empty list passes too.
+	if !linked["modernc.org/sqlite"] {
+		t.Fatalf("the module list does not hold modernc.org/sqlite, which the binary links; read %d modules",
+			len(info.Deps))
+	}
+}
+
+// bintest.Start is what every test that keeps a process open goes through, and a line it
+// lost or a Wait that never returned would read as the process's own fault.
+func TestStartReadsTheBinaryLineByLine(t *testing.T) {
+	process := bintest.Start(t, "version", "--agent", fakeagent.Build(t))
+
+	if first := process.Next(t, 30*time.Second); first == "" {
+		t.Fatal("the first line was empty")
+	}
+	process.Expect(t, "agent", 30*time.Second)
+
+	code, err := process.Wait(30 * time.Second)
+	if err != nil || code != 0 {
+		t.Fatalf("exit code = %d, err = %v, stderr = %q", code, err, process.Stderr())
 	}
 }

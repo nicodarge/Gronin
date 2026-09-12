@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
@@ -39,6 +40,14 @@ type Executor struct {
 	AgentEnv []string
 	// StepEnv is what a gather step runs with — deliberately not this process's own.
 	StepEnv []string
+
+	// Coordinator holds the claim a run needs before it begins. Nil is the single-host
+	// file lock of FR-109, which is what a deployment with no coordination backend gets.
+	Coordinator guard.Coordinator
+	// Host and Instance are who a claim names as its holder, beside the run.
+	Host, Instance string
+	// ClaimExpiry is what a claim is asked for; the backend judges it (FR-106).
+	ClaimExpiry time.Duration
 
 	Client         *http.Client
 	Log            *slog.Logger
@@ -80,8 +89,13 @@ func (e *Executor) Execute(
 	ctx context.Context, book *playbook.Playbook, kind record.TriggerKind,
 	trigger map[string]string,
 ) (record.Run, error) {
-	started, err := e.Manager.Begin(ctx, book.Name, kind, "")
+	claimed, err := e.claim(ctx, book.Name)
 	if err != nil {
+		return record.Run{}, err
+	}
+	started, err := e.Manager.Begin(ctx, claimed, kind, "")
+	if err != nil {
+		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
 	}
 
@@ -127,6 +141,35 @@ func (e *Executor) Execute(
 	// The same path a replay takes, so a replay cannot end up bounded differently from
 	// the run it derives from.
 	return e.agentAndSinks(ctx, started, book, prompt.text, &outcome, incomplete, trigger)
+}
+
+// claim takes the claim a run needs before anything is created or gathered (FR-102).
+//
+// The trigger reference carries the kind alone. The instant a scheduled occurrence was
+// due is the scheduler's (FR-129) and reaches the coordinator through the guard stage,
+// which decides for every trigger; until it does, no run here consults the last tick.
+func (e *Executor) claim(ctx context.Context, playbookName string) (Claimed, error) {
+	id, err := NewRunID()
+	if err != nil {
+		return Claimed{}, err
+	}
+	coordinator := e.coordinator()
+	claim, err := coordinator.Acquire(ctx, guard.AcquireRequest{
+		Name:   playbookName,
+		Holder: guard.Holder{Host: e.Host, Instance: e.Instance, RunID: id},
+		Expiry: e.ClaimExpiry,
+	})
+	if err != nil {
+		return Claimed{}, err
+	}
+	return Claimed{Claim: claim, RunID: id, PlaybookName: playbookName, Reach: coordinator.Reach()}, nil
+}
+
+func (e *Executor) coordinator() guard.Coordinator {
+	if e.Coordinator != nil {
+		return e.Coordinator
+	}
+	return e.Manager.FileLock()
 }
 
 type resolvedPrompt struct {

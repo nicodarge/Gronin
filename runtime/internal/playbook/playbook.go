@@ -14,7 +14,7 @@ type Playbook struct {
 	Gather      []Step   `yaml:"gather"`
 	Agent       Agent    `yaml:"agent"`
 	Sinks       []Sink   `yaml:"sinks"`
-	Guard       *Unknown `yaml:"guard"`
+	Guard       *Guard   `yaml:"guard"`
 	Retrieve    *Unknown `yaml:"retrieve"`
 
 	// Path is where this was read from. Not part of the document — and `json:"-"` is
@@ -52,6 +52,23 @@ type Agent struct {
 
 // Sink is one destination. Exactly one key names the type; its value configures it.
 type Sink map[string]any
+
+// Guard is what a playbook declares about whether a trigger becomes a run (FR-119). No
+// backend, credential or duration of the claim set appears here: those belong to the
+// deployment, and a playbook declaring a limit stays portable to one that coordinates
+// differently.
+type Guard struct {
+	Rate *Rate `yaml:"rate"`
+	// Wait is how long a trigger refused because the playbook is running may wait for it
+	// (FR-112). Empty when not declared, which is not the same as "0s".
+	Wait string `yaml:"wait"`
+}
+
+// Rate is a limit of runs per window, keyed on the playbook name (FR-114).
+type Rate struct {
+	Runs int    `yaml:"runs"`
+	Per  string `yaml:"per"`
+}
 
 // Unknown marks a block the runtime does not apply. Its presence is refused rather than
 // ignored: a declared bound nothing enforces reads as enforced in review, which is worse

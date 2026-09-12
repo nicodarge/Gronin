@@ -61,24 +61,24 @@ than passing silently.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add `go.etcd.io/etcd/client/v3` and `go.etcd.io/etcd/server/v3` to `runtime/go.mod`
+- [x] T001 Add `go.etcd.io/etcd/client/v3` and `go.etcd.io/etcd/server/v3` to `runtime/go.mod`
       and `runtime/go.sum`, the server imported only from `internal/guard/guardtest` and
       `_test.go` files. Build `CGO_ENABLED=0 go build ./cmd/gronin` and run
       `scripts/check-static.sh` on it locally; the CI `build` job already runs the same check on
       every target, so no workflow change is needed. Confirm the `suite` and `mutation` jobs'
       `go mod download` brings the new modules into the cache the no-network run needs, since both
       run with `GOPROXY=off`
-- [ ] T002 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, with its
+- [x] T002 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, with its
       standard output readable line by line, `Signal` (SIGSTOP, SIGCONT, SIGKILL, SIGTERM), a
       `Wait` bounded by a deadline, and a cleanup that kills it. Every test that keeps `serve` up,
       freezes a process or kills one mid-run goes through it rather than rolling its own
-- [ ] T003 [P] `TestTheBinaryLinksNoEtcdServer` in `runtime/cmd/gronin/binary_test.go`: the built executable's module list, read
+- [x] T003 [P] `TestTheBinaryLinksNoEtcdServer` in `runtime/cmd/gronin/binary_test.go`: the built executable's module list, read
       with `debug/buildinfo.ReadFile` on `bintest.Build(t)`, holds no `go.etcd.io/etcd/server`
       module. It also asserts one module that must be there — `modernc.org/sqlite` now, the etcd
       client once T053 lands — because a check on an empty list passes. Nothing else notices a
       test-support import reaching a shipped package: the binary still builds, statically, and
       every other test passes
-- [ ] T004 Register T003's mutant, `the shipped binary links the embedded etcd server`: a blank
+- [x] T004 Register T003's mutant, `the shipped binary links the embedded etcd server`: a blank
       import of `go.etcd.io/etcd/server/v3/embed` added to `cmd/gronin/main.go`; command
       `go test ./cmd/gronin -count=1 -run TestTheBinaryLinksNoEtcdServer`
 
@@ -91,27 +91,27 @@ it links.
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/0002_guard.sql`: the `refusals`, `waiting_triggers`
+- [x] T005 `runtime/internal/record/migrations/0002_guard.sql`: the `refusals`, `waiting_triggers`
       and `last_ticks` tables, and the `runs` columns `waiting_trigger_id`, `waited_ms`,
       `claim_reach`, `claim_token`, per [data-model.md](./data-model.md). A new file rather than an
       edit of `0001_initial.sql`: `schema.go` applies migrations by name, and an edited one is
       skipped on every store that already applied it
-- [ ] T006 `runtime/internal/record/store.go` and `runtime/internal/record/runs.go`: the Run's four
+- [x] T006 `runtime/internal/record/store.go` and `runtime/internal/record/runs.go`: the Run's four
       fields, the `claim_lost` status, and the refusal `mechanism` type with every value
       data-model.md lists — read and written by `CreateRun`, `FinishRun` and `scanRun`
-- [ ] T007 [P] `runtime/internal/record/refusals.go`: write a refusal record and list them most
+- [x] T007 [P] `runtime/internal/record/refusals.go`: write a refusal record and list them most
       recent first. `detail` passes the redactor at the write boundary like every other record, and
       `refused_at` and `due_at` are stored in UTC
-- [ ] T008 [P] `runtime/internal/record/ticks.go`: read and write one playbook's last tick — the
+- [x] T008 [P] `runtime/internal/record/ticks.go`: read and write one playbook's last tick — the
       single-host form of FR-128, used only under the file lock
-- [ ] T009 Test in `runtime/internal/record/guard_test.go`: a store created under the runtime core's
+- [x] T009 Test in `runtime/internal/record/guard_test.go`: a store created under the runtime core's
       schema migrates, and its existing runs read back with the new fields empty; a refusal, a last
       tick and a run's new fields round-trip; a configured secret written into a refusal's detail
       does not reach the database file (the `testsecret` sentinel, as the leak test uses)
 
 ### The `guard` block
 
-- [ ] T010 [P] `runtime/internal/playbook/playbook.go` gains the `Guard` type (`rate.runs`,
+- [x] T010 [P] `runtime/internal/playbook/playbook.go` gains the `Guard` type (`rate.runs`,
       `rate.per`, `wait`). The reserved `guard` property of
       `specs/001-runtime-core/contracts/playbook.schema.json` is replaced by the content of
       [contracts/guard.schema.json](./contracts/guard.schema.json), and
@@ -125,7 +125,7 @@ it links.
       `guard-unknown-key.yaml`; the tables in `parse_test.go` and `validate_test.go` follow. The
       existing mutant `the gate accepts a reserved block` keeps its target and is now killed by the
       `retrieve` case alone — confirm it still is
-- [ ] T011 SC-109, the load half, `TestGuardBlock…` in `runtime/internal/playbook/parse_test.go`
+- [x] T011 SC-109, the load half, `TestGuardBlock…` in `runtime/internal/playbook/parse_test.go`
       and `validate_test.go`: the shape layer probed on what it must refuse — an unknown key, `runs: 0`,
       `per: 30s`, `per: 0m`, `wait: 5`, a `rate` without `per` — and on what it must accept, a
       shape-valid `rate` and `wait`. The gate's refusal of a not-yet-applied key is asserted by
@@ -133,42 +133,45 @@ it links.
 
 ### The interface, the fake and the contract
 
-- [ ] T012 [P] `runtime/internal/guard/doc.go` and `runtime/internal/guard/coordinator.go`: the
+- [x] T012 [P] `runtime/internal/guard/doc.go` and `runtime/internal/guard/coordinator.go`: the
       interface in [contracts/coordination.md](./contracts/coordination.md) as written — the
       `Coordinator` and `Claim` interfaces, `AcquireRequest`, `Holder`, `RateLimit`, `TriggerRef`
       and the sentinel errors — plus `Claim.Expiry()`, which C12 requires and the interface block
       omits; the same change adds it to contracts/coordination.md. And the C13 seam: an option the
       etcd adapter and the fake call between reading the last tick and sending the transaction, nil
       outside the contract suite
-- [ ] T013 `runtime/internal/guard/clock.go` and `runtime/internal/guard/guardtest/clock.go`: the
+- [x] T013 `runtime/internal/guard/clock.go` and `runtime/internal/guard/guardtest/clock.go`: the
       runtime's clock as an interface with its two readings kept apart — monotonic for durations and
       deadlines, wall for recorded timestamps (FR-118) — and its timers; the system implementation,
       and a fake the test advances, whose wall reading can be stepped backwards without moving the
       monotonic one
-- [ ] T014 [P] `runtime/internal/guard/guardtest/etcdserver.go` and
+- [x] T014 [P] `runtime/internal/guard/guardtest/etcdserver.go` and
       `runtime/internal/guard/guardtest/proxy.go`: an etcd server embedded in the test process, its
       client and peer URLs unix sockets under a short temporary directory — a socket path longer
       than the kernel's `sun_path` limit fails to bind, and `t.TempDir()` names grow with the test's
       name — stopped at cleanup; and a unix-socket proxy between client and server with a switch that
       holds (stops forwarding without closing) and one that severs. Research.md §1 is why this is
       not network in Principle VI's sense, and why a fixed port or a binary found on `PATH` would be
-- [ ] T015 Test in `runtime/internal/guard/guardtest/etcdserver_test.go`: every listener the embedded
+- [x] T015 Test in `runtime/internal/guard/guardtest/etcdserver_test.go`: every listener the embedded
       server opened is a unix socket, read from the server's own listeners. Not from
       `/proc/net/tcp`: the whole suite shares one network namespace, and other packages' loopback
       servers would show there
-- [ ] T016 `runtime/internal/guard/guardtest/fake.go`: the fake `Coordinator`. It judges expiry on a
+- [x] T016 `runtime/internal/guard/guardtest/fake.go`: the fake `Coordinator`. It judges expiry on a
       clock of its own, separate from the runtime's (C3), and can be told, per handle, to hold every
       response or to sever — per handle, so that one holder loses the backend while a contender still
       reaches it (SC-103). It can expire a claim now, grant less than it was asked (C12), and call the
       C13 seam. A held call returns only when its context ends and never completes late: that is
       what makes a hang distinguishable from a slow success
-- [ ] T017 `runtime/internal/guard/guardtest/contract.go`: `Contract(t, subject)` running every clause
+- [x] T017 `runtime/internal/guard/guardtest/contract.go`: `Contract(t, subject)` running every clause
       of contracts/coordination.md except C8 and C9, which T085 adds with the rate slots. A clause is
       skipped for a subject only where the contract's table says n/a. C4 asserts from a watchdog of
       its own, never from `go test`'s timeout; C2 polls with a deadline and never sleeps a fixed time;
-      C13's interleaving cases hold the second caller at the seam
-- [ ] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
-- [ ] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
+      C13's interleaving cases hold the second caller at the seam.
+      *Deviation*: C13's interleaving cases are skipped for the file lock, which has no seam to hold
+      a caller at — it reads and writes the tick under the lock it has already taken, so no
+      interleaving puts a second caller between the two; the suite says so where it skips them
+- [x] T018 `runtime/internal/guard/guardtest/fake_contract_test.go`: the contract against the fake
+- [x] T019 `runtime/internal/guard/etcd/etcd.go`: the adapter. `Acquire` grants a lease, refuses a
       grant shorter than asked (C12), reads the last tick, and sends one transaction comparing the
       claim key's creation revision with zero and the tick key's modification revision with the one
       it read, writing the claim and the new tick; an overtaken transaction reads and decides again
@@ -181,37 +184,48 @@ it links.
       transaction on the creation revision; `Release` revokes and tolerates a second call; `Released`
       watches the key. Keys as in the contract, under the configured prefix. The library's
       `KeepAlive` and `concurrency.Session` are not used: they signal loss at the expiry
-- [ ] T020 `TestEtcdContract` in `runtime/internal/guard/etcd/contract_test.go`: the contract against the adapter talking to
+- [x] T020 `TestEtcdContract` in `runtime/internal/guard/etcd/contract_test.go`: the contract against the adapter talking to
       the embedded server through the proxy, which is what holds it for C4
-- [ ] T021 `TestGrantedExpiry` in `runtime/internal/guard/etcd/grant_test.go`: the adapter's comparison of granted
+- [x] T021 `TestGrantedExpiry` in `runtime/internal/guard/etcd/grant_test.go`: the adapter's comparison of granted
       and requested expiry, as a table — shorter refused, equal and longer accepted and reported. The
       embedded server can only grant longer than asked, so C12's refusing half cannot be reached
       through it; the contract exercises that half on the fake, and this is where the adapter's own
       comparison is shown able to fail
-- [ ] T022 `runtime/internal/run/filelock.go`: the single-host `Coordinator` over the existing
+- [x] T022 `runtime/internal/run/filelock.go`: the single-host `Coordinator` over the existing
       advisory lock — `Acquire` takes the in-process claim and the flock through the functions
       already in `run.go`, which stay where they are so the existing lock mutants keep their target;
       `Renew` and `Fence` are no-ops, since the lock cannot be lost while its holder lives; `Released`
       returns once the lock can be taken or the context ends; the last tick is read and written
       through `record/ticks.go` while the lock is held (C13); `Reach` is `single-host`.
-      `Manager.Begin` stops taking the lock itself and is handed the claim the guard took
-- [ ] T023 `TestFileLockContract` in `runtime/internal/run/filelock_contract_test.go`: the contract against the file lock where
+      `Manager.Begin` stops taking the lock itself and is handed the claim the guard took.
+      *Deviation*: the in-process claim map is gone rather than kept. C1 requires the refusal to name
+      the holder, which across processes only the lock file can carry; once it does, the map excluded
+      nothing the flock did not and named nothing the file did not, so its mutant `two runs of one
+      playbook are allowed at once` had become unkillable and goes with the state it mutated.
+      `acquireLock`, `releaseLock` and the name check stay in `run.go` and keep their mutants.
+      *Deviation*: until the guard stage lands (T045, T047), `Execute`, `Replay` and `Resume` take the
+      claim themselves through `Executor.Coordinator`, which defaults to the file lock, and pass no
+      trigger kind — so no run consults the last tick until the scheduler's occurrence reaches it
+- [x] T023 `TestFileLockContract` in `runtime/internal/run/filelock_contract_test.go`: the contract against the file lock where
       the contract's table applies. C2's equivalent stays
       `TestALockHeldByAKilledProcessIsAcquirable`, re-pointed at `filelock.go`; C11 inherits the
       existing mutant `a filesystem failure is reported as a concurrent run`. The existing tests that
       reached the lock through `Manager.Begin` go through the file lock instead, and every existing
-      lock mutant is confirmed still killed
+      lock mutant is confirmed still killed.
+      *Deviation*: `finishing a run does not release its cross-process lock` is re-pointed at
+      `Finish`'s release of the claim, where that release now happens; it is the same mutation and is
+      still killed by `TestASecondManagerOverTheSameStateDirIsRefused`
 
 ### Mutants for the foundation
 
-- [ ] T024 Register the fake's and the embedded server's mutants, each with command
+- [x] T024 Register the fake's and the embedded server's mutants, each with command
       `go test ./internal/guard/guardtest -count=1`, all in `internal/guard/guardtest/fake.go` unless
       named: C1 `the fake stops consulting its claims`; C3 `the fake's expiry reads the runtime's
       clock`; C4 `a held fake call ignores its context`; C13 `the fake lets a tick equal to the
       recorded one through`; C14 `the fake records its own clock as the tick`; and
       `the embedded server listens on TCP`, a client URL on loopback, in
       `internal/guard/guardtest/etcdserver.go` (T015)
-- [ ] T025 Register the etcd adapter's mutants, in `internal/guard/etcd/etcd.go`, command
+- [x] T025 Register the etcd adapter's mutants, in `internal/guard/etcd/etcd.go`, command
       `go test ./internal/guard/etcd -count=1 -run TestEtcdContract` unless named. One per "fails
       when" of contracts/coordination.md: C1 `the claim transaction stops comparing the creation
       revision`; C2 `the claim key is written without its lease` and `the expiry is sent in
@@ -223,7 +237,7 @@ it links.
       recorded one is let through`, `every tick is refused once one is recorded`, `the tick's
       revision is not compared`, `an absent tick record is not compared`; C14 `the adapter records
       its clock as the tick`, `the adapter compares its clock with the recorded tick`
-- [ ] T026 Register the file lock's mutants, in `internal/run/filelock.go`, command
+- [x] T026 Register the file lock's mutants, in `internal/run/filelock.go`, command
       `go test ./internal/run -count=1 -run TestFileLockContract`: C7 `the file lock's release does
       nothing`, C10 `the file lock's released returns only at its deadline`, C13 `the single-host
       last tick is not written`

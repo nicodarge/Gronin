@@ -49,6 +49,7 @@ type Claim interface {
     Renew(ctx context.Context) error // one attempt, bounded by ctx
     Fence(ctx context.Context) error // is this still the current claim on its name?
     Release(ctx context.Context) error
+    Expiry() time.Duration           // the expiry actually granted (C12); zero if none
 }
 
 type Holder struct{ Host, Instance, RunID string }

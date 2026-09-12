@@ -10,9 +10,10 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 )
 
-// T012, SC-002's shape half. Fifteen documents, eleven of which the published schema must
-// refuse. The corpus is here rather than in a probe script so it keeps running: a probe
-// that passed once, on a machine that no longer exists, is a claim rather than a check.
+// T012, SC-002's shape half, and SC-109's since the guard block stopped being refused
+// whole. Seventeen documents, thirteen of which the published schema must refuse. The
+// corpus is here rather than in a probe script so it keeps running: a probe that passed
+// once, on a machine that no longer exists, is a claim rather than a check.
 //
 // Every refusal here is one JSON Schema can express. The ones it cannot — a shell in a
 // tool set, a path escaping the working directory, an MCP server this deployment does not
@@ -21,12 +22,12 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 	accepted := documentsIn(t, "testdata/schema/accepted")
 	refused := documentsIn(t, "testdata/schema/refused")
 
-	if len(accepted)+len(refused) != 15 {
-		t.Fatalf("the corpus holds %d documents, and it is meant to hold fifteen",
+	if len(accepted)+len(refused) != 17 {
+		t.Fatalf("the corpus holds %d documents, and it is meant to hold seventeen",
 			len(accepted)+len(refused))
 	}
-	if len(refused) != 11 {
-		t.Fatalf("%d documents are meant to be refused, and eleven are", len(refused))
+	if len(refused) != 13 {
+		t.Fatalf("%d documents are meant to be refused, and thirteen are", len(refused))
 	}
 
 	for name, document := range accepted {
@@ -41,7 +42,9 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 		"agent-without-output-schema.yaml": "agent: missing property 'output_schema'",
 		"cron-without-schedule.yaml":       "trigger: missing property 'schedule'",
 		"gather-step-without-a-name.yaml":  "gather/0: missing property 'as'",
-		"guard-block.yaml":                 "guard: 'not' failed",
+		"guard-unknown-key.yaml":           "guard: additional properties 'lock' not allowed",
+		"guard-rate-per-seconds.yaml":      "guard/rate/per: '30s' does not match pattern",
+		"guard-rate-zero-runs.yaml":        "guard/rate/runs: minimum: got 0, want 1",
 		"name-not-a-slug.yaml":             "does not match pattern",
 		"no-name.yaml":                     "missing property 'name'",
 		"no-sinks.yaml":                    "sinks: minItems: got 0, want 1",
@@ -64,6 +67,63 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%s was refused, but not for its reason.\n  want: %s\n  got:  %v", path, want, err)
 		}
+	}
+}
+
+// SC-109, the shape half: the guard block is probed on what it must refuse, and each
+// refusal is pinned to its reason so that one cannot pass on another's. What it must
+// accept is probed too — a schema that refused the whole block again would pass every
+// refusal here, which is exactly what the runtime core's schema did.
+func TestGuardBlockShape(t *testing.T) {
+	document := func(guard string) []byte {
+		return []byte("name: drift-check\ntrigger: {type: manual}\n" + guard +
+			"agent: {model: m, prompt_file: p.md, output_schema: {type: object}}\n" +
+			"sinks: [{discord: {channel: \"#ops\"}}]\n")
+	}
+
+	for name, probe := range map[string]struct{ guard, because string }{
+		"an unknown key":                          {"guard: {lock: drift}\n", "guard: additional properties 'lock' not allowed"},
+		"no runs at all":                          {"guard: {rate: {runs: 0, per: 1h}}\n", "guard/rate/runs: minimum: got 0, want 1"},
+		"a window in seconds":                     {"guard: {rate: {runs: 2, per: 30s}}\n", "guard/rate/per: '30s' does not match pattern"},
+		"an empty window":                         {"guard: {rate: {runs: 2, per: 0m}}\n", "guard/rate/per: '0m' does not match pattern"},
+		"a wait that is a number, not a duration": {"guard: {wait: 5}\n", "guard/wait: got number, want string"},
+		"a rate without per":                      {"guard: {rate: {runs: 2}}\n", "guard/rate: missing property 'per'"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := playbook.Parse(name, document(probe.guard))
+			if err == nil {
+				t.Fatalf("%q was accepted", probe.guard)
+			}
+			if !strings.Contains(err.Error(), probe.because) {
+				t.Fatalf("refused, but not for its reason.\n  want: %s\n  got:  %v", probe.because, err)
+			}
+		})
+	}
+
+	for name, probe := range map[string]struct {
+		guard string
+		want  playbook.Guard
+	}{
+		"a rate":            {"guard: {rate: {runs: 2, per: 1m}}\n", playbook.Guard{Rate: &playbook.Rate{Runs: 2, Per: "1m"}}},
+		"a rate in hours":   {"guard: {rate: {runs: 1, per: 24h}}\n", playbook.Guard{Rate: &playbook.Rate{Runs: 1, Per: "24h"}}},
+		"a wait":            {"guard: {wait: 30m}\n", playbook.Guard{Wait: "30m"}},
+		"a wait of nothing": {"guard: {wait: 0s}\n", playbook.Guard{Wait: "0s"}},
+		"both":              {"guard: {rate: {runs: 3, per: 2h}, wait: 90s}\n", playbook.Guard{Rate: &playbook.Rate{Runs: 3, Per: "2h"}, Wait: "90s"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			book, err := playbook.Parse(name, document(probe.guard))
+			if err != nil {
+				t.Fatalf("%q was refused: %v", probe.guard, err)
+			}
+			if book.Guard == nil {
+				t.Fatal("the guard block was not decoded")
+			}
+			got := *book.Guard
+			if got.Wait != probe.want.Wait || (got.Rate == nil) != (probe.want.Rate == nil) ||
+				(got.Rate != nil && *got.Rate != *probe.want.Rate) {
+				t.Fatalf("decoded as %+v (rate %+v), want %+v (rate %+v)", got, got.Rate, probe.want, probe.want.Rate)
+			}
+		})
 	}
 }
 

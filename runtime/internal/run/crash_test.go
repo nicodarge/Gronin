@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
 )
@@ -34,7 +35,10 @@ func TestHelperLockHolderThenBlocks(t *testing.T) {
 	}
 	manager := run.NewManager(store, filepath.Join(dir, "work"), locksDir)
 
-	if _, err := manager.Begin(t.Context(), "drift-check", record.TriggerSchedule, ""); err != nil {
+	if _, err := manager.FileLock().Acquire(t.Context(), guard.AcquireRequest{
+		Name:   "drift-check",
+		Holder: guard.Holder{Host: "host.example.com", Instance: "helper", RunID: "run-helper"},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,7 +89,10 @@ func TestALockHeldByAKilledProcessIsAcquirable(t *testing.T) {
 
 	acquired := make(chan error, 1)
 	go func() {
-		_, err := manager.Begin(t.Context(), "drift-check", record.TriggerManual, "")
+		_, err := manager.FileLock().Acquire(t.Context(), guard.AcquireRequest{
+			Name:   "drift-check",
+			Holder: guard.Holder{Host: "host.example.com", Instance: "instance", RunID: "run-after"},
+		})
 		acquired <- err
 	}()
 
