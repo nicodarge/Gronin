@@ -307,14 +307,14 @@ core does today. Waiting lands in US2.
       is not reachable and stays up rather than exiting. `TestTheReachIsStated`: with no `coordination.json`, `serve`'s first
       guard line says `single-host`, and a run through `gronin run` succeeds and `gronin show` says it
       ran single-host
-- [ ] T033 [P] [US1] SC-112, the configuration half, `TestConfig…` in `runtime/internal/guard/config_test.go`: the
+- [x] T033 [P] [US1] SC-112, the configuration half, `TestConfig…` in `runtime/internal/guard/config_test.go`: the
       defaults are accepted; a configuration refused *only* because of the stop bound (research.md
       §3: 5 + 4 + 10 + 2 against an expiry of 20) — one refused on the other terms alone passes the
       mutant that drops the stop-bound term; a renewal bound not below the interval; an expiry that is
       not a whole number of seconds. The refusal names every duration and the expiry they exceed.
       Beside them, the refusals contracts/cli.md states for the file: an unknown key, and a credential
       given as a literal rather than a `${config.…}` reference
-- [ ] T034 [P] [US1] SC-112, the hang half, `TestRenew…` in `runtime/internal/guard/renew_test.go`: with every
+- [x] T034 [P] [US1] SC-112, the hang half, `TestRenew…` in `runtime/internal/guard/renew_test.go`: with every
       renewal held rather than severed, the run ends before its claim can lapse. And with only the
       first renewal held and the later ones answered, the run survives — which is only possible if the
       held attempt was abandoned at the renewal bound and the next one sent. The second case is what
@@ -326,16 +326,16 @@ core does today. Waiting lands in US2.
       `gronin serve` with a `coordination.json` whose durations cannot hold exits non-zero before
       arming anything, prints `Nothing was armed.`, and names the durations and the expiry, as
       contracts/cli.md shows
-- [ ] T036 [P] [US1] SC-115, `TestTheStopBound` in `runtime/internal/guard/stopbound_test.go`: a re-execution of the test
+- [x] T036 [P] [US1] SC-115, `TestTheStopBound` in `runtime/internal/guard/stopbound_test.go`: a re-execution of the test
       binary runs a holder on an in-process fake whose run ignores its context, and loses its claim;
       the test asserts the child is gone within the stop bound plus slack after it reports its stop
       decision. The subject is built not to stop, because one that stops when asked passes without the
       enforcement ever running (R4)
-- [ ] T037 [P] [US1] SC-116, `TestTheDecisionBound` in `runtime/internal/guard/decision_test.go`: with the fake holding every
+- [x] T037 [P] [US1] SC-116, `TestTheDecisionBound` in `runtime/internal/guard/decision_test.go`: with the fake holding every
       response, a trigger is refused within the decision bound plus slack, measured by the test's own
       watchdog, and the refusal is `backend_unavailable` naming the backend. Against a backend that
       refuses promptly the criterion passes with no bound enforced, which is why it holds
-- [ ] T038 [P] [US1] SC-118, `TestATickIsJudgedByItsSchedule` in `runtime/internal/guard/tick_test.go`: two guards on one fake, each on
+- [x] T038 [P] [US1] SC-118, `TestATickIsJudgedByItsSchedule` in `runtime/internal/guard/tick_test.go`: two guards on one fake, each on
       an injected clock. The first takes tick T while its clock reads past T+1. With the second's clock
       well behind, T+1 runs; with it well ahead, T is refused. The first half fails an implementation
       that records or compares a clock reading, the second one that lets too much through, and each
@@ -357,7 +357,7 @@ core does today. Waiting lands in US2.
       `runtime/internal/guard/refusal_test.go`: a scheduled trigger refused while
       the injected clock reads well past its due instant records `refused_at` from the clock and
       `due_at` from the tick, and a `--trigger` value shaped like a timestamp becomes neither (FR-118)
-- [ ] T042 [P] [US1] `TestCredentials…` in `runtime/internal/guard/etcd/client_test.go`: the adapter authenticates to the
+- [x] T042 [P] [US1] `TestCredentials…` in `runtime/internal/guard/etcd/client_test.go`: the adapter authenticates to the
       embedded server with a TLS client certificate, and to one with authentication enabled with a
       username and password. The certificates are generated in the test, never committed; the server
       certificate names the socket's file, which is what the client verifies over a unix socket
@@ -366,20 +366,20 @@ core does today. Waiting lands in US2.
 
 ### Implementation for User Story 1
 
-- [ ] T043 [US1] `runtime/internal/guard/config.go`: parse `coordination.json` as contracts/cli.md
+- [x] T043 [US1] `runtime/internal/guard/config.go`: parse `coordination.json` as contracts/cli.md
       specifies — endpoints (a `unix://` endpoint included), prefix, credentials as `${config.…}`
       references resolved like the MCP catalogue's and seeding the redactor when secret, TLS paths,
       and the durations with research.md §3's defaults. Refuse per R5, naming every duration and the
       expiry; the margin floor is a constant, not a key
-- [ ] T044 [US1] `runtime/internal/guard/etcd/client.go`: an etcd client from that configuration, every
+- [x] T044 [US1] `runtime/internal/guard/etcd/client.go`: an etcd client from that configuration, every
       call made under the context it is handed
-- [ ] T045 [US1] `runtime/internal/guard/guard.go`: the decision. Bounded by the decision bound
+- [x] T045 [US1] `runtime/internal/guard/guard.go`: the decision. Bounded by the decision bound
       (FR-108); `Acquire` with `TriggerRef.DueAt` set from the instant the scheduler fired for, and
       only for a scheduled trigger (R6, FR-129); `ErrHeld`, `ErrTickRan` and `ErrUnavailable` — or
       the bound exceeded — become `claim_held`, `tick_already_ran` and `backend_unavailable`
       refusals, written with `refused_at` on the wall reading (FR-117, FR-118). The claim is taken
       for every playbook, with or without a `guard` block (FR-120)
-- [ ] T046 [US1] `runtime/internal/guard/holder.go`: the renewal loop — one attempt per renewal
+- [x] T046 [US1] `runtime/internal/guard/holder.go`: the renewal loop — one attempt per renewal
       interval, each bounded by the renewal bound, never two in flight (FR-122); the stop deadline on
       the monotonic reading, anchored on when the last successful renewal was sent (R1); `ErrLost`
       stops at once (R2); from the stop decision the run's context is cancelled, and if the run is not
