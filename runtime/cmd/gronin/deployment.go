@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/nicodarge/Gronin/runtime/internal/collections"
 	"github.com/nicodarge/Gronin/runtime/internal/config"
 	"github.com/nicodarge/Gronin/runtime/internal/logging"
 	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
@@ -114,7 +115,9 @@ func inheritedEnv(names []string) []string {
 // capabilities is what this deployment can do, which is half of whether a playbook is
 // safe. A name the gate cannot resolve is refused here rather than at delivery, after a
 // full agent run has been paid for.
-func capabilities(cfg *config.Config, catalog *mcpcatalog.Catalog) playbook.Deployment {
+func capabilities(
+	cfg *config.Config, catalog *mcpcatalog.Catalog, declared *collections.Catalog,
+) playbook.Deployment {
 	var keys []string
 	if cfg != nil {
 		keys = cfg.Keys()
@@ -123,6 +126,10 @@ func capabilities(cfg *config.Config, catalog *mcpcatalog.Catalog) playbook.Depl
 	if catalog != nil {
 		servers = catalog.Names()
 	}
+	var declaredCollections []string
+	if declared != nil {
+		declaredCollections = declared.Names()
+	}
 	return playbook.Deployment{
 		// What the deployment can resolve. spec.md asks for a reference that resolves to
 		// nothing to be refused at load rather than at trigger time, and the gate cannot
@@ -130,7 +137,10 @@ func capabilities(cfg *config.Config, catalog *mcpcatalog.Catalog) playbook.Depl
 		ConfigKeys: keys,
 		// The servers this deployment's own catalogue provides. A name outside it is
 		// refused here rather than at delivery, after a full agent run has been paid for.
-		MCPServers:    servers,
+		MCPServers: servers,
+		// The collections this deployment's catalogue declares. A retrieval naming
+		// anything else is refused at load rather than when the run reaches for it.
+		Collections:   declaredCollections,
 		SinkTypes:     sink.Types(),
 		CreatingSinks: sink.CreatingTypes(),
 	}
@@ -149,9 +159,10 @@ func playbooksDir(cmd *cobra.Command) string {
 // the failure the design exists to prevent, so the output says nothing was armed.
 func loadPlaybooks(
 	cmd *cobra.Command, cfg *config.Config, catalog *mcpcatalog.Catalog,
+	declared *collections.Catalog,
 ) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
-	loaded, err := playbook.Load(dir, capabilities(cfg, catalog))
+	loaded, err := playbook.Load(dir, capabilities(cfg, catalog, declared))
 	if err != nil {
 		return loaded, err
 	}
@@ -198,6 +209,16 @@ func openConfig(cmd *cobra.Command) (*config.Config, error) {
 // reads config.json.
 func openCatalog(cmd *cobra.Command) (*mcpcatalog.Catalog, error) {
 	return mcpcatalog.Load(stateDirOf(cmd))
+}
+
+// openCollections reads the collection catalogue once per invocation, the way openCatalog
+// reads the MCP one.
+//
+// Only a command that loads playbooks takes this path, for the reason
+// openResolvableCatalog states below: a malformed collections.json must not withhold run
+// history, which is what is most wanted right after something broke.
+func openCollections(cmd *cobra.Command) (*collections.Catalog, error) {
+	return collections.Load(stateDirOf(cmd))
 }
 
 // openResolvableCatalog also refuses a catalogue this deployment cannot resolve, so a

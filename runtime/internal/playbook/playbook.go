@@ -8,14 +8,14 @@ import "time"
 // no address, no credential and no identifier belonging to one deployment: those arrive
 // through the deployment's configuration and through the trigger payload.
 type Playbook struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	Trigger     Trigger  `yaml:"trigger"`
-	Gather      []Step   `yaml:"gather"`
-	Agent       Agent    `yaml:"agent"`
-	Sinks       []Sink   `yaml:"sinks"`
-	Guard       *Guard   `yaml:"guard"`
-	Retrieve    *Unknown `yaml:"retrieve"`
+	Name        string      `yaml:"name"`
+	Description string      `yaml:"description"`
+	Trigger     Trigger     `yaml:"trigger"`
+	Gather      []Step      `yaml:"gather"`
+	Agent       Agent       `yaml:"agent"`
+	Sinks       []Sink      `yaml:"sinks"`
+	Guard       *Guard      `yaml:"guard"`
+	Retrieve    []Retrieval `yaml:"retrieve"`
 
 	// Path is where this was read from. Not part of the document — and `json:"-"` is
 	// what makes that true of the JSON copy the record keeps, which a replay compares
@@ -70,10 +70,49 @@ type Rate struct {
 	Per  string `yaml:"per"`
 }
 
-// Unknown marks a block the runtime does not apply. Its presence is refused rather than
-// ignored: a declared bound nothing enforces reads as enforced in review, which is worse
-// than an absent one.
-type Unknown struct{}
+// Retrieval is one search the runtime performs before the agent runs, written into the
+// working directory where the agent reads it as it reads gathered input.
+//
+// No mode, endpoint, model or credential appears here. Those belong to the deployment's
+// collection, so a playbook retrieving from `runbooks` runs against a deployment whose
+// `runbooks` is lexical and one whose `runbooks` is semantic alike.
+type Retrieval struct {
+	Collection string `yaml:"collection"`
+	Query      string `yaml:"query"`
+	// QueryFrom is the `as` of a gather step whose output is the query. Exactly one of
+	// Query and QueryFrom. A gathered input is a file the run already wrote, and reading
+	// it adds no source to interpolation, which the constitution bounds to two.
+	QueryFrom  string `yaml:"query_from"`
+	As         string `yaml:"as"`
+	MaxResults int    `yaml:"max_results"`
+	MaxBytes   int    `yaml:"max_bytes"`
+}
+
+// What a retrieval returns when the playbook says nothing, and the most it may ask for.
+// The ceilings are the runtime's; the values below them are the playbook's.
+const (
+	DefaultMaxResults = 10
+	MaxResultsCeiling = 50
+	DefaultMaxBytes   = 16384
+	MaxBytesCeiling   = 65536
+)
+
+// ResultCount is how many results this retrieval returns.
+func (r Retrieval) ResultCount() int {
+	if r.MaxResults == 0 {
+		return DefaultMaxResults
+	}
+	return r.MaxResults
+}
+
+// ByteBound is the largest results file this retrieval may write, every byte counted —
+// the lines naming each result's source included.
+func (r Retrieval) ByteBound() int {
+	if r.MaxBytes == 0 {
+		return DefaultMaxBytes
+	}
+	return r.MaxBytes
+}
 
 // DefaultTimeout is the agent stage timeout when a playbook declares none.
 const DefaultTimeout = 30 * time.Minute

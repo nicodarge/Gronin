@@ -149,13 +149,14 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The `retrieve` block
 
-- [ ] T008 [P] `runtime/internal/playbook/playbook.go` gains `Retrieval` (`collection`, `query`,
+- [x] T008 [P] `runtime/internal/playbook/playbook.go` gains `Retrieval` (`collection`, `query`,
       `query_from`, `as`, `max_results`, `max_bytes`, their defaults 10 and 16,384) and `Retrieve
       []Retrieval`. The reserved `retrieve` property of
       `specs/001-runtime-core/contracts/playbook.schema.json` is replaced by the content of
       [contracts/retrieve.schema.json](./contracts/retrieve.schema.json), and
       `runtime/internal/playbook/playbook.schema.json` with it. `Deployment` gains `Collections`.
-      In `validate.go`, `validateReserved` keeps only `guard`, and a new `validateRetrieve` refuses,
+      In `validate.go`, `validateReserved` goes entirely — the guard landed first, so nothing is
+      left reserved (see *Rebasing over the guard*) — and a new `validateRetrieve` refuses,
       by field: a collection `Deployment.Collections` does not hold; a `query_from` no gather step's
       `as` names; an `as` that a gather step or another retrieval already writes; a count or byte
       bound above its ceiling, where the runtime can say why as well as the schema. And, until T039
@@ -173,8 +174,9 @@ rebases onto the other, and T098 is the checklist for doing it:
       `retrieve-undeclared-gathered-input.yaml` and `retrieve-colliding-name.yaml`. The tables in
       `parse_test.go` and `validate_test.go` follow, `validate_test.go`'s `deployment()` declares
       one collection, and
-      `TestTheGateRefusesAReservedBlockThatReachesIt` loses its `retrieve` case
-- [ ] T009 SC-203, the refusal half, `TestRetrieveBlock…` in
+      `TestTheGateRefusesAReservedBlockThatReachesIt` goes with `playbook.Unknown` and the mutant
+      `the gate accepts a reserved block`, nothing being left reserved
+- [x] T009 SC-203, the refusal half, `TestRetrieveBlock…` in
       `runtime/internal/playbook/parse_test.go` and `runtime/internal/playbook/validate_test.go`:
       every fixture of T008 refused with the field named — a mode, an endpoint, a model and a
       credential among them, each refused as a key the block does not have — and the valid block's
@@ -183,22 +185,22 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The catalogue
 
-- [ ] T010 [P] `runtime/internal/collections/doc.go` and `runtime/internal/collections/collections.go`:
+- [x] T010 [P] `runtime/internal/collections/doc.go` and `runtime/internal/collections/collections.go`:
       `Load(stateDir)` reads `collections.json`, absent meaning none, decoding with unknown fields
       disallowed; every refusal of [contracts/cli.md](./contracts/cli.md)'s table, all of them
       reported rather than the first; `Names`, and per entry its source, `Mode`, `RetrievalTimeout`
       (default 2 minutes) and `RequestTimeout` (default 60 seconds). An entry naming `reports` or
       `embeddings` is refused by field as not yet applied, until T059 and T081 lift each
-- [ ] T011 `TestCollections…` in `runtime/internal/collections/collections_test.go`: absent is an empty
+- [x] T011 `TestCollections…` in `runtime/internal/collections/collections_test.go`: absent is an empty
       catalogue; refused, each by name — an unknown key, both sources, neither, a relative
       directory, a name that is not a slug, a duration that does not parse, a zero one; and
       `reports` and `embeddings` refused as not yet applied, in a table the later lifts edit
-- [ ] T012 `runtime/cmd/gronin/deployment.go`: `openCollections`, read once per invocation like
+- [x] T012 `runtime/cmd/gronin/deployment.go`: `openCollections`, read once per invocation like
       `openCatalog`, and `capabilities` hands its names to the gate as `Collections`; `loadPlaybooks`
       and its callers in `validate_cmd.go`, `run_cmd.go`, `serve_cmd.go` and `records_cmd.go` pass
       it. A malformed `collections.json` refuses every command that loads playbooks, and none that
       only reads run history — the rule `openResolvableCatalog` states for the MCP catalogue
-- [ ] T013 In `runtime/cmd/gronin/collections_cmd_test.go`, through the built binary:
+- [x] T013 In `runtime/cmd/gronin/collections_cmd_test.go`, through the built binary:
       `TestValidateRefusesAnUndeclaredCollection` — `gronin validate` with `collections.json`
       declaring `runbooks` refuses a playbook retrieving from `incidents`, naming the field; and
       `TestAMalformedCollectionsFileRefusesTheDeployment` — an unknown key refuses `gronin validate`
@@ -206,7 +208,7 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### Mutants for the foundation
 
-- [ ] T014 Register, with command `go test ./internal/playbook -count=1 -run TestRetrieveBlock`:
+- [x] T014 Register, with command `go test ./internal/playbook -count=1 -run TestRetrieveBlock`:
       `the gate accepts an undeclared collection`, `the gate accepts a query_from no gather step
       writes`, `the gate accepts a results name a gather step writes` and `the gate accepts a
       results name another retrieval writes`, in `internal/playbook/validate.go`; `the retrieve

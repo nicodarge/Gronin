@@ -1,8 +1,13 @@
-name: retrieve-block
+name: retrieve-colliding-name
 trigger:
   type: manual
+gather:
+  - run: df -h /var
+    as: facts.txt
 retrieve:
-  collection: incidents
+  - collection: runbooks
+    as: facts.txt
+    query: disk full on /var
 agent:
   model: claude-sonnet-5
   prompt_file: prompt.md

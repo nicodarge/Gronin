@@ -497,19 +497,6 @@
       ]
     },
     {
-      "name": "the gate accepts a reserved block",
-      "tree": "..",
-      "file": "internal/playbook/validate.go",
-      "find": "\t\tif present {",
-      "replace": "\t\tif present && false {",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1"
-      ]
-    },
-    {
       "name": "a wider receipt does not abort the run",
       "tree": "..",
       "file": "internal/stage/agent/receipt.go",
@@ -1689,6 +1676,141 @@
         "-count=1",
         "-run",
         "TestTheStubQuotesWhatItFound"
+      ]
+    },
+    {
+      "name": "the gate accepts an undeclared collection",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif !contains(dep.Collections, retrieval.Collection) {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the gate accepts a query_from no gather step writes",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif retrieval.QueryFrom != \"\" && written[retrieval.QueryFrom] != byAGatherStep {",
+      "replace": "\t\tif false {",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the gate accepts a results name a gather step writes",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\twritten[step.As] = byAGatherStep\n",
+      "replace": "\t\t_, _ = step, byAGatherStep\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the gate accepts a results name another retrieval writes",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\twritten[retrieval.As] = field\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the retrieve block accepts an unknown key",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "        \"additionalProperties\": false,\n        \"required\": [\n          \"collection\",\n          \"as\"\n        ],",
+      "replace": "        \"additionalProperties\": true,\n        \"required\": [\n          \"collection\",\n          \"as\"\n        ],",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the result count has no ceiling",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "            \"maximum\": 50,\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the catalogue accepts an unknown key",
+      "tree": "..",
+      "file": "internal/collections/collections.go",
+      "find": "\tdecoder.DisallowUnknownFields()\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/collections",
+        "-count=1",
+        "-run",
+        "TestCollections"
+      ]
+    },
+    {
+      "name": "a collection with two sources is accepted",
+      "tree": "..",
+      "file": "internal/collections/collections.go",
+      "find": "\tcase e.Directory != \"\" && len(e.Reports) > 0:",
+      "replace": "\tcase false:",
+      "command": [
+        "go",
+        "test",
+        "./internal/collections",
+        "-count=1",
+        "-run",
+        "TestCollections"
+      ]
+    },
+    {
+      "name": "a retrieval's query is written unredacted",
+      "tree": "..",
+      "file": "internal/record/retrievals.go",
+      "find": "s.redactor.Redact(retrieval.Query)",
+      "replace": "retrieval.Query",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestRetrievals"
       ]
     }
   ]

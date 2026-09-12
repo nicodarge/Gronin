@@ -10,10 +10,11 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 )
 
-// T012, SC-002's shape half, and SC-109's since the guard block stopped being refused
-// whole. Seventeen documents, thirteen of which the published schema must refuse. The
-// corpus is here rather than in a probe script so it keeps running: a probe that passed
-// once, on a machine that no longer exists, is a claim rather than a check.
+// T012, SC-002's shape half, SC-109's since the guard block stopped being refused whole,
+// and SC-203's since the retrieve block did. Twenty-six documents, twenty-one of which
+// the published schema must refuse. The corpus is here rather than in a probe script so
+// it keeps running: a probe that passed once, on a machine that no longer exists, is a
+// claim rather than a check.
 //
 // Every refusal here is one JSON Schema can express. The ones it cannot — a shell in a
 // tool set, a path escaping the working directory, an MCP server this deployment does not
@@ -22,12 +23,12 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 	accepted := documentsIn(t, "testdata/schema/accepted")
 	refused := documentsIn(t, "testdata/schema/refused")
 
-	if len(accepted)+len(refused) != 17 {
-		t.Fatalf("the corpus holds %d documents, and it is meant to hold seventeen",
+	if len(accepted)+len(refused) != 26 {
+		t.Fatalf("the corpus holds %d documents, and it is meant to hold twenty-six",
 			len(accepted)+len(refused))
 	}
-	if len(refused) != 13 {
-		t.Fatalf("%d documents are meant to be refused, and thirteen are", len(refused))
+	if len(refused) != 21 {
+		t.Fatalf("%d documents are meant to be refused, and twenty-one are", len(refused))
 	}
 
 	for name, document := range accepted {
@@ -52,6 +53,11 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 		"sink-with-two-types.yaml":         "sinks/0: maxProperties: got 2, want 1",
 		"trigger-type-unknown.yaml":        "trigger/type: value must be one of 'cron', 'manual'",
 		"unknown-top-level-key.yaml":       "additional properties 'on_failure' not allowed",
+	}
+	// The retrieve block's own reasons live with the test that is about them, so the two
+	// lists cannot come to disagree about why a fixture is refused.
+	for name, says := range retrieveShapeReasons {
+		because[name] = says
 	}
 	for path, document := range refused {
 		_, err := playbook.Parse(path, document)
@@ -124,6 +130,65 @@ func TestGuardBlockShape(t *testing.T) {
 				t.Fatalf("decoded as %+v (rate %+v), want %+v (rate %+v)", got, got.Rate, probe.want, probe.want.Rate)
 			}
 		})
+	}
+}
+
+// retrieveShapeReasons is why the published schema refuses each retrieve fixture. A mode,
+// an endpoint, a model and a credential are each refused as a key the block does not
+// have: they belong to the deployment's collection, and a playbook that could name one
+// would stop running against a deployment that arranged retrieval differently.
+var retrieveShapeReasons = map[string]string{
+	"retrieve-mode.yaml":                  "retrieve/0: additional properties 'mode' not allowed",
+	"retrieve-endpoint.yaml":              "retrieve/0: additional properties 'endpoint' not allowed",
+	"retrieve-model.yaml":                 "retrieve/0: additional properties 'model' not allowed",
+	"retrieve-credential.yaml":            "retrieve/0: additional properties 'credential' not allowed",
+	"retrieve-unknown-key.yaml":           "retrieve/0: additional properties 'top_k' not allowed",
+	"retrieve-results-above-ceiling.yaml": "retrieve/0/max_results: maximum: got 51, want 50",
+	"retrieve-bytes-above-ceiling.yaml":   "retrieve/0/max_bytes: maximum: got 65,537, want 65,536",
+	"retrieve-query-and-query-from.yaml":  "retrieve/0: 'oneOf' failed, subschemas 0, 1 matched",
+}
+
+// SC-203, the shape half: the retrieve block is probed on what it must refuse, each
+// refusal pinned to its reason so one cannot pass on another's — and on what it must
+// accept, because a schema that refused the whole block again, which is what the runtime
+// core's did, would pass every refusal here.
+func TestRetrieveBlockShape(t *testing.T) {
+	for name, says := range retrieveShapeReasons {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("testdata/schema/refused", name)
+			_, err := playbook.ParseFile(path)
+			if err == nil {
+				t.Fatalf("%s was accepted", name)
+			}
+			if !strings.Contains(err.Error(), says) {
+				t.Fatalf("refused, but not for its reason.\n  want: %s\n  got:  %v", says, err)
+			}
+		})
+	}
+
+	book, err := playbook.ParseFile("testdata/schema/accepted/retrieve.yaml")
+	if err != nil {
+		t.Fatalf("a well-formed retrieve block was refused: %v", err)
+	}
+	if len(book.Retrieve) != 2 {
+		t.Fatalf("the block decoded as %+v", book.Retrieve)
+	}
+	first, second := book.Retrieve[0], book.Retrieve[1]
+	if first.Collection != "runbooks" || first.As != "runbooks.md" ||
+		first.Query != "disk full on ${trigger.mountpoint}" || first.QueryFrom != "" {
+		t.Errorf("the first retrieval decoded as %+v", first)
+	}
+	// Declared nothing: the defaults, rather than zero.
+	if first.ResultCount() != playbook.DefaultMaxResults || first.ByteBound() != playbook.DefaultMaxBytes {
+		t.Errorf("a retrieval declaring no bounds returns %d results in %d bytes",
+			first.ResultCount(), first.ByteBound())
+	}
+	if second.QueryFrom != "facts.txt" || second.Query != "" {
+		t.Errorf("the second retrieval decoded as %+v", second)
+	}
+	if second.ResultCount() != 5 || second.ByteBound() != 4096 {
+		t.Errorf("the declared bounds were lost: %d results in %d bytes",
+			second.ResultCount(), second.ByteBound())
 	}
 }
 
