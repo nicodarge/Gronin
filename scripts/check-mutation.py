@@ -20,12 +20,16 @@ what to replace it with, and the command that is expected to fail once it has be
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,14 +80,39 @@ def run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     # GOPROXY=off so a module that is not already cached says so, rather than hanging
     # against a proxy the namespace will never reach.
     env = {**os.environ, "GOPROXY": "off"}
-    return subprocess.run(
+    # start_new_session puts the child in a process group of its own so the whole
+    # tree can be signalled at once: no-network.sh forks before its unshare chain,
+    # so the command that actually matters is a grandchild and signalling the
+    # immediate pid would leave it running. Unwinding the interpreter does not
+    # reap it either -- a child outlives a parent that exits, verified.
+    with subprocess.Popen(
         [str(NO_NETWORK), *command],
         cwd=cwd,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
         env=env,
-    )
+        start_new_session=True,
+    ) as proc:
+        try:
+            out, err = proc.communicate()
+        except BaseException:
+            _kill_group(proc)
+            raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the group started by run(), if it is still running.
+
+    start_new_session makes the child a group leader, so its pid is the group id and
+    no getpgid lookup is needed. A child already reaped is left alone: its pid can
+    have been recycled by then, and signalling it would reach an unrelated group.
+    """
+    if proc.poll() is not None:
+        return
+    with contextlib.suppress(OSError):
+        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def enclosing_module(tree: Path) -> Path | None:
@@ -383,6 +412,116 @@ def self_test() -> int:
     return 0
 
 
+def _install_cleanup_signals() -> None:
+    """Make a termination signal unwind the stack instead of killing the process.
+
+    The cache is removed by its context manager, which only runs if the interpreter
+    unwinds. Python already raises KeyboardInterrupt for SIGINT, but a default
+    SIGTERM ends the process where it stands and strands the tree -- and SIGTERM is
+    exactly how these runs die, since an OOM daemon sends it before resorting to
+    SIGKILL. Nothing can be done about SIGKILL itself; _prune_stale_caches is what
+    covers that.
+    """
+
+    def _unwind(signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signum)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _unwind)
+
+
+def _cache_root() -> Path:
+    """Where the build cache goes: a real filesystem, never TMPDIR.
+
+    /tmp is a tmpfs on this fleet, and a tmpfs page is memory that cannot be paged
+    out or reclaimed by killing anything -- a multi-GiB build cache written there
+    walks the node into a livelock rather than filling a disk.
+
+    A relative XDG_CACHE_HOME is treated as unset, which is what the XDG base
+    directory specification asks for.
+    """
+    base = os.environ.get("XDG_CACHE_HOME") or ""
+    root = (
+        (Path(base) if Path(base).is_absolute() else Path.home() / ".cache")
+        / "gronin"
+        / "mutation"
+    )
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as err:
+        raise ConfigError(
+            f"cannot create the build cache directory {root}: {err}"
+        ) from err
+    return root
+
+
+@contextlib.contextmanager
+def _claimed(cache: Path):
+    """Hold a lock inside the cache for as long as this run uses it.
+
+    The lock is what tells a later run whether the tree is still in use. It is held
+    by the kernel against an open descriptor, so it is released by any death of this
+    process, SIGKILL included -- which an mtime or a recorded pid cannot manage.
+    """
+    fd = os.open(cache / ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as err:
+            # A filesystem that cannot do advisory locks -- a network-mounted home
+            # answering ENOLCK, say. The cache is then unprotected from another run's
+            # prune, which costs a rebuild; refusing to run at all costs the whole run.
+            print(
+                f"check-mutation: cannot lock the build cache ({err}); "
+                "a concurrent run may prune it",
+                file=sys.stderr,
+            )
+        yield
+    finally:
+        os.close(fd)
+
+
+def _is_orphan(cache: Path, min_age_s: int) -> bool:
+    """True when no live run holds this cache and it is old enough to be sure.
+
+    The age is not the test, only a guard against the window between mkdtemp and
+    the flock: a tree created seconds ago may not have claimed its lock yet.
+    """
+    try:
+        if time.time() - cache.stat().st_mtime < min_age_s:
+            return False
+    except OSError:
+        return False
+
+    lock = cache / ".lock"
+    if not lock.exists():
+        return True
+    try:
+        fd = os.open(lock, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _prune_stale_caches(root: Path, min_age_s: int = 900) -> None:
+    """Drop caches an earlier run left behind.
+
+    The context manager removes the tree on a normal exit and on a signal that
+    unwinds the interpreter, but nothing runs on SIGKILL -- and SIGKILL is how a
+    run that exhausts memory ends. Without this the orphans accumulate for as long
+    as the filesystem survives.
+    """
+    for path in root.glob("mutation-cache-*"):
+        if path.is_dir() and _is_orphan(path, min_age_s):
+            shutil.rmtree(path, ignore_errors=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
@@ -396,7 +535,20 @@ def main() -> int:
     # size. Shared across the mutants of one run, so the standard library and the
     # dependencies are compiled once here rather than once per mutant, and cold at the
     # first mutant of every run — that warmth is what this trades away.
-    with tempfile.TemporaryDirectory(prefix="gronin-mutation-cache-") as cache:
+    # It is placed under the user cache directory rather than left to TMPDIR: /tmp is a
+    # tmpfs on this fleet, so a cache that reached 2.4 GiB there was 2.4 GiB of RAM that
+    # no swap could page out and no OOM kill could reclaim, which livelocked the machine.
+    _install_cleanup_signals()
+    try:
+        cache_root = _cache_root()
+    except ConfigError as err:
+        print(f"check-mutation: {err}", file=sys.stderr)
+        return 2
+    _prune_stale_caches(cache_root)
+    with (
+        tempfile.TemporaryDirectory(prefix="mutation-cache-", dir=cache_root) as cache,
+        _claimed(Path(cache)),
+    ):
         os.environ["GOCACHE"] = cache
         try:
             if args.self_test:
