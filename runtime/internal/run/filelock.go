@@ -89,7 +89,9 @@ func (l *FileLock) held(name string, refusal error) error {
 }
 
 // record writes the holder into the lock file. A failure to write it costs a refusal its
-// detail, never the claim: the lock is what excludes, not its contents.
+// detail, never the claim: the lock is what excludes, not its contents. It runs once the
+// lock is held, so a contender refused in between reads the previous holder — a stale name
+// in a message, never a stale decision.
 func (l *FileLock) record(taken *held, holder guard.Holder) {
 	data, err := json.Marshal(lockHolder{
 		Host: holder.Host, Instance: holder.Instance, RunID: holder.RunID, Taken: l.clock.Wall(),

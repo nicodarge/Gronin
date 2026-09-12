@@ -82,12 +82,12 @@ func TestGuardBlockShape(t *testing.T) {
 	}
 
 	for name, probe := range map[string]struct{ guard, because string }{
-		"an unknown key":      {"guard: {lock: drift}\n", "guard: additional properties 'lock' not allowed"},
-		"no runs at all":      {"guard: {rate: {runs: 0, per: 1h}}\n", "guard/rate/runs: minimum: got 0, want 1"},
-		"a window in seconds": {"guard: {rate: {runs: 2, per: 30s}}\n", "guard/rate/per: '30s' does not match pattern"},
-		"an empty window":     {"guard: {rate: {runs: 2, per: 0m}}\n", "guard/rate/per: '0m' does not match pattern"},
-		"a wait with no unit": {"guard: {wait: 5}\n", "guard/wait: got number, want string"},
-		"a rate without per":  {"guard: {rate: {runs: 2}}\n", "guard/rate: missing property 'per'"},
+		"an unknown key":                          {"guard: {lock: drift}\n", "guard: additional properties 'lock' not allowed"},
+		"no runs at all":                          {"guard: {rate: {runs: 0, per: 1h}}\n", "guard/rate/runs: minimum: got 0, want 1"},
+		"a window in seconds":                     {"guard: {rate: {runs: 2, per: 30s}}\n", "guard/rate/per: '30s' does not match pattern"},
+		"an empty window":                         {"guard: {rate: {runs: 2, per: 0m}}\n", "guard/rate/per: '0m' does not match pattern"},
+		"a wait that is a number, not a duration": {"guard: {wait: 5}\n", "guard/wait: got number, want string"},
+		"a rate without per":                      {"guard: {rate: {runs: 2}}\n", "guard/rate: missing property 'per'"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := playbook.Parse(name, document(probe.guard))
