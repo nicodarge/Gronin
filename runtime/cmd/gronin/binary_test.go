@@ -155,9 +155,11 @@ func TestTheBinaryLinksNoEtcdServer(t *testing.T) {
 			t.Errorf("the shipped binary links %s %s", module.Path, module.Version)
 		}
 	}
-	// A check that finds nothing forbidden in an empty list passes too.
-	if !linked["modernc.org/sqlite"] {
-		t.Fatalf("the module list does not hold modernc.org/sqlite, which the binary links; read %d modules",
+	// A check that finds nothing forbidden in an empty list passes too. The client is
+	// the control now that the guard links it: it is the half of the pair that must be
+	// there, beside the server half that must not.
+	if !linked["go.etcd.io/etcd/client/v3"] {
+		t.Fatalf("the module list does not hold go.etcd.io/etcd/client/v3, which the binary links; read %d modules",
 			len(info.Deps))
 	}
 }

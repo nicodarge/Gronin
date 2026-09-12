@@ -113,8 +113,11 @@ func TestARefusedReportSendsTheRefusalAndNotTheContent(t *testing.T) {
 func TestASinkFailureIsRecordedRatherThanRaised(t *testing.T) {
 	_, client, url := destination(t, http.StatusInternalServerError)
 
-	outcomes := sink.DeliverAll(t.Context(), []sink.Sink{sink.NewDiscord(url, client)},
-		sink.Delivery{PlaybookName: "p", RunID: "run-1", Report: []byte(`{}`)})
+	outcomes, err := sink.DeliverAll(t.Context(), []sink.Sink{sink.NewDiscord(url, client)},
+		sink.Delivery{PlaybookName: "p", RunID: "run-1", Report: []byte(`{}`)}, nil)
+	if err != nil {
+		t.Fatalf("no gate refused, yet: %v", err)
+	}
 
 	if len(outcomes) != 1 {
 		t.Fatalf("%d outcomes", len(outcomes))
@@ -133,10 +136,13 @@ func TestOneSinkFailingDoesNotStopTheOthers(t *testing.T) {
 	_, badClient, badURL := destination(t, http.StatusInternalServerError)
 	goodGot, goodClient, goodURL := destination(t, http.StatusOK)
 
-	outcomes := sink.DeliverAll(t.Context(), []sink.Sink{
+	outcomes, err := sink.DeliverAll(t.Context(), []sink.Sink{
 		sink.NewDiscord(badURL, badClient),
 		sink.NewSlack(goodURL, goodClient),
-	}, sink.Delivery{PlaybookName: "p", RunID: "run-1", Report: []byte(`{"findings":[]}`)})
+	}, sink.Delivery{PlaybookName: "p", RunID: "run-1", Report: []byte(`{"findings":[]}`)}, nil)
+	if err != nil {
+		t.Fatalf("no gate refused, yet: %v", err)
+	}
 
 	if len(outcomes) != 2 {
 		t.Fatalf("%d outcomes", len(outcomes))

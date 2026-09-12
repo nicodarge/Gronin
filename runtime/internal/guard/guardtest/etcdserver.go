@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"go.etcd.io/etcd/client/pkg/v3/transport"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/embed"
 	"go.uber.org/zap"
@@ -21,11 +22,20 @@ import (
 // runs the suite. A fixed port would make the outcome depend on what else is running, and
 // a server binary found on PATH on what is installed.
 type Server struct {
-	etcd *embed.Etcd
-	dir  string
+	etcd   *embed.Etcd
+	dir    string
+	scheme string
 
 	mu      sync.Mutex
 	proxies int
+}
+
+// serverOptions is what a variant of StartServer changes about the member it starts.
+// Empty is the plain unix-socket server every contract run uses.
+type serverOptions struct {
+	// scheme is the client listener's URL scheme: "unix", or "unixs" for a TLS one.
+	scheme string
+	tls    transport.TLSInfo
 }
 
 // StartServer starts a member and stops it at cleanup.
@@ -35,15 +45,25 @@ type Server struct {
 // with the test's name.
 func StartServer(t *testing.T) *Server {
 	t.Helper()
+	return startServer(t, serverOptions{})
+}
+
+func startServer(t *testing.T, opts serverOptions) *Server {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "etcd") //nolint:usetesting // see above: the path must stay short
 	if err != nil {
 		t.Fatal(err)
+	}
+	scheme := opts.scheme
+	if scheme == "" {
+		scheme = "unix"
 	}
 
 	cfg := embed.NewConfig()
 	cfg.Name = "guardtest"
 	cfg.Dir = filepath.Join(dir, "data")
-	client := socketURL(dir, "client.sock")
+	cfg.ClientTLSInfo = opts.tls
+	client := schemeURL(scheme, dir, "client.sock")
 	peer := socketURL(dir, "peer.sock")
 	cfg.ListenClientUrls, cfg.AdvertiseClientUrls = []url.URL{client}, []url.URL{client}
 	cfg.ListenPeerUrls, cfg.AdvertisePeerUrls = []url.URL{peer}, []url.URL{peer}
@@ -58,7 +78,7 @@ func StartServer(t *testing.T) *Server {
 		_ = os.RemoveAll(dir)
 		t.Fatalf("starting the embedded etcd server: %v", err)
 	}
-	server := &Server{etcd: started, dir: dir}
+	server := &Server{etcd: started, dir: dir, scheme: scheme}
 	t.Cleanup(func() {
 		started.Close()
 		_ = os.RemoveAll(dir)
@@ -78,19 +98,21 @@ func StartServer(t *testing.T) *Server {
 // election timeouts, rounded up to a whole second.
 const MinimumTTL = 2 * time.Second
 
-func socketURL(dir, name string) url.URL {
-	return url.URL{Scheme: "unix", Path: filepath.Join(dir, name)}
+func socketURL(dir, name string) url.URL { return schemeURL("unix", dir, name) }
+
+func schemeURL(scheme, dir, name string) url.URL {
+	return url.URL{Scheme: scheme, Path: filepath.Join(dir, name)}
 }
 
 // Endpoint is the server's own client URL.
 func (s *Server) Endpoint() string {
-	u := socketURL(s.dir, "client.sock")
+	u := schemeURL(s.scheme, s.dir, "client.sock")
 	return u.String()
 }
 
 // Unreachable is an endpoint where nothing listens.
 func (s *Server) Unreachable() string {
-	u := socketURL(s.dir, "nothing.sock")
+	u := schemeURL(s.scheme, s.dir, "nothing.sock")
 	return u.String()
 }
 

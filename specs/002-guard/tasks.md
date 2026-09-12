@@ -264,7 +264,7 @@ core does today. Waiting lands in US2.
 
 ### Tests for User Story 1
 
-- [ ] T027 [P] [US1] SC-101 in `runtime/cmd/gronin/guard_binary_test.go`,
+- [x] T027 [P] [US1] SC-101 in `runtime/cmd/gronin/guard_binary_test.go`,
       `TestTwoServesRunOneTickOnce`: an embedded etcd; two `serve` processes started with
       `bintest.Start`, each with its own state directory — sharing one would let the file lock give
       the right answer with the backend disconnected — and `--api-address 127.0.0.1:0`, since the
@@ -273,7 +273,7 @@ core does today. Waiting lands in US2.
       test's directory; the line is the run's effect rather than a log line claiming a claim, and a
       gather step runs only after the guard admits (FR-102). Exactly one line; one `claim_held`
       refusal in the other host's `gronin refusals`, naming the run that holds it
-- [ ] T028 [P] [US1] SC-117 in `runtime/cmd/gronin/tick_binary_test.go`,
+- [x] T028 [P] [US1] SC-117 in `runtime/cmd/gronin/tick_binary_test.go`,
       `TestADelayedHostDoesNotRunATickAgain`: as T027, with a run shorter than the gap between the
       two deliveries — a run that outlasts it is refused by FR-101 alone and passes with FR-128
       removed. B is frozen with SIGSTOP before tick T and resumed after A's run of T has ended; B's
@@ -281,14 +281,14 @@ core does today. Waiting lands in US2.
       tick, with both live, produces exactly one further line — which is what fails an
       implementation that refuses every tick once one is recorded. B is delayed by being stopped, not
       by having its clock set behind, which a test cannot do to one process (research.md §5)
-- [ ] T029 [P] [US1] SC-102 in `runtime/internal/guard/etcd/crash_test.go`,
+- [x] T029 [P] [US1] SC-102 in `runtime/internal/guard/etcd/crash_test.go`,
       `TestAKilledHoldersClaimLapses`: a re-execution of the test binary takes a claim through the
       adapter against the embedded server and says so, and is killed with SIGKILL. An `Acquire` made
       at once is refused with `ErrHeld` — so the claim existed and was not released — and polling
       `Acquire` then succeeds within the claim expiry plus a stated slack. The pattern is
       `TestALockHeldByAKilledProcessIsAcquirable`'s; a fixed sleep shorter than the expiry would pass
       without the recovery ever running
-- [ ] T030 [P] [US1] SC-103, `TestHolder…` in `runtime/internal/guard/holder_test.go`: holder A and contender B on
+- [x] T030 [P] [US1] SC-103, `TestHolder…` in `runtime/internal/guard/holder_test.go`: holder A and contender B on
       one fake, the runtime's clock injected. A's handle is severed; A decides to stop at
       `sent + claim expiry − stop bound − margin floor` to the tick (R1), with `sent` the instant the
       last successful renewal was sent, not answered — the fake answers a round trip later on the
@@ -297,59 +297,59 @@ core does today. Waiting lands in US2.
       `ErrLost` from `Renew` or `Fence` stops A at once rather than at the deadline (R2). A backward
       step of the wall reading mid-run leaves the deadline where it was, because it is computed on
       the monotonic reading (FR-118)
-- [ ] T031 [P] [US1] R3, `TestFence…` in `runtime/internal/run/fence_test.go`: the fake expires the claim between the
+- [x] T031 [P] [US1] R3, `TestFence…` in `runtime/internal/run/fence_test.go`: the fake expires the claim between the
       agent stage and the first sink; the sink's endpoint, an `httptest` server, receives nothing, and
       the run ends `claim_lost` rather than `failed`
-- [ ] T032 [P] [US1] SC-104 in `runtime/cmd/gronin/coordination_cmd_test.go`. `TestAnUnreachableBackendRefuses`: with
+- [x] T032 [P] [US1] SC-104 in `runtime/cmd/gronin/coordination_cmd_test.go`. `TestAnUnreachableBackendRefuses`: with
       `coordination.json` naming a unix socket nothing listens on, `gronin run` exits non-zero within
       the decision bound plus slack, its gather step leaves no trace, and `gronin refusals` shows
       `backend_unavailable` naming the endpoint; `gronin serve` in that state prints that the backend
       is not reachable and stays up rather than exiting. `TestTheReachIsStated`: with no `coordination.json`, `serve`'s first
       guard line says `single-host`, and a run through `gronin run` succeeds and `gronin show` says it
       ran single-host
-- [ ] T033 [P] [US1] SC-112, the configuration half, `TestConfig…` in `runtime/internal/guard/config_test.go`: the
+- [x] T033 [P] [US1] SC-112, the configuration half, `TestConfig…` in `runtime/internal/guard/config_test.go`: the
       defaults are accepted; a configuration refused *only* because of the stop bound (research.md
       §3: 5 + 4 + 10 + 2 against an expiry of 20) — one refused on the other terms alone passes the
       mutant that drops the stop-bound term; a renewal bound not below the interval; an expiry that is
       not a whole number of seconds. The refusal names every duration and the expiry they exceed.
       Beside them, the refusals contracts/cli.md states for the file: an unknown key, and a credential
       given as a literal rather than a `${config.…}` reference
-- [ ] T034 [P] [US1] SC-112, the hang half, `TestRenew…` in `runtime/internal/guard/renew_test.go`: with every
+- [x] T034 [P] [US1] SC-112, the hang half, `TestRenew…` in `runtime/internal/guard/renew_test.go`: with every
       renewal held rather than severed, the run ends before its claim can lapse. And with only the
       first renewal held and the later ones answered, the run survives — which is only possible if the
       held attempt was abandoned at the renewal bound and the next one sent. The second case is what
       makes FR-122 testable at all: R1 anchors the deadline on the last successful send, so an
       unbounded attempt cannot extend the claim, and a test that only ever holds every renewal passes
       with the bound removed
-- [ ] T035 [P] [US1] SC-112, the operator's surface, `TestServeRefusesDurationsThatCannotHold` in
+- [x] T035 [P] [US1] SC-112, the operator's surface, `TestServeRefusesDurationsThatCannotHold` in
       `runtime/cmd/gronin/coordination_refusal_test.go`:
       `gronin serve` with a `coordination.json` whose durations cannot hold exits non-zero before
       arming anything, prints `Nothing was armed.`, and names the durations and the expiry, as
       contracts/cli.md shows
-- [ ] T036 [P] [US1] SC-115, `TestTheStopBound` in `runtime/internal/guard/stopbound_test.go`: a re-execution of the test
+- [x] T036 [P] [US1] SC-115, `TestTheStopBound` in `runtime/internal/guard/stopbound_test.go`: a re-execution of the test
       binary runs a holder on an in-process fake whose run ignores its context, and loses its claim;
       the test asserts the child is gone within the stop bound plus slack after it reports its stop
       decision. The subject is built not to stop, because one that stops when asked passes without the
       enforcement ever running (R4)
-- [ ] T037 [P] [US1] SC-116, `TestTheDecisionBound` in `runtime/internal/guard/decision_test.go`: with the fake holding every
+- [x] T037 [P] [US1] SC-116, `TestTheDecisionBound` in `runtime/internal/guard/decision_test.go`: with the fake holding every
       response, a trigger is refused within the decision bound plus slack, measured by the test's own
       watchdog, and the refusal is `backend_unavailable` naming the backend. Against a backend that
       refuses promptly the criterion passes with no bound enforced, which is why it holds
-- [ ] T038 [P] [US1] SC-118, `TestATickIsJudgedByItsSchedule` in `runtime/internal/guard/tick_test.go`: two guards on one fake, each on
+- [x] T038 [P] [US1] SC-118, `TestATickIsJudgedByItsSchedule` in `runtime/internal/guard/tick_test.go`: two guards on one fake, each on
       an injected clock. The first takes tick T while its clock reads past T+1. With the second's clock
       well behind, T+1 runs; with it well ahead, T is refused. The first half fails an implementation
       that records or compares a clock reading, the second one that lets too much through, and each
       passes against the mutant the other catches (R6)
-- [ ] T039 [P] [US1] FR-101, FR-102 and FR-120, `TestGuard…` in `runtime/internal/run/guard_test.go`: a playbook with
+- [x] T039 [P] [US1] FR-101, FR-102 and FR-120, `TestGuard…` in `runtime/internal/run/guard_test.go`: a playbook with
       no `guard` block, running; a scheduled trigger for it is refused `claim_held`, its gather step
       leaves no trace and the stub agent is never started; a replay and a resume of an earlier run are
       refused `claim_held` too, rather than run beside it
-- [ ] T040 [P] [US1] `TestAGuardRefusalIsNotAMissedOccurrence` in `runtime/cmd/gronin/serve_cmd_test.go`: a scheduled trigger the guard refused
+- [x] T040 [P] [US1] `TestAGuardRefusalIsNotAMissedOccurrence` in `runtime/cmd/gronin/serve_cmd_test.go`: a scheduled trigger the guard refused
       is not also recorded as a missed occurrence — two records of one event tell an operator it
       happened twice — and the instant handed to the guard is the `dueAt` the scheduler fired for.
       The runtime core's test of a tick colliding with a run changes with it: that collision is now a
       refusal record, not a missed occurrence
-- [ ] T041 [P] [US1] SC-108 for this story's mechanisms, in `runtime/cmd/gronin/refusals_cmd_test.go`:
+- [x] T041 [P] [US1] SC-108 for this story's mechanisms, in `runtime/cmd/gronin/refusals_cmd_test.go`:
       refusal records of each kind US1 writes — `claim_held`, `tick_already_ran`,
       `backend_unavailable` — seeded through `record`, listed by the built `gronin refusals` most
       recent first, each line naming its time in UTC, the playbook, the trigger kind, the mechanism and
@@ -357,7 +357,7 @@ core does today. Waiting lands in US2.
       `runtime/internal/guard/refusal_test.go`: a scheduled trigger refused while
       the injected clock reads well past its due instant records `refused_at` from the clock and
       `due_at` from the tick, and a `--trigger` value shaped like a timestamp becomes neither (FR-118)
-- [ ] T042 [P] [US1] `TestCredentials…` in `runtime/internal/guard/etcd/client_test.go`: the adapter authenticates to the
+- [x] T042 [P] [US1] `TestCredentials…` in `runtime/internal/guard/etcd/client_test.go`: the adapter authenticates to the
       embedded server with a TLS client certificate, and to one with authentication enabled with a
       username and password. The certificates are generated in the test, never committed; the server
       certificate names the socket's file, which is what the client verifies over a unix socket
@@ -366,54 +366,58 @@ core does today. Waiting lands in US2.
 
 ### Implementation for User Story 1
 
-- [ ] T043 [US1] `runtime/internal/guard/config.go`: parse `coordination.json` as contracts/cli.md
+- [x] T043 [US1] `runtime/internal/guard/config.go`: parse `coordination.json` as contracts/cli.md
       specifies — endpoints (a `unix://` endpoint included), prefix, credentials as `${config.…}`
       references resolved like the MCP catalogue's and seeding the redactor when secret, TLS paths,
       and the durations with research.md §3's defaults. Refuse per R5, naming every duration and the
       expiry; the margin floor is a constant, not a key
-- [ ] T044 [US1] `runtime/internal/guard/etcd/client.go`: an etcd client from that configuration, every
+- [x] T044 [US1] `runtime/internal/guard/etcd/client.go`: an etcd client from that configuration, every
       call made under the context it is handed
-- [ ] T045 [US1] `runtime/internal/guard/guard.go`: the decision. Bounded by the decision bound
+- [x] T045 [US1] `runtime/internal/guard/guard.go`: the decision. Bounded by the decision bound
       (FR-108); `Acquire` with `TriggerRef.DueAt` set from the instant the scheduler fired for, and
       only for a scheduled trigger (R6, FR-129); `ErrHeld`, `ErrTickRan` and `ErrUnavailable` — or
       the bound exceeded — become `claim_held`, `tick_already_ran` and `backend_unavailable`
       refusals, written with `refused_at` on the wall reading (FR-117, FR-118). The claim is taken
       for every playbook, with or without a `guard` block (FR-120)
-- [ ] T046 [US1] `runtime/internal/guard/holder.go`: the renewal loop — one attempt per renewal
+- [x] T046 [US1] `runtime/internal/guard/holder.go`: the renewal loop — one attempt per renewal
       interval, each bounded by the renewal bound, never two in flight (FR-122); the stop deadline on
       the monotonic reading, anchored on when the last successful renewal was sent (R1); `ErrLost`
       stops at once (R2); from the stop decision the run's context is cancelled, and if the run is not
       over within the stop bound the process exits through a function the test can replace (R4,
       FR-126)
-- [ ] T047 [US1] `runtime/internal/run/execute.go`, `runtime/internal/run/run.go` and
+- [x] T047 [US1] `runtime/internal/run/execute.go`, `runtime/internal/run/run.go` and
       `runtime/internal/run/replay.go`: the run identifier is minted before the guard decides, so the
       claim can name it; `Execute`, `Replay` and `Resume` go through the guard before `Begin`, and so
       before gather (FR-102); the run records `claim_reach` and `claim_token`; a fence before the agent
       stage and before each sink delivers (R3) — through a per-sink gate in
       `runtime/internal/sink/sink.go` if `DeliverAll` has to take one; a run stopped under FR-105
       finishes `claim_lost`. Replay and resume are refused rather than made to wait
-- [ ] T048 [US1] `runtime/cmd/gronin/coordination.go` and `runtime/cmd/gronin/deployment.go`: read
+- [x] T048 [US1] `runtime/cmd/gronin/coordination.go` and `runtime/cmd/gronin/deployment.go`: read
       `coordination.json` from the state directory; the etcd adapter when it is present, the file lock
       when it is absent — and never the file lock because the backend failed to answer (FR-107); the
       host name and a per-process instance identifier for the claim's holder
-- [ ] T049 [US1] `runtime/cmd/gronin/serve_cmd.go`: the guard's reach is the first thing `serve` says
+- [x] T049 [US1] `runtime/cmd/gronin/serve_cmd.go`: the guard's reach is the first thing `serve` says
       about the guard (FR-109); a configuration R5 refuses stops it before anything is armed; a backend
       not reachable at startup is said and does not stop it; the fire function hands the guard its
       `dueAt` and returns no error once the guard has written a refusal
-- [ ] T050 [US1] `runtime/cmd/gronin/refusals_cmd.go` and `runtime/cmd/gronin/root.go`: `gronin refusals`,
+- [x] T050 [US1] `runtime/cmd/gronin/refusals_cmd.go` and `runtime/cmd/gronin/root.go`: `gronin refusals`,
       opening the record store the way `gronin runs` does, so it works after `serve` has been killed
-- [ ] T051 [US1] `runtime/cmd/gronin/run_cmd.go` and `runtime/cmd/gronin/records_cmd.go`: a refused
+- [x] T051 [US1] `runtime/cmd/gronin/run_cmd.go` and `runtime/cmd/gronin/records_cmd.go`: a refused
       `gronin run` exits non-zero naming the mechanism; `gronin show` says which guarantee the run ran
       under
-- [ ] T052 [US1] `runtime/cmd/gronin/records_cmd.go`: `gronin runs` lists `claim_lost` like any other
+- [x] T052 [US1] `runtime/cmd/gronin/records_cmd.go`: `gronin runs` lists `claim_lost` like any other
       status (contracts/cli.md). It prints the stored status string and should need no branch of its
-      own; T031's `claim_lost` run is read back through `gronin runs` to show it rather than assume it
-- [ ] T053 [US1] Switch T003's positive control from `modernc.org/sqlite` to
+      own; T031's `claim_lost` run is read back through `gronin runs` to show it rather than assume it.
+      *Deviation*: the `claim_lost` run `TestRunsListsAClaimLostRun` reads back is seeded through
+      `record` rather than being T031's own, which lives in another package's test process and cannot
+      be handed to the built executable; the listing prints the stored status string, so what the
+      seeded row exercises is the same path
+- [x] T053 [US1] Switch T003's positive control from `modernc.org/sqlite` to
       `go.etcd.io/etcd/client/v3`, now that the binary links it
 
 ### Mutants for User Story 1
 
-- [ ] T054 [US1] SC-101: `a playbook without a guard block takes no claim` in
+- [x] T054 [US1] SC-101: `a playbook without a guard block takes no claim` in
       `internal/guard/guard.go`, command `go test ./internal/run -count=1 -run TestGuard`; `the guard
       decides after the gather stage` in `internal/run/execute.go`, same command; `a resume takes no
       claim` in `internal/run/replay.go`, same command; `a guard refusal is recorded as a missed
@@ -422,46 +426,46 @@ core does today. Waiting lands in US2.
       mutant from T025 declared a second time with command
       `go test ./cmd/gronin -count=1 -run TestTwoServesRunOneTickOnce`, so that the test driving the
       built binaries is shown to fail on its own
-- [ ] T055 [US1] SC-102: C2's two etcd mutants from T025, declared again with command
+- [x] T055 [US1] SC-102: C2's two etcd mutants from T025, declared again with command
       `go test ./internal/guard/etcd -count=1 -run TestAKilledHoldersClaimLapses`
-- [ ] T056 [US1] SC-103, in `internal/guard/holder.go`, command
+- [x] T056 [US1] SC-103, in `internal/guard/holder.go`, command
       `go test ./internal/guard -count=1 -run TestHolder`: `sent is taken when the reply arrives`,
       `the stop deadline omits the stop bound`, `a lost claim is one more failed attempt`, `the stop
       deadline is read from the wall clock`; in `internal/run/replay.go`, `the sink loop does not
       fence`, and in `internal/run/execute.go`, `a run that lost its claim is recorded failed`, both
       with command `go test ./internal/run -count=1 -run TestFence`
-- [ ] T057 [US1] SC-104: `an unavailable backend admits the run` in `internal/guard/guard.go`, and
+- [x] T057 [US1] SC-104: `an unavailable backend admits the run` in `internal/guard/guard.go`, and
       `an unreachable backend falls back to the file lock` in `cmd/gronin/coordination.go`, both with
       command `go test ./cmd/gronin -count=1 -run TestAnUnreachableBackendRefuses`; `serve does not
       state its reach` and `serve exits when the backend is unreachable at startup` in
       `cmd/gronin/serve_cmd.go`, and `a single-host run records a cross-host reach` in
       `internal/run/filelock.go`, each with command
       `go test ./cmd/gronin -count=1 -run TestTheReachIsStated`
-- [ ] T058 [US1] SC-112: `the duration comparison is inverted`, `the stop bound is left out of the
+- [x] T058 [US1] SC-112: `the duration comparison is inverted`, `the stop bound is left out of the
       sum`, `coordination.json accepts an unknown key`, `a literal credential is accepted`, all in
       `internal/guard/config.go`, command `go test ./internal/guard -count=1 -run TestConfig`; `a
       renewal attempt is not bounded` and `an attempt counts as renewed when it is sent`, in
       `internal/guard/holder.go`, command `go test ./internal/guard -count=1 -run TestRenew`; and
       `a refused configuration still arms` in `cmd/gronin/serve_cmd.go`, command
       `go test ./cmd/gronin -count=1 -run TestServeRefusesDurationsThatCannotHold`
-- [ ] T059 [US1] SC-115: `a run that outlives the stop bound does not end the process`, in
+- [x] T059 [US1] SC-115: `a run that outlives the stop bound does not end the process`, in
       `internal/guard/holder.go`, command `go test ./internal/guard -count=1 -run TestTheStopBound`
-- [ ] T060 [US1] SC-116: `the decision is made under the caller's context`, in
+- [x] T060 [US1] SC-116: `the decision is made under the caller's context`, in
       `internal/guard/guard.go`, command `go test ./internal/guard -count=1 -run TestTheDecisionBound`
-- [ ] T061 [US1] SC-117: `serve hands the guard its own clock instead of the tick`, in
+- [x] T061 [US1] SC-117: `serve hands the guard its own clock instead of the tick`, in
       `cmd/gronin/serve_cmd.go`; and C13's `the last tick is not written`, `a tick equal to the
       recorded one is let through` and `every tick is refused once one is recorded` from T025,
       declared again. All with command `go test ./cmd/gronin -count=1 -run
       TestADelayedHostDoesNotRunATickAgain`. The two C13 mutants about the transaction stay killed
       by the contract alone, which chooses the interleaving: two deliveries in sequence cannot show
       that the tick is written in the step that takes the claim
-- [ ] T062 [US1] SC-118: `the guard hands over its own clock as the tick`, in `internal/guard/guard.go`,
+- [x] T062 [US1] SC-118: `the guard hands over its own clock as the tick`, in `internal/guard/guard.go`,
       command `go test ./internal/guard -count=1 -run TestATickIsJudgedByItsSchedule`
-- [ ] T063 [US1] SC-108, this story's half: `gronin refusals drops the mechanism`, in
+- [x] T063 [US1] SC-108, this story's half: `gronin refusals drops the mechanism`, in
       `cmd/gronin/refusals_cmd.go`, command `go test ./cmd/gronin -count=1 -run TestRefusals`; and
       `a refusal is dated by its tick`, in `internal/guard/guard.go`, command
       `go test ./internal/guard -count=1 -run TestARefusalIsDatedByTheRuntime`
-- [ ] T064 [US1] The credential mutants for T042: `the client certificate is not presented` and
+- [x] T064 [US1] The credential mutants for T042: `the client certificate is not presented` and
       `the password is not sent`, in `internal/guard/etcd/client.go`, command
       `go test ./internal/guard/etcd -count=1 -run TestCredentials`
 

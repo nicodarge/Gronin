@@ -39,6 +39,7 @@ func newRootCommand(stdout, stderr io.Writer) *cobra.Command {
 	root.AddCommand(newRunCommand())
 	root.AddCommand(newServeCommand())
 	root.AddCommand(newRunsCommand())
+	root.AddCommand(newRefusalsCommand())
 	root.AddCommand(newShowCommand())
 	root.AddCommand(newReplayCommand())
 	root.AddCommand(newResumeCommand())

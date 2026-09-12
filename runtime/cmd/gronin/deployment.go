@@ -11,6 +11,7 @@ import (
 
 	"github.com/nicodarge/Gronin/runtime/internal/collections"
 	"github.com/nicodarge/Gronin/runtime/internal/config"
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/logging"
 	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
@@ -27,12 +28,16 @@ type deployment struct {
 	store           *record.Store
 	manager         *run.Manager
 	executor        *run.Executor
+	coordination    *coordination
 	log             *slog.Logger
 	stateDir        string
 	agentExecutable string
 }
 
 func (d *deployment) close() {
+	if d.coordination != nil {
+		d.coordination.close()
+	}
 	if d.store != nil {
 		_ = d.store.Close()
 	}
@@ -78,11 +83,26 @@ func openDeployment(
 	log := logging.New(cmd.ErrOrStderr(), record.NewRedactor(cfg.Secrets()), logLevel(cmd))
 
 	manager := run.NewManager(store, filepath.Join(stateDir, "work"), filepath.Join(stateDir, "locks"))
+	backend, err := openCoordination(stateDir, cfg, manager)
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	guarded := &guard.Guard{
+		Coordinator: backend.coordinator,
+		Store:       store,
+		Config:      backend.config,
+		Host:        hostName(),
+		Instance:    instanceID(),
+		Backend:     backend.name(),
+		Log:         log,
+	}
 	return &deployment{
 		config:          cfg,
 		catalog:         catalog,
 		store:           store,
 		manager:         manager,
+		coordination:    backend,
 		log:             log,
 		stateDir:        stateDir,
 		agentExecutable: executable,
@@ -96,6 +116,7 @@ func openDeployment(
 			// A gather step gets a path and nothing else. It is a command a playbook
 			// author wrote, and this process holds the deployment's credentials.
 			StepEnv: inheritedEnv([]string{"PATH", "HOME", "TMPDIR", "LANG"}),
+			Guard:   guarded,
 			Log:     log,
 			Now:     func() time.Time { return time.Now().UTC() },
 		},

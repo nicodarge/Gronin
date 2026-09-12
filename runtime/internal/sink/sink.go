@@ -100,14 +100,25 @@ func CheckCap(one Sink) error {
 // delivered and is not.
 var ErrUnknownType = errors.New("this deployment implements no sink of that type")
 
-// DeliverAll runs every sink and returns what each one did.
+// Gate is asked before each sink delivers, and a sink whose gate refuses does not
+// deliver at all. It is how the guard fences before every side effect (R3 of
+// specs/002-guard/contracts/coordination.md); nil is no gate.
+type Gate func(context.Context) error
+
+// DeliverAll runs every sink and returns what each one did, and what the gate refused.
 //
-// It does not stop at the first failure and it does not return early: FR-025 requires a
-// sink failure to be recorded per sink and not to discard the report, and a second sink
-// has no reason to be punished for the first one's outage.
-func DeliverAll(ctx context.Context, sinks []Sink, delivery Delivery) []Outcome {
+// A sink failure does not stop it and does not return early: FR-025 requires a sink
+// failure to be recorded per sink and not to discard the report, and a second sink has
+// no reason to be punished for the first one's outage. A gate that refuses does stop it:
+// what it withholds is permission to have any effect at all.
+func DeliverAll(ctx context.Context, sinks []Sink, delivery Delivery, gate Gate) ([]Outcome, error) {
 	outcomes := make([]Outcome, 0, len(sinks))
 	for _, one := range sinks {
+		if gate != nil {
+			if err := gate(ctx); err != nil {
+				return outcomes, err
+			}
+		}
 		outcome, err := one.Deliver(ctx, delivery)
 		outcome.Sink = one.Name()
 		if err != nil {
@@ -123,5 +134,5 @@ func DeliverAll(ctx context.Context, sinks []Sink, delivery Delivery) []Outcome 
 		}
 		outcomes = append(outcomes, outcome)
 	}
-	return outcomes
+	return outcomes, nil
 }

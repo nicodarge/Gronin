@@ -13,7 +13,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/nicodarge/Gronin/runtime/internal/api"
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
+	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/run"
 	"github.com/nicodarge/Gronin/runtime/internal/schedule"
 	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
 )
@@ -48,9 +51,22 @@ func newServeCommand() *cobra.Command {
 
 			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
-				return err
+				// A coordination configuration whose durations cannot hold is refused
+				// here, before a single schedule is armed (FR-123).
+				cmd.PrintErrln(err)
+				cmd.PrintErrln("Nothing was armed.")
+				return errSilent{err}
 			}
 			defer deployment.close()
+
+			// FR-109: the reach of the guarantee is the first thing said about the guard,
+			// so an operator never has to infer which one this deployment has.
+			cmd.Println(deployment.coordination.describe())
+			if err := deployment.coordination.reachable(cmd.Context()); err != nil {
+				// Not a reason to stop: the backend may be back before the first trigger,
+				// and every trigger until then is refused naming it (FR-107).
+				cmd.Println(deployment.coordination.unreachable(err))
+			}
 
 			// FR-019 then FR-033, before anything is armed. A bounding flag an older
 			// executable does not recognise is ignored rather than refused, and a
@@ -87,22 +103,8 @@ func newServeCommand() *cobra.Command {
 			}
 
 			scheduler := schedule.New(
-				func(ctx context.Context, name string, _ time.Time) error {
-					book, found := loaded.Find(name)
-					if !found {
-						return fmt.Errorf("no playbook named %q", name)
-					}
-					finished, err := deployment.executor.Execute(
-						ctx, book, record.TriggerSchedule, nil)
-					if outcome := scheduledOutcome(finished, err); outcome != nil {
-						return outcome
-					}
-					if finished.Status != record.StatusSucceeded {
-						deployment.log.Warn("a scheduled run did not succeed",
-							"playbook", name, "run", finished.ID,
-							"status", string(finished.Status), "err", finished.Error)
-					}
-					return nil
+				func(ctx context.Context, name string, dueAt time.Time) error {
+					return fire(ctx, deployment, loaded, name, dueAt)
 				},
 				func(ctx context.Context, name string, at time.Time, reason string) error {
 					return deployment.store.RecordMissedOccurrence(ctx, name, at, reason)
@@ -167,6 +169,34 @@ func newServeCommand() *cobra.Command {
 	}
 }
 
+// fire is what the scheduler calls for one occurrence. It is a function of its own
+// because what it hands the guard is a requirement in its own right (FR-129) and a
+// closure inside serve's body is not reachable by a test.
+func fire(
+	ctx context.Context, deployment *deployment, loaded playbook.Loaded,
+	name string, dueAt time.Time,
+) error {
+	book, found := loaded.Find(name)
+	if !found {
+		return fmt.Errorf("no playbook named %q", name)
+	}
+	// The instant handed to the guard is the one the schedule computed, never this
+	// host's clock: two hosts firing one tick compute the same instant whatever their
+	// clocks read (FR-129).
+	finished, err := deployment.executor.Execute(ctx, book, run.Trigger{
+		Kind: record.TriggerSchedule, DueAt: dueAt,
+	})
+	if outcome := scheduledOutcome(finished, err); outcome != nil {
+		return outcome
+	}
+	if finished.Status != record.StatusSucceeded {
+		deployment.log.Warn("a scheduled run did not succeed",
+			"playbook", name, "run", finished.ID,
+			"status", string(finished.Status), "err", finished.Error)
+	}
+	return nil
+}
+
 // scheduledOutcome decides what the scheduler is told about an occurrence.
 //
 // It is a function of its own because the distinction it makes is the one this branch
@@ -175,9 +205,17 @@ func newServeCommand() *cobra.Command {
 // it did is worse than saying nothing, and it costs them the run record they would
 // otherwise go looking for.
 //
-// An error means no run exists: the playbook was already in flight, or its working
-// directory could not be made. Any status at all means one does.
+// A trigger the guard refused is not a missed occurrence either. It is recorded as a
+// refusal, which says which mechanism refused it; reporting it as missed as well would
+// tell an operator that one event happened twice.
+//
+// An error otherwise means no run exists: the playbook was already in flight, or its
+// working directory could not be made. Any status at all means one does.
 func scheduledOutcome(finished record.Run, err error) error {
+	var refused *guard.Refused
+	if errors.As(err, &refused) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

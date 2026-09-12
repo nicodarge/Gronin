@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/run"
 )
 
 // newRunCommand is FR-022: a playbook invoked by hand, recorded as manually invoked, and
@@ -44,8 +47,16 @@ func newRunCommand() *cobra.Command {
 			}
 			defer deployment.close()
 
-			finished, err := deployment.executor.Execute(
-				cmd.Context(), book, record.TriggerManual, triggerValues(cmd))
+			finished, err := deployment.executor.Execute(cmd.Context(), book, run.Trigger{
+				Kind: record.TriggerManual, Values: triggerValues(cmd),
+			})
+			var refused *guard.Refused
+			if errors.As(err, &refused) {
+				// The mechanism is what an operator acts on, and it is in the record as
+				// well: `gronin refusals` is where the whole list lives (FR-117).
+				cmd.Printf("%s was not run: %s\n  %s\n", book.Name, refused.Mechanism, refused.Detail)
+				return errSilent{err}
+			}
 			if err != nil {
 				return err
 			}

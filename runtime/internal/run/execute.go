@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
@@ -41,18 +42,18 @@ type Executor struct {
 	// StepEnv is what a gather step runs with — deliberately not this process's own.
 	StepEnv []string
 
-	// Coordinator holds the claim a run needs before it begins. Nil is the single-host
-	// file lock of FR-109, which is what a deployment with no coordination backend gets.
-	Coordinator guard.Coordinator
-	// Host and Instance are who a claim names as its holder, beside the run.
-	Host, Instance string
-	// ClaimExpiry is what a claim is asked for; the backend judges it (FR-106).
-	ClaimExpiry time.Duration
+	// Guard decides whether a trigger becomes a run and holds the claim while it does.
+	// Nil is the single-host file lock of FR-109, which is what a deployment with no
+	// coordination backend gets.
+	Guard *guard.Guard
 
 	Client         *http.Client
 	Log            *slog.Logger
 	Now            func() time.Time
 	GatherMaxBytes int64
+
+	singleHost sync.Once
+	fallback   *guard.Guard
 }
 
 func (e *Executor) log() *slog.Logger {
@@ -83,17 +84,35 @@ func (e *Executor) now() time.Time {
 	return time.Now().UTC()
 }
 
+// Trigger is what brought a run about: its kind, the instant a schedule computed for it,
+// and the values a playbook may interpolate.
+type Trigger struct {
+	Kind record.TriggerKind
+	// DueAt is the instant the scheduler fired for, carried for a scheduled trigger
+	// alone and never read from this host's clock (FR-129).
+	DueAt  time.Time
+	Values map[string]string
+}
+
 // Execute runs one playbook. It returns the recorded run, whatever the outcome: a
 // refusal, a timeout and a failure are all runs that happened and are all worth reading.
 func (e *Executor) Execute(
-	ctx context.Context, book *playbook.Playbook, kind record.TriggerKind,
-	trigger map[string]string,
+	ctx context.Context, book *playbook.Playbook, trigger Trigger,
 ) (record.Run, error) {
-	claimed, err := e.claim(ctx, book.Name)
+	admitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)
 	if err != nil {
 		return record.Run{}, err
 	}
-	started, err := e.Manager.Begin(ctx, claimed, kind, "")
+	// The run's own context, which the hold cancels if the claim can no longer be proven
+	// held. The record keeps being written under the caller's, which that cancellation
+	// must not take with it.
+	stages, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	hold := e.guard().Hold(admitted, stopRun)
+	defer hold.Done()
+
+	claimed := claimedOf(admitted, book.Name)
+	started, err := e.Manager.Begin(ctx, claimed, trigger.Kind, "")
 	if err != nil {
 		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
@@ -105,6 +124,7 @@ func (e *Executor) Execute(
 	// copies into the record have to have happened by then — FR-011 removes the
 	// directory and FR-026 requires the inputs to survive it.
 	defer func() {
+		stoppedByTheGuard(hold, &outcome)
 		outcome.EndedAt = e.now()
 		if err := e.Manager.Finish(ctx, started, outcome); err != nil {
 			// This is the write that makes the run's terminal state durable, and the one
@@ -121,7 +141,7 @@ func (e *Executor) Execute(
 	incomplete.note(err)
 	outcome.ResolvedPlaybookRef = ref
 
-	gatherErr := e.gather(ctx, started, book, incomplete, trigger)
+	gatherErr := e.gather(stages, started, book, incomplete, trigger.Values)
 	if gatherErr != nil {
 		// FR-010: the run is refused before the stage that costs money, and the inputs
 		// it did collect are kept, because they are what explains the refusal.
@@ -130,7 +150,7 @@ func (e *Executor) Execute(
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 
-	prompt, err := e.prompt(started, book, trigger)
+	prompt, err := e.prompt(started, book, trigger.Values)
 	if err != nil {
 		outcome.Status = record.StatusRefused
 		outcome.Error = err.Error()
@@ -140,36 +160,54 @@ func (e *Executor) Execute(
 
 	// The same path a replay takes, so a replay cannot end up bounded differently from
 	// the run it derives from.
-	return e.agentAndSinks(ctx, started, book, prompt.text, &outcome, incomplete, trigger)
+	return e.agentAndSinks(ctx, stages, hold, started, book, prompt.text, &outcome, incomplete, trigger.Values)
 }
 
-// claim takes the claim a run needs before anything is created or gathered (FR-102).
-//
-// The trigger reference carries the kind alone. The instant a scheduled occurrence was
-// due is the scheduler's (FR-129) and reaches the coordinator through the guard stage,
-// which decides for every trigger; until it does, no run here consults the last tick.
-func (e *Executor) claim(ctx context.Context, playbookName string) (Claimed, error) {
+// admit puts the trigger through the guard, which decides before anything is created
+// and before gather runs (FR-102). The identifier is minted first, so the claim the
+// guard takes names the run that will hold it.
+func (e *Executor) admit(
+	ctx context.Context, book *playbook.Playbook, kind record.TriggerKind, dueAt time.Time,
+) (*guard.Admitted, error) {
 	id, err := NewRunID()
 	if err != nil {
-		return Claimed{}, err
+		return nil, err
 	}
-	coordinator := e.coordinator()
-	claim, err := coordinator.Acquire(ctx, guard.AcquireRequest{
-		Name:   playbookName,
-		Holder: guard.Holder{Host: e.Host, Instance: e.Instance, RunID: id},
-		Expiry: e.ClaimExpiry,
-	})
-	if err != nil {
-		return Claimed{}, err
-	}
-	return Claimed{Claim: claim, RunID: id, PlaybookName: playbookName, Reach: coordinator.Reach()}, nil
+	return e.guard().Admit(ctx, book, guard.Request{RunID: id, Kind: kind, DueAt: dueAt})
 }
 
-func (e *Executor) coordinator() guard.Coordinator {
-	if e.Coordinator != nil {
-		return e.Coordinator
+// guard is the stage this executor puts every trigger through. Nil is the single-host
+// file lock of FR-109, which is what a deployment with no coordination backend gets.
+func (e *Executor) guard() *guard.Guard {
+	if e.Guard != nil {
+		return e.Guard
 	}
-	return e.Manager.FileLock()
+	e.singleHost.Do(func() {
+		e.fallback = &guard.Guard{
+			Coordinator: e.Manager.FileLock(), Store: e.Store,
+			Config: guard.DefaultConfig(), Log: e.Log,
+		}
+	})
+	return e.fallback
+}
+
+// claimedOf is what Begin needs of an admitted claim.
+func claimedOf(admitted *guard.Admitted, playbookName string) Claimed {
+	return Claimed{
+		Claim: admitted.Claim, RunID: admitted.RunID,
+		PlaybookName: playbookName, Reach: admitted.Reach,
+	}
+}
+
+// stoppedByTheGuard is FR-105's terminal state. A run the runtime stopped because it
+// could no longer prove it held its claim did not fail: recording it as failed sends an
+// operator looking for a fault in the playbook.
+func stoppedByTheGuard(hold *guard.Hold, outcome *record.Run) {
+	if !hold.Stopped() {
+		return
+	}
+	outcome.Status = record.StatusClaimLost
+	outcome.Error = joinReasons(outcome.Error, hold.Reason())
 }
 
 type resolvedPrompt struct {

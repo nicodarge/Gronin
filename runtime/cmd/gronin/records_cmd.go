@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
@@ -85,6 +87,11 @@ func newShowCommand() *cobra.Command {
 			cmd.Printf("playbook  %s\n", one.PlaybookName)
 			cmd.Printf("status    %s\n", one.Status)
 			cmd.Printf("trigger   %s\n", one.TriggerKind)
+			if one.ClaimReach != "" {
+				// Which guarantee this run ran under. A single-host run says so, rather
+				// than leaving a reader of the record to assume the stronger one.
+				cmd.Printf("guarantee %s\n", one.ClaimReach)
+			}
 			if one.ParentRunID != "" {
 				cmd.Printf("derives   %s\n", one.ParentRunID)
 			}
@@ -223,6 +230,11 @@ func fromRecord(
 		}
 
 		finished, err := do(deployment, cmd, parent.ID, &bookRef{book: book})
+		var refused *guard.Refused
+		if errors.As(err, &refused) {
+			cmd.Printf("%s was not run: %s\n  %s\n", book.Name, refused.Mechanism, refused.Detail)
+			return errSilent{err}
+		}
 		if err != nil {
 			return err
 		}
