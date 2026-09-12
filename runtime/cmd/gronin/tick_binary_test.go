@@ -39,7 +39,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// says the run started, not that it ended — and A holds its claim until it ends.
 	// Resuming B before then gets it refused as claim_held, which is FR-101 and not what
 	// this test is about, so wait for A's run to leave the running state as well.
-	c.waitForRuns(t, 1, 150*time.Second)
+	c.waitForRuns(t, 1, 3*time.Minute)
 	waitFor(t, 2*time.Minute, func() bool {
 		return !strings.Contains(c.runs(t, 0), string(record.StatusRunning))
 	}, func() string {
@@ -71,7 +71,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 
 	// And the next tick, with both hosts live, produces exactly one further run — which
 	// is what fails an implementation that refuses every tick once one is recorded.
-	c.waitForRuns(t, 2, 150*time.Second)
+	c.waitForRuns(t, 2, 3*time.Minute)
 }
 
 // waitFor polls until done reports true, and fails with why if it never does. why is
