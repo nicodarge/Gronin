@@ -38,9 +38,15 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// B catches up and fires the same tick. It must be refused, and the record is where
 	// that is readable — the absence of a second line alone would also be satisfied by a
 	// B that never woke up.
-	waitFor(t, 30*time.Second, func() bool {
+	// Two minutes, against a cron that fires every minute. 30s passed on a developer's
+	// machine — three times, once pinned to two cores — and failed twice on CI at the
+	// same point. What makes B slow to catch up after its resume is not established; the
+	// bound is patience, not the assertion, and one minute of it was not enough.
+	waitFor(t, 2*time.Minute, func() bool {
 		return strings.Contains(c.refusals(t, 1), string(record.MechanismTickAlreadyRan))
-	}, "host B recorded no tick_already_ran refusal")
+	}, func() string {
+		return "host B recorded no tick_already_ran refusal; it recorded:\n" + c.refusals(t, 1)
+	})
 
 	refused := c.refusals(t, 1)
 	if !strings.Contains(refused, "ran as run 20") {
@@ -55,13 +61,15 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	c.waitForRuns(t, 2, 100*time.Second)
 }
 
-// waitFor polls until done reports true, and fails with why if it never does.
-func waitFor(t *testing.T, within time.Duration, done func() bool, why string) {
+// waitFor polls until done reports true, and fails with why if it never does. why is
+// built at the deadline rather than passed in, so it can report the state that was
+// waited for and never came.
+func waitFor(t *testing.T, within time.Duration, done func() bool, why func() string) {
 	t.Helper()
 	deadline := time.Now().Add(within)
 	for !done() {
 		if time.Now().After(deadline) {
-			t.Fatalf("%s within %s", why, within)
+			t.Fatalf("%s within %s", why(), within)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
