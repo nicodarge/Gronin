@@ -1,0 +1,15 @@
+name: retrieve-undeclared-collection
+trigger:
+  type: manual
+retrieve:
+  - collection: incidents
+    as: incidents.md
+    query: disk full on /var
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

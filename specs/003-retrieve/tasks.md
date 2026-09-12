@@ -102,7 +102,7 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] `runtime/testdata/fakeclaude/main.go` gains `FAKECLAUDE_QUOTE`: a comma-separated list
+- [x] T001 [P] `runtime/testdata/fakeclaude/main.go` gains `FAKECLAUDE_QUOTE`: a comma-separated list
       of names the stub reads from its working directory when it starts, placing each file's
       content in its report under `quoted.<name>`, and `null` for a file that is not there. The
       report is `FAKECLAUDE_RESULT`'s object, or `{}`, with `quoted` added.
@@ -112,15 +112,16 @@ rebases onto the other, and T098 is the checklist for doing it:
       a `FAKECLAUDE_…` set by the test never reaches it otherwise. SC-201 needs the agent to show it
       read the passage: a results file that exists after the run passes against a stage that wrote
       it after the agent had gone
-- [ ] T002 `TestTheStubQuotesWhatItFound` in `runtime/internal/fakeagent/fakeagent_test.go`: a file
+- [x] T002 `TestTheStubQuotesWhatItFound` in `runtime/internal/fakeagent/fakeagent_test.go`: a file
       present in the stub's working directory is quoted verbatim, an absent one is `null`, and a
       `FAKECLAUDE_RESULT` given alongside keeps its own fields
-- [ ] T003 Register T002's mutant, `the stub quotes nothing`, in `testdata/fakeclaude/main.go`, command
+- [x] T003 Register T002's mutant, `the stub quotes nothing`, in `testdata/fakeclaude/main.go`, command
       `go test ./internal/fakeagent -count=1 -run TestTheStubQuotesWhatItFound`
-- [ ] T004 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, its standard
+- [x] T004 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, its standard
       output readable line by line, a `Wait` bounded by a deadline, and a cleanup that kills it.
       Only if the guard's version is not yet on `production`; if it is, use that one and mark this
       task done. SC-202 has to observe `serve` while it starts, which a command that exits cannot show
+      — the guard's `Start` is on `production`, so this adds nothing
 
 **Checkpoint**: the stub agent can say what it read, and a test can hold `serve` open.
 
@@ -130,16 +131,17 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/0002_retrieve.sql`: the `retrievals` and
+- [x] T005 `runtime/internal/record/migrations/0002_retrieve.sql`: the `retrievals` and
       `retrieved_items` tables of [data-model.md](./data-model.md). A new file rather than an edit
       of `0001_initial.sql`, which `schema.go` would skip on every store that already applied it.
-      The number is today's next free one; see *Rebasing over the guard*
-- [ ] T006 `runtime/internal/record/retrievals.go`: `Retrieval` and `RetrievedItem`, the outcomes
+      The number is today's next free one; see *Rebasing over the guard* — taken as
+      `0003_retrieve.sql`, the guard's `0002_guard.sql` having merged first
+- [x] T006 `runtime/internal/record/retrievals.go`: `Retrieval` and `RetrievedItem`, the outcomes
       `found`, `empty` and `refused`; `AddRetrieval`, writing a retrieval and its items in one
       transaction, and `Retrievals(ctx, runID)`, items ordered by rank. `query` and `error` pass the
       redactor at the write boundary like every other text field; content travels as blob
       references, which `Blobs.Put` already redacts
-- [ ] T007 `TestRetrievals…` in `runtime/internal/record/retrievals_test.go`: a store created under
+- [x] T007 `TestRetrievals…` in `runtime/internal/record/retrievals_test.go`: a store created under
       `0001_initial.sql` alone migrates and its runs read back with no retrievals; a retrieval of
       each outcome round-trips with its items in rank order; `testsecret.Value`, configured as a
       secret and written into a retrieval's query, its error and an item's content, is in neither
@@ -147,13 +149,14 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The `retrieve` block
 
-- [ ] T008 [P] `runtime/internal/playbook/playbook.go` gains `Retrieval` (`collection`, `query`,
+- [x] T008 [P] `runtime/internal/playbook/playbook.go` gains `Retrieval` (`collection`, `query`,
       `query_from`, `as`, `max_results`, `max_bytes`, their defaults 10 and 16,384) and `Retrieve
       []Retrieval`. The reserved `retrieve` property of
       `specs/001-runtime-core/contracts/playbook.schema.json` is replaced by the content of
       [contracts/retrieve.schema.json](./contracts/retrieve.schema.json), and
       `runtime/internal/playbook/playbook.schema.json` with it. `Deployment` gains `Collections`.
-      In `validate.go`, `validateReserved` keeps only `guard`, and a new `validateRetrieve` refuses,
+      In `validate.go`, `validateReserved` goes entirely — the guard landed first, so nothing is
+      left reserved (see *Rebasing over the guard*) — and a new `validateRetrieve` refuses,
       by field: a collection `Deployment.Collections` does not hold; a `query_from` no gather step's
       `as` names; an `as` that a gather step or another retrieval already writes; a count or byte
       bound above its ceiling, where the runtime can say why as well as the schema. And, until T039
@@ -171,8 +174,9 @@ rebases onto the other, and T098 is the checklist for doing it:
       `retrieve-undeclared-gathered-input.yaml` and `retrieve-colliding-name.yaml`. The tables in
       `parse_test.go` and `validate_test.go` follow, `validate_test.go`'s `deployment()` declares
       one collection, and
-      `TestTheGateRefusesAReservedBlockThatReachesIt` loses its `retrieve` case
-- [ ] T009 SC-203, the refusal half, `TestRetrieveBlock…` in
+      `TestTheGateRefusesAReservedBlockThatReachesIt` goes with `playbook.Unknown` and the mutant
+      `the gate accepts a reserved block`, nothing being left reserved
+- [x] T009 SC-203, the refusal half, `TestRetrieveBlock…` in
       `runtime/internal/playbook/parse_test.go` and `runtime/internal/playbook/validate_test.go`:
       every fixture of T008 refused with the field named — a mode, an endpoint, a model and a
       credential among them, each refused as a key the block does not have — and the valid block's
@@ -181,22 +185,22 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The catalogue
 
-- [ ] T010 [P] `runtime/internal/collections/doc.go` and `runtime/internal/collections/collections.go`:
+- [x] T010 [P] `runtime/internal/collections/doc.go` and `runtime/internal/collections/collections.go`:
       `Load(stateDir)` reads `collections.json`, absent meaning none, decoding with unknown fields
       disallowed; every refusal of [contracts/cli.md](./contracts/cli.md)'s table, all of them
       reported rather than the first; `Names`, and per entry its source, `Mode`, `RetrievalTimeout`
       (default 2 minutes) and `RequestTimeout` (default 60 seconds). An entry naming `reports` or
       `embeddings` is refused by field as not yet applied, until T059 and T081 lift each
-- [ ] T011 `TestCollections…` in `runtime/internal/collections/collections_test.go`: absent is an empty
+- [x] T011 `TestCollections…` in `runtime/internal/collections/collections_test.go`: absent is an empty
       catalogue; refused, each by name — an unknown key, both sources, neither, a relative
       directory, a name that is not a slug, a duration that does not parse, a zero one; and
       `reports` and `embeddings` refused as not yet applied, in a table the later lifts edit
-- [ ] T012 `runtime/cmd/gronin/deployment.go`: `openCollections`, read once per invocation like
+- [x] T012 `runtime/cmd/gronin/deployment.go`: `openCollections`, read once per invocation like
       `openCatalog`, and `capabilities` hands its names to the gate as `Collections`; `loadPlaybooks`
       and its callers in `validate_cmd.go`, `run_cmd.go`, `serve_cmd.go` and `records_cmd.go` pass
       it. A malformed `collections.json` refuses every command that loads playbooks, and none that
       only reads run history — the rule `openResolvableCatalog` states for the MCP catalogue
-- [ ] T013 In `runtime/cmd/gronin/collections_cmd_test.go`, through the built binary:
+- [x] T013 In `runtime/cmd/gronin/collections_cmd_test.go`, through the built binary:
       `TestValidateRefusesAnUndeclaredCollection` — `gronin validate` with `collections.json`
       declaring `runbooks` refuses a playbook retrieving from `incidents`, naming the field; and
       `TestAMalformedCollectionsFileRefusesTheDeployment` — an unknown key refuses `gronin validate`
@@ -204,7 +208,7 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### Mutants for the foundation
 
-- [ ] T014 Register, with command `go test ./internal/playbook -count=1 -run TestRetrieveBlock`:
+- [x] T014 Register, with command `go test ./internal/playbook -count=1 -run TestRetrieveBlock`:
       `the gate accepts an undeclared collection`, `the gate accepts a query_from no gather step
       writes`, `the gate accepts a results name a gather step writes` and `the gate accepts a
       results name another retrieval writes`, in `internal/playbook/validate.go`; `the retrieve

@@ -173,8 +173,64 @@
       }
     },
     "retrieve": {
-      "not": {},
-      "description": "Reserved. The runtime refuses a playbook declaring this block rather than accepting and ignoring it: a declared bound that nothing applies is worse than an absent one."
+      "description": "What the runtime searches before the agent runs, each entry written into the working directory under its `as`. Shape only, like the rest of this schema: whether a collection is declared, whether query_from names a gather step, and whether an `as` collides are the runtime's refusals. A mode, an endpoint, a model, a credential or a provider is refused as an unknown key: they belong to the deployment's collection, never to a playbook.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "collection",
+          "as"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "query"
+            ]
+          },
+          {
+            "required": [
+              "query_from"
+            ]
+          }
+        ],
+        "properties": {
+          "collection": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "A collection the deployment's catalogue declares."
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Interpolated like every other playbook string, against ${trigger.x} and ${config.x}. Searched as plain text: no word or character in it is search syntax."
+          },
+          "query_from": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "description": "The `as` of a gather step whose output is the query."
+          },
+          "as": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+$",
+            "description": "The file the results are written to in the run's working directory, where the agent reads them as it reads gathered input."
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10
+          },
+          "max_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536,
+            "default": 16384,
+            "description": "Every byte of the results file, the lines naming each result's source included."
+          }
+        }
+      }
     }
   }
 }

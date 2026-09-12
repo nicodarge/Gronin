@@ -24,6 +24,9 @@ type Deployment struct {
 	// CreatingSinks are the types that bring things into existence somewhere else, and
 	// so must declare a cap.
 	CreatingSinks []string
+	// Collections this deployment's catalogue declares. A retrieval naming anything else
+	// is refused here, because a playbook names an entry and nothing else about it.
+	Collections []string
 	// ConfigKeys are the configuration keys this deployment holds. A ${config.x} naming
 	// anything else is refused here, which is what spec.md's "refused at load, not at
 	// trigger time" asks for: without this the gate accepts a playbook whose every
@@ -121,7 +124,7 @@ func Validate(book *Playbook, dep Deployment) []Problem {
 
 	problems = append(problems, validateAgent(book, dep)...)
 	problems = append(problems, validateSinks(book, dep)...)
-	problems = append(problems, validateReserved(book)...)
+	problems = append(problems, validateRetrieve(book, dep)...)
 	problems = append(problems, validateGuard(book)...)
 	problems = append(problems, validateInterpolation(book, dep)...)
 	return problems
@@ -380,21 +383,100 @@ func validateSinks(book *Playbook, dep Deployment) []Problem {
 	return problems
 }
 
-// validateReserved applies FR-034. The schema refuses these too; this is the same rule
-// where the runtime can say why, and it holds if the schema is ever loosened.
-func validateReserved(book *Playbook) []Problem {
+// retrieveApplied reports whether a stage applies the retrieve block. Until one does, a
+// well-formed block is refused like any other declared bound nothing enforces: accepting
+// it would arm a playbook whose retrieval never happens, and the agent would run without
+// the context its prompt was written around.
+const retrieveApplied = false
+
+// validateRetrieve applies FR-204 to what the schema's shape layer lets through. Each
+// refusal names the retrieval and the field, because a playbook may declare several and
+// "the collection is not declared" says nothing about which.
+func validateRetrieve(book *Playbook, dep Deployment) []Problem {
+	if len(book.Retrieve) == 0 {
+		return nil
+	}
+
 	var problems []Problem
-	for field, present := range map[string]bool{"retrieve": book.Retrieve != nil} {
-		if present {
+	if !retrieveApplied {
+		problems = append(problems, Problem{
+			Field:    "retrieve",
+			Found:    "declared, and this runtime does not apply it yet",
+			Accepted: "remove the block; a declared bound nothing enforces reads as enforced in review",
+		})
+	}
+
+	// What a name may collide with: a gather step's output, and a results file an earlier
+	// retrieval already wrote. Both land in the same working directory, and the second
+	// writer would silently replace the first.
+	const byAGatherStep = "a gather step"
+	written := map[string]string{}
+	for _, step := range book.Gather {
+		written[step.As] = byAGatherStep
+	}
+
+	for at, retrieval := range book.Retrieve {
+		field := fmt.Sprintf("retrieve[%d]", at)
+
+		if !contains(dep.Collections, retrieval.Collection) {
 			problems = append(problems, Problem{
-				Field:    field,
-				Found:    "declared, and this runtime does not apply it",
-				Accepted: "remove the block; a declared bound nothing enforces reads as enforced in review",
+				Field: field + ".collection",
+				Found: fmt.Sprintf("%q is not a collection this deployment declares",
+					retrieval.Collection),
+				Accepted: provided(dep.Collections),
+			})
+		}
+		if retrieval.QueryFrom != "" && written[retrieval.QueryFrom] != byAGatherStep {
+			problems = append(problems, Problem{
+				Field: field + ".query_from",
+				Found: fmt.Sprintf("%q is not the name of a gather step's output",
+					retrieval.QueryFrom),
+				Accepted: gatherNames(book),
+			})
+		}
+		if by, taken := written[retrieval.As]; taken {
+			problems = append(problems, Problem{
+				Field:    field + ".as",
+				Found:    fmt.Sprintf("%q is already written by %s", retrieval.As, by),
+				Accepted: "a name nothing else in this playbook writes into the working directory",
+			})
+		}
+		written[retrieval.As] = field
+
+		if retrieval.MaxResults > MaxResultsCeiling {
+			problems = append(problems, Problem{
+				Field: field + ".max_results",
+				Found: fmt.Sprintf("%d results, and a retrieval returns at most %d",
+					retrieval.MaxResults, MaxResultsCeiling),
+				Accepted: fmt.Sprintf("1 to %d; a need for more is better met by two queries",
+					MaxResultsCeiling),
+			})
+		}
+		if retrieval.MaxBytes > MaxBytesCeiling {
+			problems = append(problems, Problem{
+				Field: field + ".max_bytes",
+				Found: fmt.Sprintf("%d bytes, and a results file is at most %d",
+					retrieval.MaxBytes, MaxBytesCeiling),
+				Accepted: fmt.Sprintf("1 to %d; a need for more is better met by two queries",
+					MaxBytesCeiling),
 			})
 		}
 	}
-	sort.Slice(problems, func(i, j int) bool { return problems[i].Field < problems[j].Field })
 	return problems
+}
+
+// gatherNames is what a query_from may name, so the refusal does not send an author
+// guessing at a spelling.
+func gatherNames(book *Playbook) string {
+	names := make([]string, 0, len(book.Gather))
+	for _, step := range book.Gather {
+		names = append(names, step.As)
+	}
+	if len(names) == 0 {
+		return "nothing; this playbook gathers nothing, so use `query` instead"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 // appliedGuardKeys are the keys of the guard block this runtime enforces. The schema
@@ -459,7 +541,9 @@ func validateInterpolation(book *Playbook, dep Deployment) []Problem {
 // resolving: a ${config.x} in a field nothing interpolates is broken whatever the
 // deployment holds, and refusing it for the wrong reason sends the author to set a key
 // that would not have helped.
-var resolvedHere = map[string]bool{"gather.run": true, "sinks": true}
+var resolvedHere = map[string]bool{
+	"gather.run": true, "sinks": true, "retrieve.query": true,
+}
 
 // fieldKind reduces "gather[0].run" and "sinks[1].github.repo" to the kind of field they
 // are, which is what decides whether the runtime resolves them.
@@ -521,8 +605,9 @@ type held struct {
 // it has to be added here, which is a compile-time-shaped reminder rather than a silent
 // hole.
 //
-// Three of these are interpolated by the runtime — the prompt body, checked where it is
-// read above, a sink's configuration, and a gather step. resolvedHere below is which. The
+// Four of these are interpolated by the runtime — the prompt body, checked where it is
+// read above, a sink's configuration, a gather step, and a retrieval's query.
+// resolvedHere below is which. The
 // rest are checked for a bare reference anyway: an author who writes ${x} in a field
 // nothing resolves means it to be resolved, and a gate that stays quiet teaches them it
 // works.
@@ -537,6 +622,9 @@ func interpolatable(book *Playbook) []held {
 		out = append(out,
 			held{fmt.Sprintf("gather[%d].run", at), step.Run},
 			held{fmt.Sprintf("gather[%d].as", at), step.As})
+	}
+	for at, retrieval := range book.Retrieve {
+		out = append(out, held{fmt.Sprintf("retrieve[%d].query", at), retrieval.Query})
 	}
 	for at, tool := range book.Agent.Tools {
 		out = append(out, held{fmt.Sprintf("agent.tools[%d]", at), tool})

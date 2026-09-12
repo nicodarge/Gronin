@@ -27,6 +27,11 @@ import (
 // that to choose a behaviour.
 const modeVar = "FAKECLAUDE_MODE"
 
+// quoteVar names the files this process reads from its working directory and places in
+// its report under `quoted.<name>`. A file that exists after a run is not evidence the
+// agent read it; one the agent quoted is.
+const quoteVar = "FAKECLAUDE_QUOTE"
+
 const (
 	modeSuccess   = "success"    // the default: init, one assistant message, a result
 	modeTimeout   = "timeout"    // emits init and then never terminates
@@ -194,14 +199,45 @@ func main() {
 // resultPayload is what the agent "answered". A test that needs a particular report
 // hands it over rather than matching whatever the stub invented.
 func resultPayload() any {
-	if raw := os.Getenv("FAKECLAUDE_RESULT"); raw != "" {
-		var decoded any
-		if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
-			return decoded
-		}
-		return raw
+	quoting := entries([]string{os.Getenv(quoteVar)})
+	if len(quoting) == 0 {
+		return handedOver()
 	}
-	return map[string]any{"findings": []any{}}
+
+	// The handed-over report, or an empty one — never the stub's own default, whose
+	// findings would read as something the agent concluded.
+	report := map[string]any{}
+	if os.Getenv("FAKECLAUDE_RESULT") != "" {
+		switch given := handedOver().(type) {
+		case map[string]any:
+			report = given
+		default:
+			report["result"] = given
+		}
+	}
+	quoted := make(map[string]any, len(quoting))
+	for _, name := range quoting {
+		content, err := os.ReadFile(name) //nolint:gosec // a name the test asked this process to read
+		if err != nil {
+			quoted[name] = nil
+			continue
+		}
+		quoted[name] = string(content)
+	}
+	report["quoted"] = quoted
+	return report
+}
+
+func handedOver() any {
+	raw := os.Getenv("FAKECLAUDE_RESULT")
+	if raw == "" {
+		return map[string]any{"findings": []any{}}
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+		return decoded
+	}
+	return raw
 }
 
 // apiKeySource reports where a credential came from, the way the real process does. The

@@ -16,6 +16,9 @@ func deployment() playbook.Deployment {
 		MCPServers:    []string{"grafana"},
 		SinkTypes:     []string{"discord", "slack", "github"},
 		CreatingSinks: []string{"github"},
+		// One collection, for the same reason: a retrieval naming anything else is
+		// refused, so a corpus that assumes a collection exists should have to say so.
+		Collections: []string{"runbooks"},
 		// The keys the corpora reference. Listed rather than derived: what a deployment
 		// holds is half of whether a playbook is accepted, so a corpus that assumes a key
 		// exists should have to say so.
@@ -65,11 +68,16 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		"empty-label.yaml":                   {"sinks[0].github.label", "is empty"},
 		"label-from-the-trigger.yaml":        {"sinks[0].github.label", "resolves through the trigger"},
 		"unconfigured-reference.yaml":        {"sinks[0].discord.webhook", "is not configured"},
-		// Refused by the published schema before the semantic gate sees them, which is
-		// the same rule at an earlier layer. The gate's own version is tested below,
-		// against a document the schema never reads.
+		"retrieve-undeclared-collection.yaml": {
+			"retrieve[0].collection", "not a collection this deployment declares"},
+		"retrieve-undeclared-gathered-input.yaml": {
+			"retrieve[0].query_from", "not the name of a gather step's output"},
+		"retrieve-colliding-name.yaml": {
+			"retrieve[0].as", "already written by a gather step"},
+		// Refused by the published schema before the semantic gate sees it, which is the
+		// same rule at an earlier layer. The gate's own version is tested below, against
+		// a document the schema never reads.
 		"guard-unknown-key.yaml": {"guard", "additional properties 'lock' not allowed"},
-		"retrieve-block.yaml":    {"retrieve", "'not' failed"},
 	}
 
 	paths := corpus(t, "../../testdata/playbooks/hostile")
@@ -233,24 +241,107 @@ func corpus(t *testing.T, dir string) []string {
 	return paths
 }
 
-// FR-034 at the semantic layer. The schema refuses these first for a document read from
-// disk, so this is the only place the gate's own rule runs — and a rule nothing reaches
-// is a comment. Reached here by constructing the playbook rather than parsing one.
-func TestTheGateRefusesAReservedBlockThatReachesIt(t *testing.T) {
-	for name, book := range map[string]*playbook.Playbook{
-		"retrieve": {Name: "p", Retrieve: &playbook.Unknown{}},
+// SC-203, the gate's half. FR-204's refusals are the ones JSON Schema cannot express —
+// whether a collection is declared, whether a query_from names a gather step, whether an
+// `as` collides — so each is probed here, by constructing the playbook, against a
+// deployment declaring one collection.
+//
+// The last row is the block that is well-formed and refused all the same, because no
+// stage applies it yet: an accepted block would arm a playbook whose retrieval never
+// happens, and the agent would run without the context its prompt was written around.
+// Lifting that is one line of this table.
+func TestRetrieveBlockRefusals(t *testing.T) {
+	const retrieveApplied = false
+
+	gather := []playbook.Step{{Run: "df -h /var", As: "facts.txt"}}
+	for name, probe := range map[string]struct {
+		retrieve []playbook.Retrieval
+		field    string
+		says     string
+	}{
+		"a collection this deployment does not declare": {
+			retrieve: []playbook.Retrieval{{Collection: "incidents", As: "out.md", Query: "disk"}},
+			field:    "retrieve[0].collection",
+			says:     `"incidents" is not a collection this deployment declares`,
+		},
+		"a query_from no gather step writes": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "out.md", QueryFrom: "inventory.json"}},
+			field:    "retrieve[0].query_from",
+			says:     `"inventory.json" is not the name of a gather step's output`,
+		},
+		"a results name a gather step writes": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "facts.txt", Query: "disk"}},
+			field:    "retrieve[0].as",
+			says:     `"facts.txt" is already written by a gather step`,
+		},
+		"a results name another retrieval writes": {
+			retrieve: []playbook.Retrieval{
+				{Collection: "runbooks", As: "out.md", Query: "disk"},
+				{Collection: "runbooks", As: "out.md", Query: "cert"},
+			},
+			field: "retrieve[1].as",
+			says:  `"out.md" is already written by retrieve[0]`,
+		},
+		"a result count above the ceiling": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "out.md", Query: "disk", MaxResults: 51}},
+			field:    "retrieve[0].max_results",
+			says:     "a retrieval returns at most 50",
+		},
+		"a byte bound above the ceiling": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "out.md", Query: "disk", MaxBytes: 65537}},
+			field:    "retrieve[0].max_bytes",
+			says:     "a results file is at most 65536",
+		},
+		"a bare reference in the query": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "out.md", Query: "disk on ${host}"}},
+			field:    "retrieve[0].query",
+			says:     "${host} does not name its source",
+		},
+		"a ${config.x} the deployment does not hold": {
+			retrieve: []playbook.Retrieval{{Collection: "runbooks", As: "out.md", Query: "${config.nowhere}"}},
+			field:    "retrieve[0].query",
+			says:     "${config.nowhere} is not configured",
+		},
 	} {
-		problems := playbook.Validate(book, deployment())
-		var found bool
-		for _, problem := range problems {
-			if problem.Field == name && strings.Contains(problem.Found, "does not apply it") {
-				found = true
+		t.Run(name, func(t *testing.T) {
+			problems := playbook.Validate(
+				&playbook.Playbook{Name: "p", Gather: gather, Retrieve: probe.retrieve}, deployment())
+			if !refusedAs(problems, probe.field, probe.says) {
+				t.Fatalf("not refused for its reason.\n  want %s to say %q\n  got:  %v",
+					probe.field, probe.says, problems)
 			}
-		}
-		if !found {
-			t.Errorf("a %s block reached the gate and was not refused: %v", name, problems)
+		})
+	}
+
+	// The block with nothing wrong with it. Its only problem is the one above, and that
+	// is what makes this case the one T039's lift changes.
+	valid := []playbook.Retrieval{
+		{Collection: "runbooks", As: "runbooks.md", Query: "disk full on ${trigger.mountpoint}"},
+		{Collection: "runbooks", As: "by-facts.md", QueryFrom: "facts.txt", MaxResults: 5, MaxBytes: 4096},
+	}
+	problems := playbook.Validate(
+		&playbook.Playbook{Name: "p", Gather: gather, Retrieve: valid}, deployment())
+	notApplied := refusedAs(problems, "retrieve", "does not apply it yet")
+	switch {
+	case retrieveApplied && notApplied:
+		t.Fatalf("the retrieve block is applied and was refused as not applied: %v", problems)
+	case !retrieveApplied && !notApplied:
+		t.Fatalf("the retrieve block is not applied yet and was accepted: %v", problems)
+	}
+	for _, problem := range problems {
+		if problem.Field != "retrieve" {
+			t.Errorf("a well-formed retrieve block was also refused for %s", problem.Error())
 		}
 	}
+}
+
+func refusedAs(problems []playbook.Problem, field, says string) bool {
+	for _, problem := range problems {
+		if problem.Field == field && strings.Contains(problem.Found, says) {
+			return true
+		}
+	}
+	return false
 }
 
 // SC-109, the gate's half. The schema accepts the shape of every key the guard contract

@@ -1,0 +1,9 @@
+name: disk-check
+trigger: {type: manual}
+retrieve:
+  - collection: runbooks
+    as: runbooks.md
+    query: disk full on /var
+    top_k: 5
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]

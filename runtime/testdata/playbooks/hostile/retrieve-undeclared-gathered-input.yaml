@@ -1,0 +1,18 @@
+name: retrieve-undeclared-gathered-input
+trigger:
+  type: manual
+gather:
+  - run: df -h /var
+    as: facts.txt
+retrieve:
+  - collection: runbooks
+    as: runbooks.md
+    query_from: inventory.json
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

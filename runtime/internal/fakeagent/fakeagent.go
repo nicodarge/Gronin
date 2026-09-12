@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -51,6 +52,11 @@ const (
 	// reads "none" for an authorised OAuth session too — measured — so the source alone
 	// cannot express this.
 	NoCredentialVar = "FAKECLAUDE_NO_CREDENTIAL"
+	// QuoteVar is a comma-separated list of names the stub reads from its working
+	// directory when it starts, placing each file's content in its report under
+	// `quoted.<name>` and null for one that is not there. A file that exists after a run
+	// is not evidence the agent read it; one the agent quoted is.
+	QuoteVar = "FAKECLAUDE_QUOTE"
 	// APIErrorStatusVar makes it fail a turn the way a reached-but-unhappy API does,
 	// which is is_error set WITH a status beside it. The credential check has to tell
 	// that apart from nothing being logged in, or it sends an operator to look at a
@@ -93,6 +99,35 @@ func Build(t *testing.T) string {
 		t.Fatal(buildErr)
 	}
 	return path
+}
+
+// Wrapped is the stub behind a script that sets env before executing it, for a test that
+// drives the built executable. The agent child inherits a fixed list of variables from
+// gronin, and no FAKECLAUDE_ name is on it, so a variable the test exports never reaches
+// the stub otherwise.
+func Wrapped(t *testing.T, env ...string) string {
+	t.Helper()
+	stub := Build(t)
+
+	script := "#!/bin/sh\n"
+	for _, one := range env {
+		name, value, found := strings.Cut(one, "=")
+		if !found {
+			t.Fatalf("fakeagent.Wrapped: %q is not NAME=value", one)
+		}
+		script += "export " + name + "=" + shellQuoted(value) + "\n"
+	}
+	script += "exec " + shellQuoted(stub) + " \"$@\"\n"
+
+	path := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func shellQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 // Cleanup removes the built stub. A package using Build calls it from TestMain.

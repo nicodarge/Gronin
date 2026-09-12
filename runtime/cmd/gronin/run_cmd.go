@@ -25,7 +25,11 @@ func newRunCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			loaded, err := loadPlaybooks(cmd, cfg, catalog)
+			declared, err := openCollections(cmd)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg, catalog, declared)
 			if err != nil {
 				return err
 			}
