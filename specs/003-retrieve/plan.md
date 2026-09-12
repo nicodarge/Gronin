@@ -238,7 +238,13 @@ specs/003-retrieve/
 ├── spec.md          # this feature's requirements
 ├── plan.md          # this file
 ├── research.md      # Phase 0 — every question resolved by running it, limits listed
-└── tasks.md         # not yet written
+├── data-model.md    # Phase 1 — the catalogue, the index and its generations, the record
+├── contracts/
+│   ├── cli.md                 # the operator commands, collections.json, the results file
+│   ├── embeddings.md          # what the client sends and accepts, from research §7
+│   └── retrieve.schema.json   # the playbook's retrieve block
+├── quickstart.md    # Phase 1 — validation against a real host and a real embeddings server
+└── tasks.md         # the task list
 ```
 
 ### Source Code (repository root)
@@ -257,8 +263,9 @@ runtime/internal/
 `collections/` is separate from `mcpcatalog/` rather than a second section of it: the two answer
 different questions, are refused for different reasons, and will change apart.
 
-The operator commands — the listing of FR-215 and the rebuild of FR-220 — are Phase 1's
-`contracts/cli.md` change, as are the playbook schema's `retrieve` block and the catalogue's shape.
+The operator commands — the listing of FR-215 and the rebuild of FR-220 — are in
+[contracts/cli.md](./contracts/cli.md), with the catalogue's shape; the playbook's `retrieve` block
+is [contracts/retrieve.schema.json](./contracts/retrieve.schema.json).
 
 ## Phase 0 — Resolved
 
