@@ -207,8 +207,13 @@ func resultPayload() any {
 	// The handed-over report, or an empty one — never the stub's own default, whose
 	// findings would read as something the agent concluded.
 	report := map[string]any{}
-	if given, ok := handedOver().(map[string]any); ok && os.Getenv("FAKECLAUDE_RESULT") != "" {
-		report = given
+	if os.Getenv("FAKECLAUDE_RESULT") != "" {
+		switch given := handedOver().(type) {
+		case map[string]any:
+			report = given
+		default:
+			report["result"] = given
+		}
 	}
 	quoted := make(map[string]any, len(quoting))
 	for _, name := range quoting {
