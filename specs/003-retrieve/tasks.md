@@ -131,16 +131,17 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/0002_retrieve.sql`: the `retrievals` and
+- [x] T005 `runtime/internal/record/migrations/0002_retrieve.sql`: the `retrievals` and
       `retrieved_items` tables of [data-model.md](./data-model.md). A new file rather than an edit
       of `0001_initial.sql`, which `schema.go` would skip on every store that already applied it.
-      The number is today's next free one; see *Rebasing over the guard*
-- [ ] T006 `runtime/internal/record/retrievals.go`: `Retrieval` and `RetrievedItem`, the outcomes
+      The number is today's next free one; see *Rebasing over the guard* — taken as
+      `0003_retrieve.sql`, the guard's `0002_guard.sql` having merged first
+- [x] T006 `runtime/internal/record/retrievals.go`: `Retrieval` and `RetrievedItem`, the outcomes
       `found`, `empty` and `refused`; `AddRetrieval`, writing a retrieval and its items in one
       transaction, and `Retrievals(ctx, runID)`, items ordered by rank. `query` and `error` pass the
       redactor at the write boundary like every other text field; content travels as blob
       references, which `Blobs.Put` already redacts
-- [ ] T007 `TestRetrievals…` in `runtime/internal/record/retrievals_test.go`: a store created under
+- [x] T007 `TestRetrievals…` in `runtime/internal/record/retrievals_test.go`: a store created under
       `0001_initial.sql` alone migrates and its runs read back with no retrievals; a retrieval of
       each outcome round-trips with its items in rank order; `testsecret.Value`, configured as a
       secret and written into a retrieval's query, its error and an item's content, is in neither
