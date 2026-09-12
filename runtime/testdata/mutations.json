@@ -1675,6 +1675,21 @@
         "-run",
         "TestFileLockContract"
       ]
+    },
+    {
+      "name": "the stub quotes nothing",
+      "tree": "..",
+      "file": "testdata/fakeclaude/main.go",
+      "find": "\treport[\"quoted\"] = quoted\n",
+      "replace": "\t_ = quoted\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/fakeagent",
+        "-count=1",
+        "-run",
+        "TestTheStubQuotesWhatItFound"
+      ]
     }
   ]
 }

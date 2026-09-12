@@ -22,7 +22,18 @@ type event map[string]any
 
 func runStub(t *testing.T, mode string, extraEnv []string, args ...string) ([]event, string, int) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), fakeagent.Build(t), args...)
+	return runStubIn(t, fakeagent.Build(t), "", mode, extraEnv, args...)
+}
+
+// runStubIn runs an executable standing in for the agent — the stub, or a script around
+// it — from a working directory of the caller's choosing, which is what the stub reads
+// the files it quotes from.
+func runStubIn(
+	t *testing.T, executable, dir, mode string, extraEnv []string, args ...string,
+) ([]event, string, int) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), executable, args...)
+	cmd.Dir = dir
 	cmd.Env = append(append(os.Environ(), fakeagent.ModeVar+"="+mode), extraEnv...)
 	output, err := cmd.Output()
 
@@ -208,6 +219,78 @@ func TestTheVersionIsReadable(t *testing.T) {
 	if !strings.Contains(string(out), ".") {
 		t.Fatalf("version output = %q", out)
 	}
+}
+
+// SC-201 needs the agent to show it read the passage: a results file that exists after a
+// run passes against a stage that wrote it once the agent had gone. What this pins is the
+// quoting the effect is counted by — verbatim for a file that is there, null for one that
+// is not, and the handed-over report kept beside it.
+func TestTheStubQuotesWhatItFound(t *testing.T) {
+	dir := t.TempDir()
+	const body = "# Retrieved from runbooks\n\nWhen /var fills, read the journal's size.\n"
+	if err := os.WriteFile(filepath.Join(dir, "runbooks.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	events, _, code := runStubIn(t, fakeagent.Build(t), dir, fakeagent.ModeSuccess,
+		[]string{
+			fakeagent.QuoteVar + "=runbooks.md,absent.md",
+			fakeagent.ResultVar + `={"findings":[{"id":"one"}]}`,
+		}, "--tools", "Read")
+	if code != 0 {
+		t.Fatalf("exit code %d", code)
+	}
+
+	report := reportOf(t, events)
+	quoted, ok := report["quoted"].(map[string]any)
+	if !ok {
+		t.Fatalf("the report carries no quoted files: %v", report)
+	}
+	if quoted["runbooks.md"] != body {
+		t.Fatalf("runbooks.md was quoted as %q, want %q", quoted["runbooks.md"], body)
+	}
+	if value, named := quoted["absent.md"]; !named || value != nil {
+		t.Fatalf("absent.md is %v (named: %v), and a file that is not there is null",
+			value, named)
+	}
+	findings, _ := report["findings"].([]any)
+	if len(findings) != 1 {
+		t.Fatalf("the handed-over report was lost: %v", report)
+	}
+}
+
+// The stub is the agent child of the built executable in a binary test, and that child
+// inherits a fixed list of variables — none of them a FAKECLAUDE_ name. The wrapper is
+// how a test reaches it.
+func TestTheWrappedStubCarriesItsVariables(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "runbooks.md"), []byte("quoted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := fakeagent.Wrapped(t, fakeagent.QuoteVar+"=runbooks.md")
+
+	// No FAKECLAUDE_QUOTE in the environment handed over: the wrapper is the only source.
+	events, _, code := runStubIn(t, wrapper, dir, fakeagent.ModeSuccess, nil, "--tools", "Read")
+	if code != 0 {
+		t.Fatalf("exit code %d", code)
+	}
+	quoted, ok := reportOf(t, events)["quoted"].(map[string]any)
+	if !ok || quoted["runbooks.md"] != "quoted" {
+		t.Fatalf("the wrapper's variable did not reach the stub: %v", quoted)
+	}
+}
+
+func reportOf(t *testing.T, events []event) map[string]any {
+	t.Helper()
+	if len(events) == 0 {
+		t.Fatal("the stub emitted nothing")
+	}
+	last := events[len(events)-1]
+	report, ok := last["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("the result is not a report: %v", last["result"])
+	}
+	return report
 }
 
 func contains(list []string, want string) bool {

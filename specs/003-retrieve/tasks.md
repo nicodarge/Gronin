@@ -102,7 +102,7 @@ rebases onto the other, and T098 is the checklist for doing it:
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] `runtime/testdata/fakeclaude/main.go` gains `FAKECLAUDE_QUOTE`: a comma-separated list
+- [x] T001 [P] `runtime/testdata/fakeclaude/main.go` gains `FAKECLAUDE_QUOTE`: a comma-separated list
       of names the stub reads from its working directory when it starts, placing each file's
       content in its report under `quoted.<name>`, and `null` for a file that is not there. The
       report is `FAKECLAUDE_RESULT`'s object, or `{}`, with `quoted` added.
@@ -112,15 +112,16 @@ rebases onto the other, and T098 is the checklist for doing it:
       a `FAKECLAUDE_…` set by the test never reaches it otherwise. SC-201 needs the agent to show it
       read the passage: a results file that exists after the run passes against a stage that wrote
       it after the agent had gone
-- [ ] T002 `TestTheStubQuotesWhatItFound` in `runtime/internal/fakeagent/fakeagent_test.go`: a file
+- [x] T002 `TestTheStubQuotesWhatItFound` in `runtime/internal/fakeagent/fakeagent_test.go`: a file
       present in the stub's working directory is quoted verbatim, an absent one is `null`, and a
       `FAKECLAUDE_RESULT` given alongside keeps its own fields
-- [ ] T003 Register T002's mutant, `the stub quotes nothing`, in `testdata/fakeclaude/main.go`, command
+- [x] T003 Register T002's mutant, `the stub quotes nothing`, in `testdata/fakeclaude/main.go`, command
       `go test ./internal/fakeagent -count=1 -run TestTheStubQuotesWhatItFound`
-- [ ] T004 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, its standard
+- [x] T004 [P] `runtime/internal/bintest/bintest.go`: `Start` — a built `gronin` held open, its standard
       output readable line by line, a `Wait` bounded by a deadline, and a cleanup that kills it.
       Only if the guard's version is not yet on `production`; if it is, use that one and mark this
       task done. SC-202 has to observe `serve` while it starts, which a command that exits cannot show
+      — the guard's `Start` is on `production`, so this adds nothing
 
 **Checkpoint**: the stub agent can say what it read, and a test can hold `serve` open.
 
