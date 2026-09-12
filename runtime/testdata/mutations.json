@@ -265,7 +265,7 @@
       "tree": "..",
       "file": "internal/sink/sink.go",
       "find": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)",
-      "replace": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)\n\t\tif err != nil {\n\t\t\treturn outcomes\n\t\t}",
+      "replace": "\t\tif outcome.Status == \"\" {\n\t\t\toutcome.Status = StatusSkipped\n\t\t}\n\t\toutcomes = append(outcomes, outcome)\n\t\tif err != nil {\n\t\t\treturn outcomes, nil\n\t\t}",
       "command": [
         "go",
         "test",
@@ -553,8 +553,8 @@
       "name": "a resume runs the agent again",
       "tree": "..",
       "file": "internal/run/replay.go",
-      "find": "\toutcome.Status = record.StatusSucceeded\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
-      "replace": "\toutcome.Status = record.StatusSucceeded\n\toutcome.CostUSD = 0.01\n\te.deliver(ctx, started.ID, sinks, sink.Delivery{",
+      "find": "\toutcome.Status = record.StatusSucceeded\n\te.deliver(ctx, stages, hold, started.ID, sinks, sink.Delivery{",
+      "replace": "\toutcome.Status = record.StatusSucceeded\n\toutcome.CostUSD = 0.01\n\te.deliver(ctx, stages, hold, started.ID, sinks, sink.Delivery{",
       "command": [
         "go",
         "test",
