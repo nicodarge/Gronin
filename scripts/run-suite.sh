@@ -105,10 +105,23 @@ go test ./... -v -race -count=1 -timeout "${GRONIN_SUITE_TIMEOUT:-10m}" "$@" 2>&
     | command grep -vE '^(=== (RUN|PAUSE|CONT)|--- PASS|    )'
 status=${PIPESTATUS[0]}
 set -e
-[ "$status" -eq 0 ] || exit "$status"
 
+# Scanned before the status is acted on: a failing suite is exactly where a secret
+# printed by a test would sit, and an early exit here used to skip the check entirely.
 if command grep -qF "$sentinel" "$output"; then
     echo "==> a test secret reached the suite's output:" >&2
     command grep -nF "$sentinel" "$output" >&2
     exit 1
+fi
+
+# The filter above drops every indented line, and an indented line is where a failing
+# test writes the reason it failed — so a red CI job read `--- FAIL` and nothing else.
+# Replayed whole rather than extracted: `go test -v` prints a test's output *before* its
+# `--- FAIL` header, and a race report or a panic is not indented at all, so every
+# cleverer filter tried here dropped the one line worth reading. Only on failure, and
+# only once the scan above has cleared it of secrets.
+if [ "$status" -ne 0 ]; then
+    echo "==> the suite failed; its output in full follows." >&2
+    cat "$output" >&2
+    exit "$status"
 fi
