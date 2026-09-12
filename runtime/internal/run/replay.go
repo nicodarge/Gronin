@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
@@ -82,10 +84,16 @@ func (e *Executor) Replay(
 		return record.Run{}, fmt.Errorf("%w: %w", ErrNotReplayable, err)
 	}
 
-	claimed, err := e.claim(ctx, book.Name)
+	admitted, err := e.admit(ctx, book, record.TriggerReplay, time.Time{})
 	if err != nil {
 		return record.Run{}, err
 	}
+	stages, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	hold := e.guard().Hold(admitted, stopRun)
+	defer hold.Done()
+
+	claimed := claimedOf(admitted, book.Name)
 	started, err := e.Manager.Begin(ctx, claimed, record.TriggerReplay, parentID)
 	if err != nil {
 		_ = claimed.Claim.Release(ctx)
@@ -95,6 +103,7 @@ func (e *Executor) Replay(
 	outcome := record.Run{Status: record.StatusFailed, ParentRunID: parentID}
 	incomplete := &problems{}
 	defer func() {
+		stoppedByTheGuard(hold, &outcome)
 		outcome.EndedAt = e.now()
 		if err := e.Manager.Finish(ctx, started, outcome); err != nil {
 			e.log().Error("the replay's terminal state could not be recorded",
@@ -131,7 +140,7 @@ func (e *Executor) Replay(
 		outcome.ResolvedPlaybookRef = resolved
 	}
 
-	return e.agentAndSinks(ctx, started, book, string(prompt), &outcome, incomplete, nil)
+	return e.agentAndSinks(ctx, stages, hold, started, book, string(prompt), &outcome, incomplete, nil)
 }
 
 // Resume re-runs only the sinks, against the report a run already produced.
@@ -156,10 +165,16 @@ func (e *Executor) Resume(
 		return record.Run{}, err
 	}
 
-	claimed, err := e.claim(ctx, book.Name)
+	admitted, err := e.admit(ctx, book, record.TriggerResume, time.Time{})
 	if err != nil {
 		return record.Run{}, err
 	}
+	stages, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	hold := e.guard().Hold(admitted, stopRun)
+	defer hold.Done()
+
+	claimed := claimedOf(admitted, book.Name)
 	started, err := e.Manager.Begin(ctx, claimed, record.TriggerResume, parentID)
 	if err != nil {
 		_ = claimed.Claim.Release(ctx)
@@ -169,6 +184,7 @@ func (e *Executor) Resume(
 	outcome := record.Run{Status: record.StatusFailed, ParentRunID: parentID}
 	incomplete := &problems{}
 	defer func() {
+		stoppedByTheGuard(hold, &outcome)
 		outcome.EndedAt = e.now()
 		if err := e.Manager.Finish(ctx, started, outcome); err != nil {
 			e.log().Error("the resume's terminal state could not be recorded",
@@ -193,7 +209,7 @@ func (e *Executor) Resume(
 	// No cost and no tokens are written: the agent did not run, and a resume that
 	// reported a cost would double-count what the original already recorded.
 	outcome.Status = record.StatusSucceeded
-	e.deliver(ctx, started.ID, sinks, sink.Delivery{
+	e.deliver(ctx, stages, hold, started.ID, sinks, sink.Delivery{
 		PlaybookName: book.Name, RunID: started.ID, Report: report,
 	}, &outcome, incomplete)
 
@@ -204,8 +220,8 @@ func (e *Executor) Resume(
 // check, and the sinks. Shared with Execute so a replay cannot drift into being bounded
 // differently from the run it derives from.
 func (e *Executor) agentAndSinks(
-	ctx context.Context, started *Run, book *playbook.Playbook, prompt string,
-	outcome *record.Run, incomplete *problems, trigger map[string]string,
+	ctx, stages context.Context, hold *guard.Hold, started *Run, book *playbook.Playbook,
+	prompt string, outcome *record.Run, incomplete *problems, trigger map[string]string,
 ) (record.Run, error) {
 	sinks, refusals := sink.Build(declarationsOf(book), sink.BuildOptions{
 		Interpolate: func(text string) (string, error) { return e.Config.Interpolate(text, trigger) },
@@ -231,8 +247,15 @@ func (e *Executor) agentAndSinks(
 		return e.finished(started.ID, outcome, incomplete)
 	}
 
+	// R3's first fence: before the agent stage starts, which is the first thing here
+	// that costs anything.
+	if err := hold.Fence(ctx); err != nil {
+		outcome.Error = err.Error()
+		return e.finished(started.ID, outcome, incomplete)
+	}
+
 	declaration := declarationOf(book)
-	stage, err := agent.Run(ctx, declaration, agent.Options{
+	stage, err := agent.Run(stages, declaration, agent.Options{
 		Executable: e.AgentExecutable,
 		WorkDir:    started.WorkDir,
 		Prompt:     prompt,
@@ -280,16 +303,23 @@ func (e *Executor) agentAndSinks(
 		outcome.ReportRef = ref
 	}
 
-	e.deliver(ctx, started.ID, sinks, delivery, outcome, incomplete)
+	e.deliver(ctx, stages, hold, started.ID, sinks, delivery, outcome, incomplete)
+	stoppedByTheGuard(hold, outcome)
 	return e.finished(started.ID, outcome, incomplete)
 }
 
-// deliver runs the sinks and records what each one did.
+// deliver runs the sinks and records what each one did. The hold fences before each
+// one: a side effect is the thing a claim that can no longer be proven held must not
+// produce (R3).
 func (e *Executor) deliver(
-	ctx context.Context, runID string, sinks []sink.Sink, delivery sink.Delivery,
-	outcome *record.Run, incomplete *problems,
+	ctx, stages context.Context, hold *guard.Hold, runID string, sinks []sink.Sink,
+	delivery sink.Delivery, outcome *record.Run, incomplete *problems,
 ) {
-	for _, delivered := range sink.DeliverAll(ctx, sinks, delivery) {
+	delivered, fenceErr := sink.DeliverAll(stages, sinks, delivery, hold.Fence)
+	if fenceErr != nil {
+		outcome.Error = joinReasons(outcome.Error, fenceErr.Error())
+	}
+	for _, delivered := range delivered {
 		incomplete.note(e.Store.AddSinkOutcome(ctx, runID, record.SinkOutcome{
 			Sink: delivered.Sink, Status: string(delivered.Status),
 			ItemsCreated: delivered.ItemsCreated, ItemsSkipped: delivered.ItemsSkipped,

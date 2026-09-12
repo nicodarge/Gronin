@@ -26,6 +26,10 @@ type Guard struct {
 	Clock       Clock
 	// Host and Instance are who a claim names as its holder, beside the run.
 	Host, Instance string
+	// Backend is what a refusal calls the coordination backend, so that an operator
+	// reading one knows which thing did not answer (FR-107). Empty for the file lock,
+	// which is this host and nothing else.
+	Backend string
 	// Exit ends this process when a run outlives the stop bound (R4). Nil is os.Exit;
 	// only the test that exercises the enforcement replaces it.
 	Exit func(code int)
@@ -46,6 +50,8 @@ type Request struct {
 type Admitted struct {
 	Claim Claim
 	Reach string
+	// RunID is the run the claim names as its holder, minted before the decision.
+	RunID string
 	// sent is when the grant was sent, which is where the stop deadline is anchored (R1).
 	sent Instant
 }
@@ -98,7 +104,7 @@ func (g *Guard) Admit(
 	if err != nil {
 		return nil, g.refuse(ctx, book.Name, req, err)
 	}
-	return &Admitted{Claim: claim, Reach: g.Coordinator.Reach(), sent: sent}, nil
+	return &Admitted{Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, sent: sent}, nil
 }
 
 // kindOf is what the coordinator is told. Only a scheduled trigger reads and advances a
@@ -129,7 +135,7 @@ func (g *Guard) refuse(ctx context.Context, name string, req Request, err error)
 		TriggerKind:  req.Kind,
 		DueAt:        dueOf(req),
 		Mechanism:    mechanismOf(err),
-		Detail:       err.Error(),
+		Detail:       g.detail(err),
 		RefusedAt:    g.clock().Wall(),
 	}
 	if writeErr := g.Store.RecordRefusal(ctx, refusal); writeErr != nil {
@@ -139,6 +145,16 @@ func (g *Guard) refuse(ctx context.Context, name string, req Request, err error)
 			"playbook", name, "mechanism", string(refusal.Mechanism), "err", writeErr)
 	}
 	return &Refused{Mechanism: refusal.Mechanism, Detail: refusal.Detail}
+}
+
+// detail is what the refusal says. A backend that did not answer is named, because the
+// error a client returns for one is routinely about a deadline and not about where it
+// was trying to reach.
+func (g *Guard) detail(err error) string {
+	if g.Backend == "" || mechanismOf(err) != record.MechanismBackendUnavailable {
+		return err.Error()
+	}
+	return g.Backend + ": " + err.Error()
 }
 
 // mechanismOf is which mechanism refused the trigger (FR-117). Anything that is not a

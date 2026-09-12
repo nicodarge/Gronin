@@ -175,7 +175,7 @@ func TestAManualRunIsRecordedAsManualAndDelivers(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[{"id":"one"}]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestTheWorkingDirectoryIsGoneAndItsContentsAreInTheRecord(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestAFailingGatherStepRefusesTheRunBeforeTheAgent(t *testing.T) {
 	h := newHarness(t, fakeagent.ModeSuccess)
 	book := h.playbook(t, failingGatherPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestAReportThatFailsItsSchemaIsNotWhatTheSinksReceive(t *testing.T) {
 		fakeagent.ResultVar+`={"summary":"looks fine to me"}`)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -315,7 +315,7 @@ func TestATimedOutStageIsRecordedAsTimedOut(t *testing.T) {
 	h := newHarness(t, fakeagent.ModeTimeout)
 	book := h.playbook(t, shortTimeoutPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestNothingOutsideTheSinksActsOnTheReport(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+"="+string(encoded))
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +384,7 @@ func TestATriggerDuringARunDoesNotStartASecond(t *testing.T) {
 	first := make(chan error, 1)
 	go func() {
 		<-release
-		_, err := h.executor.Execute(t.Context(), book, record.TriggerSchedule, nil)
+		_, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerSchedule})
 		first <- err
 	}()
 
@@ -410,7 +410,7 @@ func TestAStreamThatFailedIsNamedInTheRunsError(t *testing.T) {
 	h := newHarness(t, fakeagent.ModeOversize)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestARunWhoseReceiptIsWiderThanDeclaredIsRefused(t *testing.T) {
 	h := newHarness(t, fakeagent.ModeMismatch)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestAReplayReusesTheRecordedInputsAndDoesNotGatherAgain(t *testing.T) {
 		"    as: facts.json", "    as: facts.json", 1))
 	book.Gather[0].Run = "echo ran >> " + marker + "; echo '{\"drift\":0}'"
 
-	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	first, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +523,7 @@ func TestAResumeDeliversAgainWithoutRunningTheAgent(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[{"id":"one"}]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	first, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +569,7 @@ func TestARunWithNoReportCannotBeResumed(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"summary":"no findings key"}`)
 	book := h.playbook(t, goodPlaybook)
 
-	failed, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	failed, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +589,7 @@ func TestACompletedRunCanBeExplainedFromItsRecordAlone(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[{"id":"one"}]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +645,7 @@ func TestAReplayRefusesAPlaybookThatHasChanged(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	first, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +674,7 @@ func TestAReplayIsNotRefusedBecauseThePlaybookMoved(t *testing.T) {
 	h.executor.AgentEnv = append(h.executor.AgentEnv, fakeagent.ResultVar+`={"findings":[]}`)
 	book := h.playbook(t, goodPlaybook)
 
-	first, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	first, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}

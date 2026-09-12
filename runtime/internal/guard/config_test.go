@@ -21,7 +21,11 @@ func writeCoordination(t *testing.T, document string) string {
 	return dir
 }
 
-// resolveReference stands for the deployment's own interpolation.
+// resolveReference stands for the deployment's own interpolation, which resolves a
+// reference and hands back anything else as written. Text without a reference has to pass
+// through for the same reason it does there: otherwise the literal a credential field
+// must refuse would be refused by the resolver instead, and the refusal that matters
+// would never be the one under test.
 func resolveReference(text string) (string, error) {
 	switch text {
 	case "${config.etcd_username}":
@@ -29,7 +33,10 @@ func resolveReference(text string) (string, error) {
 	case "${config.etcd_password}":
 		return "REPLACE_ME", nil
 	}
-	return "", errors.New(text + " is not configured")
+	if strings.Contains(text, "${") {
+		return "", errors.New(text + " is not configured")
+	}
+	return text, nil
 }
 
 // SC-112, the configuration half: R5's inequality probed on what it must refuse as well

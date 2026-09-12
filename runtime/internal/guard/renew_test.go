@@ -61,7 +61,7 @@ func TestRenewalsThatHangEndTheRunBeforeItsClaimCanLapse(t *testing.T) {
 // The half that makes the bound testable at all: an attempt abandoned at its bound is
 // followed by another, and a run whose later renewals are answered keeps going. A test
 // that only ever holds every renewal passes with the bound removed.
-func TestAHeldRenewalIsAbandonedAndTheNextOneSent(t *testing.T) {
+func TestRenewalsResumeAfterOneIsAbandonedAtItsBound(t *testing.T) {
 	var (
 		backend = guardtest.NewClock(start)
 		runtime = guardtest.NewClock(start)

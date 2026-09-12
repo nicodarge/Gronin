@@ -9,6 +9,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/fakeagent"
 	"github.com/nicodarge/Gronin/runtime/internal/mcpcatalog"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/run"
 )
 
 const mcpPlaybook = `
@@ -55,7 +56,7 @@ func TestOnlyTheServersAPlaybookNamesReachTheChild(t *testing.T) {
 	}`)
 	book := h.playbook(t, mcpPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestAnUnresolvableCatalogueReferenceRefusesTheRun(t *testing.T) {
 	}`)
 	book := h.playbook(t, mcpPlaybook)
 
-	got, err := h.executor.Execute(t.Context(), book, record.TriggerManual, nil)
+	got, err := h.executor.Execute(t.Context(), book, run.Trigger{Kind: record.TriggerManual})
 	if err != nil {
 		t.Fatal(err)
 	}
