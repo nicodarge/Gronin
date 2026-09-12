@@ -145,7 +145,7 @@ sinks:
 	if err := os.WriteFile(filepath.Join(books, "prompt.md"), []byte("report"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := playbook.Load(books, capabilities(nil, nil))
+	loaded, err := playbook.Load(books, capabilities(nil, nil, nil))
 	if err != nil || !loaded.OK() {
 		t.Fatalf("loading: %v, refusals = %+v", err, loaded.Refusals)
 	}
