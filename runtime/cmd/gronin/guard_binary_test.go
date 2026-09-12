@@ -184,3 +184,13 @@ func TestTwoServesRunOneTickOnce(t *testing.T) {
 		t.Fatalf("the refusal does not name the run holding the claim:\n%s", refused)
 	}
 }
+
+// runs is what `gronin runs` reports at one host, status column included.
+func (c *cluster) runs(t *testing.T, at int) string {
+	t.Helper()
+	got := bintest.Run(t, "runs", "--state-dir", c.hosts[at].stateDir)
+	if got.ExitCode != 0 {
+		t.Fatalf("gronin runs exited %d: %q", got.ExitCode, got.Stderr)
+	}
+	return got.Stdout
+}

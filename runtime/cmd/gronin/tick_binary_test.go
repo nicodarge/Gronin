@@ -29,8 +29,16 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A takes the tick and its run is over.
+	// A takes the tick and its run is over. The mark is left by the gather step, so it
+	// says the run started, not that it ended — and A holds its claim until it ends.
+	// Resuming B before then gets it refused as claim_held, which is FR-101 and not what
+	// this test is about, so wait for A's run to leave the running state as well.
 	c.waitForRuns(t, 1, 100*time.Second)
+	waitFor(t, 2*time.Minute, func() bool {
+		return !strings.Contains(c.runs(t, 0), string(record.StatusRunning))
+	}, func() string {
+		return "host A's run never left the running state; it recorded:\n" + c.runs(t, 0)
+	})
 
 	if err := delayed.Signal(syscall.SIGCONT); err != nil {
 		t.Fatal(err)
