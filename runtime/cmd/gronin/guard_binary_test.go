@@ -35,13 +35,13 @@ type cluster struct {
 	hosts  []*servingHost
 }
 
-// tickPlaybook runs every minute, and its gather step sleeps before leaving its mark so
-// that both hosts' ticks land inside the same run.
+// tickPlaybook runs on the given schedule, and its gather step sleeps before leaving its
+// mark so that both hosts' ticks land inside the same run.
 const tickPlaybook = `
 name: drift-check
 trigger:
   type: cron
-  schedule: "* * * * *"
+  schedule: "%s"
 gather:
   - run: sleep %s; printf 'ran\n' >> %s
     as: facts.json
@@ -57,7 +57,7 @@ sinks:
 `
 
 // newCluster lays out both hosts and the backend, and starts nothing.
-func newCluster(t *testing.T, gatherSleep string) *cluster {
+func newCluster(t *testing.T, schedule, gatherSleep string) *cluster {
 	t.Helper()
 	server := guardtest.StartServer(t)
 	shared := t.TempDir()
@@ -71,7 +71,7 @@ func newCluster(t *testing.T, gatherSleep string) *cluster {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(books, "book.yaml"),
-			[]byte(fmt.Sprintf(tickPlaybook, gatherSleep, lines)), 0o600); err != nil {
+			[]byte(fmt.Sprintf(tickPlaybook, schedule, gatherSleep, lines)), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(books, "prompt.md"), []byte("report"), 0o600); err != nil {
@@ -160,7 +160,7 @@ func (c *cluster) refusals(t *testing.T, at int) string {
 // effect counted is the line the run appends, never a line claiming a claim was held.
 func TestTwoServesRunOneTickOnce(t *testing.T) {
 	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
-	c := newCluster(t, "3")
+	c := newCluster(t, "* * * * *", "3")
 
 	c.serve(t, 0)
 	c.serve(t, 1)

@@ -21,7 +21,12 @@ import (
 // which a test cannot do to one process (specs/002-guard/research.md §5).
 func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
-	c := newCluster(t, "0")
+	// Every two minutes, not every one. On resume the scheduler fires only the most
+	// recent due occurrence, so B reaches tick_already_ran only while that occurrence is
+	// still the one A ran; once the next falls due, B races A for it and is refused as
+	// claim_held instead. A's run has to end, and B catch up, inside one period — and
+	// under -race on a loaded runner A's run alone has taken about a minute and a half.
+	c := newCluster(t, "*/2 * * * *", "0")
 
 	c.serve(t, 0)
 	delayed := c.serve(t, 1)
@@ -33,7 +38,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// says the run started, not that it ended — and A holds its claim until it ends.
 	// Resuming B before then gets it refused as claim_held, which is FR-101 and not what
 	// this test is about, so wait for A's run to leave the running state as well.
-	c.waitForRuns(t, 1, 100*time.Second)
+	c.waitForRuns(t, 1, 3*time.Minute)
 	waitFor(t, 2*time.Minute, func() bool {
 		return !strings.Contains(c.runs(t, 0), string(record.StatusRunning))
 	}, func() string {
@@ -46,10 +51,6 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	// B catches up and fires the same tick. It must be refused, and the record is where
 	// that is readable — the absence of a second line alone would also be satisfied by a
 	// B that never woke up.
-	// Two minutes, against a cron that fires every minute. 30s passed on a developer's
-	// machine — three times, once pinned to two cores — and failed twice on CI at the
-	// same point. What makes B slow to catch up after its resume is not established; the
-	// bound is patience, not the assertion, and one minute of it was not enough.
 	waitFor(t, 2*time.Minute, func() bool {
 		return strings.Contains(c.refusals(t, 1), string(record.MechanismTickAlreadyRan))
 	}, func() string {
@@ -66,7 +67,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 
 	// And the next tick, with both hosts live, produces exactly one further run — which
 	// is what fails an implementation that refuses every tick once one is recorded.
-	c.waitForRuns(t, 2, 100*time.Second)
+	c.waitForRuns(t, 2, 3*time.Minute)
 }
 
 // waitFor polls until done reports true, and fails with why if it never does. why is
