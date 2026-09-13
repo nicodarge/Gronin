@@ -10,10 +10,14 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
 
-// Store is the record a refusal is written to. An interface rather than the store
-// itself, so that what the guard needs of the record is one line long and visible.
+// Store is the record the guard writes to: the refusals, and the acceptance and end of every
+// waiting trigger. An interface rather than the store itself, so that what the guard needs
+// of the record is visible in one place.
 type Store interface {
 	RecordRefusal(ctx context.Context, refusal record.Refusal) error
+	AcceptWaiting(ctx context.Context, trigger record.WaitingTrigger, values map[string]string) (record.WaitingTrigger, error)
+	EndWait(ctx context.Context, id string, end record.WaitEnd) (bool, error)
+	StillWaiting(ctx context.Context) ([]record.WaitingTrigger, error)
 }
 
 // Guard decides whether a trigger becomes a run, and holds the claim while it does.
@@ -30,6 +34,9 @@ type Guard struct {
 	// reading one knows which thing did not answer (FR-107). Empty for the file lock,
 	// which is this host and nothing else.
 	Backend string
+	// Slot is what lets a trigger that will not come again wait (FR-110). Nil refuses it
+	// as held, which is what a process that cannot accept a waiting trigger does.
+	Slot *WaitSlot
 	// Exit ends this process when a run outlives the stop bound (R4). Nil is os.Exit;
 	// only the test that exercises the enforcement replaces it.
 	Exit func(code int)
@@ -44,6 +51,11 @@ type Request struct {
 	// alone: the runtime computes it from the expression and never reads its own clock
 	// for it (FR-129, R6).
 	DueAt time.Time
+	// Values are what the trigger carried, kept with a waiting trigger's acceptance.
+	Values map[string]string
+	// OnWait is told when the trigger begins to wait, so that whoever invoked it can say
+	// so rather than appear to hang.
+	OnWait func(Waiting)
 }
 
 // Admitted is a claim taken for a run that has not begun.
@@ -52,6 +64,13 @@ type Admitted struct {
 	Reach string
 	// RunID is the run the claim names as its holder, minted before the decision.
 	RunID string
+	// Book is the playbook the run executes. For a trigger that waited it is the file as
+	// it stood when the claim was taken, not as it stood on arrival (FR-121).
+	Book *playbook.Playbook
+	// WaitingTriggerID and Waited say that the run started from a trigger that waited, and
+	// for how long on the monotonic reading (FR-125). Empty and zero for one that did not.
+	WaitingTriggerID string
+	Waited           time.Duration
 	// sent is when the grant was sent, which is where the stop deadline is anchored (R1).
 	sent Instant
 }
@@ -89,12 +108,7 @@ func (g *Guard) Admit(
 	decide, cancel := bound(ctx, g.clock(), g.Config.DecisionBound)
 	defer cancel()
 
-	ask := AcquireRequest{
-		Name:    book.Name,
-		Holder:  Holder{Host: g.Host, Instance: g.Instance, RunID: req.RunID},
-		Expiry:  g.Config.ClaimExpiry,
-		Trigger: TriggerRef{Kind: kindOf(req.Kind), DueAt: dueOf(req)},
-	}
+	ask := g.ask(book.Name, req)
 	// The instant the grant was sent, which the backend's countdown starts no earlier
 	// than, and where the stop deadline is anchored (R1).
 	sent := g.clock().Monotonic()
@@ -102,9 +116,24 @@ func (g *Guard) Admit(
 	// top of non-concurrency, never an exemption from it.
 	claim, err := g.Coordinator.Acquire(decide, ask)
 	if err != nil {
+		if g.Slot != nil && waits(req.Kind, err) {
+			return g.wait(ctx, book, req, err)
+		}
 		return nil, g.refuse(ctx, book.Name, req, err)
 	}
-	return &Admitted{Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, sent: sent}, nil
+	return &Admitted{
+		Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: book, sent: sent,
+	}, nil
+}
+
+// ask is what the coordinator is asked for a trigger of the playbook name.
+func (g *Guard) ask(name string, req Request) AcquireRequest {
+	return AcquireRequest{
+		Name:    name,
+		Holder:  Holder{Host: g.Host, Instance: g.Instance, RunID: req.RunID},
+		Expiry:  g.Config.ClaimExpiry,
+		Trigger: TriggerRef{Kind: kindOf(req.Kind), DueAt: dueOf(req)},
+	}
 }
 
 // kindOf is what the coordinator is told. Only a scheduled trigger reads and advances a
@@ -138,11 +167,16 @@ func (g *Guard) refuse(ctx context.Context, name string, req Request, err error)
 		Detail:       g.detail(err),
 		RefusedAt:    g.clock().Wall(),
 	}
+	return g.recordRefusal(ctx, refusal)
+}
+
+// recordRefusal writes a refusal and returns it as the error the trigger ends with.
+func (g *Guard) recordRefusal(ctx context.Context, refusal record.Refusal) error {
 	if writeErr := g.Store.RecordRefusal(ctx, refusal); writeErr != nil {
 		// A refusal nobody can read afterwards is SC-108 broken, and the trigger is
 		// refused either way: saying so is all that is left.
 		g.log().Error("a refusal could not be recorded",
-			"playbook", name, "mechanism", string(refusal.Mechanism), "err", writeErr)
+			"playbook", refusal.PlaybookName, "mechanism", string(refusal.Mechanism), "err", writeErr)
 	}
 	return &Refused{Mechanism: refusal.Mechanism, Detail: refusal.Detail}
 }
