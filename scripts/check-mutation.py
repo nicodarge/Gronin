@@ -72,23 +72,33 @@ class Mutation:
     command: list[str]
 
 
-# go test's per-package summary line, one per package under test: "ok  <pkg>  <time>",
-# where <time> is either a duration or "(cached)", optionally followed by a coverage
-# clause ("coverage: N.N% of statements") when the command carries -cover, and ending
-# in "[no tests to run]" when -run (or the package) left nothing to execute. The
-# package name and the fixed leading columns are matched literally; everything after
-# them is captured as one group and only its own trailing text decides whether the
-# marker is present, so a coverage clause or a cached time token sits harmlessly in
-# the middle instead of breaking the match. Anchored per line (MULTILINE) and to the
-# whole line ($) rather than searched for as a bare substring: a test's own printed
-# output can legitimately contain the words "no tests to run" (its own -v run prints
-# "testing: warning: no tests to run" on a line of its own, which this does not match
-# and must not be swayed by), and that must not be mistaken for the summary. A package
-# with no test files at all prints "?   <pkg>  [no test files]" instead of "ok" and is
-# deliberately not matched by this regex — it is handled separately below, since a
-# baseline where no package produced an "ok" line at all can never be killed by
-# anything and is refused unconditionally rather than folded into "matched nothing".
-_GO_TEST_OK_LINE = re.compile(r"^ok\s+\S+\s+(?P<summary>.*)$", re.MULTILINE)
+# go test's per-package summary line, one per package under test: literally
+# "ok" + spaces + a TAB + the package path + a TAB + <time> (a duration or
+# "(cached)"), optionally followed by a coverage clause ("coverage: N.N% of
+# statements") when the command carries -cover, and ending in "[no tests to run]"
+# when -run (or the package) left nothing to execute -- confirmed byte-for-byte
+# with `od -c` on real `go test` output, tabs included. The two tabs are matched
+# literally rather than as generic whitespace: go's own summary is the only line
+# this package ever prints with that exact shape, whereas a bare `\s+` in their
+# place also matches an unrelated line a test's own init() or code under test
+# printed to stdout starting with "ok" and some words -- such a line was measured
+# to slip through an earlier, looser version of this regex and made a baseline
+# that ran no test of its own look like it had run one. The package name and the
+# time/coverage/marker tail are captured separately; only the tail's own trailing
+# text decides whether the marker is present, so a coverage clause or a cached
+# time token sits harmlessly in the middle instead of breaking the match. Anchored
+# per line (MULTILINE) and to the whole line ($): a test's own printed output can
+# legitimately contain the words "no tests to run" (its own -v run prints "testing:
+# warning: no tests to run" on a line of its own, which this does not match and
+# must not be swayed by), and that must not be mistaken for the summary. A package
+# with no test files at all prints "?   <pkg>  [no test files]" instead of "ok" and
+# is deliberately not matched by this regex — it is handled separately below,
+# since a baseline where no package produced an "ok" line at all can never be
+# killed by anything and is refused unconditionally rather than folded into
+# "matched nothing".
+_GO_TEST_OK_LINE = re.compile(
+    r"^ok\s*\t(?P<pkg>[^\t]+)\t(?P<summary>.*)$", re.MULTILINE
+)
 _NO_TESTS_SUFFIX = "[no tests to run]"
 
 
@@ -709,6 +719,52 @@ def self_test() -> int:
             ],
         )
 
+        # The false-positive this regex exists to refuse: a package prints its own
+        # line starting with "ok" and some words -- an init() side effect here, but
+        # equally a line the code under test itself printed -- which a looser regex
+        # matched as if it were go test's own per-package summary. Measured: without
+        # the literal tabs, this line's "summary" group did not end in "[no tests to
+        # run]", so the baseline was wrongly accepted even though the one real "ok"
+        # line in the same output shows nothing was tested. Spaces only, no tabs,
+        # which is what a real fmt.Println produces and a hand-typed JSON fixture
+        # could too.
+        init_line_mod = root / "init-line"
+        init_line_mod.mkdir()
+        (init_line_mod / "go.mod").write_text(
+            "module example.com/initline\n\ngo 1.24\n"
+        )
+        (init_line_mod / "subject.go").write_text(
+            "package initline\n\n"
+            'import "fmt"\n\n'
+            "func init() {\n"
+            '\tfmt.Println("ok  init side effect line  0.5s")\n'
+            "}\n\n"
+            'func Answer() string { return " 42 " }\n'
+        )
+        (init_line_mod / "subject_test.go").write_text(
+            "package initline\n\n"
+            'import "testing"\n\n'
+            "func TestAnswer(t *testing.T) {\n"
+            '\tif Answer() != " 42 " {\n\t\tt.Fatal("wrong")\n\t}\n}\n'
+        )
+        refusals["a go test -v baseline with a same-shaped 'ok' line from init()"] = (
+            Mutation(
+                name="ok-shaped init line under -v",
+                tree=init_line_mod,
+                file="subject.go",
+                find='" 42 "',
+                replace='" 41 "',
+                command=[
+                    "go",
+                    "test",
+                    "-count=1",
+                    "-run=TestNoSuchTestAnymore",
+                    "-v",
+                    "./...",
+                ],
+            )
+        )
+
         # A declaration that can never be killed at all: every named package has no
         # test files, so the baseline produces no "ok" line whatsoever and still
         # exits 0. Refused unconditionally rather than folded into "matched nothing",
@@ -784,6 +840,49 @@ def self_test() -> int:
                 failures.append(
                     "a mutation caught by the one package that did run its test was "
                     "not reported killed"
+                )
+
+        # A second inverse: one package with no test files at all next to one with a
+        # real, passing test. "?   pkg  [no test files]" is not an "ok" line, so it
+        # must not be confused with a package that matched no test either -- the
+        # baseline is accepted on the strength of the package that did run one.
+        mixed_notestfiles_mod = root / "mixed-no-test-files"
+        (mixed_notestfiles_mod / "empty").mkdir(parents=True)
+        (mixed_notestfiles_mod / "tested").mkdir(parents=True)
+        (mixed_notestfiles_mod / "go.mod").write_text(
+            "module example.com/mixednotestfiles\n\ngo 1.24\n"
+        )
+        (mixed_notestfiles_mod / "empty" / "subject.go").write_text(
+            'package empty\n\nfunc Unused() string { return "42" }\n'
+        )
+        (mixed_notestfiles_mod / "tested" / "subject.go").write_text(
+            'package tested\n\nfunc Answer() string { return "42" }\n'
+        )
+        (mixed_notestfiles_mod / "tested" / "subject_test.go").write_text(
+            'package tested\n\nimport "testing"\n\n'
+            "func TestAnswerRuns(t *testing.T) {\n"
+            '\tif Answer() != "42" {\n\t\tt.Fatal("wrong")\n\t}\n}\n'
+        )
+        mixed_notestfiles_mutation = Mutation(
+            name="one package has no test files, the other has a passing test",
+            tree=mixed_notestfiles_mod,
+            file="tested/subject.go",
+            find='"42"',
+            replace='"41"',
+            command=["go", "test", "-count=1", "./empty", "./tested"],
+        )
+        try:
+            survivors = check([mixed_notestfiles_mutation], quiet=True)
+        except ConfigError as err:
+            failures.append(
+                "a command naming a package with no test files next to one with a "
+                f"passing test was refused as if neither had run one: {err}"
+            )
+        else:
+            if survivors != 0:
+                failures.append(
+                    "a mutation caught by the package that did have a test was not "
+                    "reported killed, alongside a package with no test files"
                 )
 
         # A tree inside a module but below its root. The compile gate can only run
@@ -1036,10 +1135,12 @@ def self_test() -> int:
     print(
         "check-mutation: self-test ok — counts zero and one, refuses a broken "
         "baseline, a go test baseline that matches no tests plain, under -cover, or "
-        "under -v, a baseline with no test files in any package, an absent target, a "
+        "under -v, one where a printed line only looks like go test's own summary, "
+        "and a baseline with no test files in any package, an absent target, a "
         "mutant that does not compile, a tree below its module root, a missing tree "
         "and a file escaping its tree, copies a repository's tracked files but not "
-        "its untracked ones, and shards partition the full list while a malformed "
+        "its untracked ones, accepts a package with no test files alongside one that "
+        "ran and was killed, and shards partition the full list while a malformed "
         "or empty shard is refused"
     )
     return 0
