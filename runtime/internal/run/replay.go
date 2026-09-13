@@ -15,6 +15,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
 	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
 // ErrNotReplayable is returned for a run whose record does not hold what a replay needs.
@@ -70,6 +71,10 @@ func (e *Executor) Replay(
 		return record.Run{}, err
 	}
 	inputs, err := e.Store.GatheredInputs(ctx, parentID)
+	if err != nil {
+		return record.Run{}, err
+	}
+	retrievals, err := e.Store.Retrievals(ctx, parentID)
 	if err != nil {
 		return record.Run{}, err
 	}
@@ -133,6 +138,27 @@ func (e *Executor) Replay(
 		incomplete.note(e.Store.AddGatheredInput(ctx, started.ID, input))
 	}
 
+	// FR-226: what the run's agent read from each retrieval, put back where it read it.
+	// No index is opened: it has moved on since, and searching it again would hand the
+	// agent something the run never saw.
+	for _, retrieval := range retrievals {
+		if retrieval.ResultsRef == "" {
+			continue
+		}
+		restored, err := e.restoredRetrieval(retrieval)
+		if err != nil {
+			outcome.Status = record.StatusRefused
+			outcome.Error = fmt.Errorf("%w: retrieval %q: %w", ErrNotReplayable, retrieval.AsName, err).Error()
+			return e.finished(started.ID, &outcome, incomplete)
+		}
+		if err := os.WriteFile(filepath.Join(started.WorkDir, filepath.Base(retrieval.AsName)), restored.Results, 0o600); err != nil {
+			outcome.Status = record.StatusRefused
+			outcome.Error = err.Error()
+			return e.finished(started.ID, &outcome, incomplete)
+		}
+		e.recordRetrieval(ctx, started.ID, restored, incomplete)
+	}
+
 	ref, err := e.Store.Blobs().Put(started.ID, "prompt.txt", prompt)
 	incomplete.note(err)
 	outcome.PromptRef = ref
@@ -141,6 +167,28 @@ func (e *Executor) Replay(
 	}
 
 	return e.agentAndSinks(ctx, stages, hold, started, book, string(prompt), &outcome, incomplete, nil)
+}
+
+// restoredRetrieval reads a recorded retrieval back whole — its row, its results file and
+// each result's content — to be recorded again against a replay.
+func (e *Executor) restoredRetrieval(recorded record.Retrieval) (retrieve.Retrieved, error) {
+	results, err := e.Store.Blobs().Get(recorded.ResultsRef)
+	if err != nil {
+		return retrieve.Retrieved{}, err
+	}
+	restored := retrieve.Retrieved{Record: recorded, Results: results}
+	restored.Record.ResultsRef = ""
+	restored.Record.Items = make([]record.RetrievedItem, len(recorded.Items))
+	for at, item := range recorded.Items {
+		content, err := e.Store.Blobs().Get(item.ContentRef)
+		if err != nil {
+			return retrieve.Retrieved{}, err
+		}
+		item.ContentRef = ""
+		restored.Record.Items[at] = item
+		restored.Contents = append(restored.Contents, string(content))
+	}
+	return restored, nil
 }
 
 // Resume re-runs only the sinks, against the report a run already produced.

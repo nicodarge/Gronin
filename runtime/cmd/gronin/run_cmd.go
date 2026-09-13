@@ -49,6 +49,7 @@ func newRunCommand() *cobra.Command {
 			if err := deployment.acceptWaiting(cfg, catalog, declared); err != nil {
 				return err
 			}
+			deployment.retrieving(declared)
 
 			finished, err := deployment.executor.Execute(cmd.Context(), book, run.Trigger{
 				Kind: record.TriggerManual, Values: triggerValues(cmd),

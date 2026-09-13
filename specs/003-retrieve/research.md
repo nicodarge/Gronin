@@ -411,6 +411,24 @@ with that reason (FR-213), the size to which a gather step's output and a playbo
 already held. The largest file in the three sets of §8 is 99 KB. The walk counts toward FR-209's
 bound.
 
+## 12. What a killed update leaves
+
+**Question**: plan.md and data-model.md left open whether one SQLite write transaction per update
+is enough for FR-219, or whether a generation has to be a file built beside the index and renamed
+into place, and gave the decision to SC-211's kill rather than to argument.
+
+**Method**: `TestAKilledRebuildLeavesThePreviousGeneration` in
+`runtime/internal/index/generation_test.go`, run on 2026-09-13. A generation over two documents is
+committed; the sources change; a re-execution of the test binary opens the index, starts a rebuild,
+and blocks at a seam inside its write transaction — after the old passages are deleted and the new
+ones inserted, before the generation row is written — where it is sent SIGKILL. The index uses
+SQLite's default rollback journal, with writes taking the lock when they begin.
+
+**Answer**: the next open of the index named the previous generation, and a search returned that
+generation's passages and none of the killed rebuild's.
+
+**Decision**: one write transaction per update, and no file swapped by rename.
+
 ## Open
 
 1. **One embeddings server has been observed.** §7 is Ollama. OpenAI's own service, and any server

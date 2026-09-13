@@ -58,7 +58,7 @@ func newRunsCommand() *cobra.Command {
 // newShowCommand prints one run's record (FR-021). It is the answer to "why did it do
 // that", which is the question the record exists for.
 func newShowCommand() *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "show <run>",
 		Short: "Print one run's record",
 		Args:  cobra.ExactArgs(1),
@@ -81,6 +81,9 @@ func newShowCommand() *cobra.Command {
 			one, err := deployment.store.GetRun(ctx, args[0])
 			if err != nil {
 				return err
+			}
+			if name, _ := cmd.Flags().GetString("retrieval"); name != "" {
+				return writeRetrieval(cmd, deployment.store, one.ID, name)
 			}
 
 			cmd.Printf("run       %s\n", one.ID)
@@ -125,6 +128,14 @@ func newShowCommand() *cobra.Command {
 					input.Name, input.Bytes, input.ExitCode, truncated)
 			}
 
+			retrievals, err := deployment.store.Retrievals(ctx, one.ID)
+			if err != nil {
+				return err
+			}
+			for _, retrieval := range retrievals {
+				printRetrieval(cmd, retrieval)
+			}
+
 			calls, err := deployment.store.ToolCalls(ctx, one.ID)
 			if err != nil {
 				return err
@@ -165,6 +176,76 @@ func newShowCommand() *cobra.Command {
 			return nil
 		},
 	}
+	command.Flags().String("retrieval", "",
+		"write the results file the named retrieval handed the agent, byte for byte, and nothing else")
+	return command
+}
+
+// printRetrieval is one retrieval as contracts/cli.md shows it: what was searched, from
+// which generation, and where each result came from (FR-225).
+func printRetrieval(cmd *cobra.Command, retrieval record.Retrieval) {
+	searched := ""
+	if retrieval.Generation != "" {
+		short := retrieval.Generation
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		searched = fmt.Sprintf(" generation %s built %s",
+			short, retrieval.GenerationBuiltAt.UTC().Format(time.RFC3339))
+	}
+	outcome := string(retrieval.Outcome)
+	switch retrieval.Outcome {
+	case record.RetrievalFound:
+		outcome = fmt.Sprintf("found %d", len(retrieval.Items))
+	case record.RetrievalRefused:
+		outcome = "refused — " + retrieval.Error
+	}
+	cmd.Printf("retrieved %s from %s (%s)%s: %s\n",
+		retrieval.AsName, retrieval.Collection, retrieval.Mode, searched, outcome)
+	if retrieval.Query != "" {
+		cmd.Printf("  query     %s\n", strings.Join(strings.Fields(retrieval.Query), " "))
+	}
+	var cut []string
+	if retrieval.QueryTruncated {
+		cut = append(cut, "the query")
+	}
+	if retrieval.CountTruncated {
+		cut = append(cut, "the result count")
+	}
+	if retrieval.BytesTruncated {
+		cut = append(cut, "the bytes")
+	}
+	if len(cut) > 0 {
+		cmd.Printf("  cut       %s\n", strings.Join(cut, ", "))
+	}
+	for _, item := range retrieval.Items {
+		cmd.Printf("  result    %d  %.4f  %s#%d\n", item.Rank, item.Score, item.Source, item.Ordinal)
+	}
+}
+
+// writeRetrieval writes the results file a retrieval handed the agent, from the record
+// and nothing else: the index has moved on since, and the file is what the run saw.
+func writeRetrieval(cmd *cobra.Command, store *record.Store, runID, name string) error {
+	retrievals, err := store.Retrievals(cmd.Context(), runID)
+	if err != nil {
+		return err
+	}
+	for _, retrieval := range retrievals {
+		if retrieval.AsName != name {
+			continue
+		}
+		if retrieval.ResultsRef == "" {
+			return fmt.Errorf("run %s's retrieval %s was refused and handed the agent nothing: %s",
+				runID, name, retrieval.Error)
+		}
+		data, err := store.Blobs().Get(retrieval.ResultsRef)
+		if err != nil {
+			return err
+		}
+		_, err = cmd.OutOrStdout().Write(data)
+		return err
+	}
+	return fmt.Errorf("run %s has no retrieval named %q", runID, name)
 }
 
 // newReplayCommand re-runs the agent stage against the recorded inputs (FR-027).
@@ -228,6 +309,7 @@ func fromRecord(
 		if err != nil {
 			return errSilent{err}
 		}
+		deployment.retrieving(declared)
 		book, found := loaded.Find(parent.PlaybookName)
 		if !found {
 			return fmt.Errorf("run %s ran the playbook %q, which is not loaded now",

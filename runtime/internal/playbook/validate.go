@@ -383,12 +383,6 @@ func validateSinks(book *Playbook, dep Deployment) []Problem {
 	return problems
 }
 
-// retrieveApplied reports whether a stage applies the retrieve block. Until one does, a
-// well-formed block is refused like any other declared bound nothing enforces: accepting
-// it would arm a playbook whose retrieval never happens, and the agent would run without
-// the context its prompt was written around.
-const retrieveApplied = false
-
 // validateRetrieve applies FR-204 to what the schema's shape layer lets through. Each
 // refusal names the retrieval and the field, because a playbook may declare several and
 // "the collection is not declared" says nothing about which.
@@ -398,13 +392,6 @@ func validateRetrieve(book *Playbook, dep Deployment) []Problem {
 	}
 
 	var problems []Problem
-	if !retrieveApplied {
-		problems = append(problems, Problem{
-			Field:    "retrieve",
-			Found:    "declared, and this runtime does not apply it yet",
-			Accepted: "remove the block; a declared bound nothing enforces reads as enforced in review",
-		})
-	}
 
 	// What a name may collide with: a gather step's output, and a results file an earlier
 	// retrieval already wrote. Both land in the same working directory, and the second
