@@ -170,6 +170,14 @@ its context ends.
 *Fails when*: it only ever returns at the context's deadline. A waiting trigger would then start
 late by exactly its whole waiting expiry. The test releases the claim and asserts that `Released`
 returned less than half its deadline later.
+The file lock returns from `Released` after one poll interval whether or not the lock is free,
+which the interface allows. A flock cannot be seen to be free without being taken, and a lock
+taken only to look is held at the instant a real contender asks for it — a scheduled tick is
+then refused `claim_held`, naming a run that already ended, and a tick does not wait. The
+waiter's own `Acquire` is its check, so the only thing another trigger can lose to is an
+attempt to run. `TestTheWaitersPollCannotRefuseATick` acquires from a second process at the
+instant of the poll, and the mutant `the file lock's waiter takes the lock to look` restores the
+probe.
 
 **C11 — Unavailable is not held.** A backend that cannot be reached, or does not answer in time, is
 `ErrUnavailable`, never `ErrHeld`.
