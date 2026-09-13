@@ -3300,10 +3300,10 @@
       "command": [
         "go",
         "test",
-        "./internal/run",
+        "./internal/index",
         "-count=1",
         "-run",
-        "TestARetrievalThatCannotRunRefuses"
+        "TestASearchHoldingNoWordIsRefused"
       ]
     },
     {
