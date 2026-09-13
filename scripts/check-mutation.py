@@ -17,6 +17,10 @@ the full list, and refuses a shard that is malformed or selects none.
 
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
+The tree's repository is copied by its tracked files, laid out as the repository has
+them, so a test that reads outside the tree by a relative path sees what CI sees. The
+copy is each file's working-tree content, not its committed blob, so this and CI agree
+only on a clean tree.
 """
 
 from __future__ import annotations
@@ -124,6 +128,13 @@ def load(config: Path) -> list[Mutation]:
         tree = (config.parent / entry["tree"]).resolve()
         if not tree.is_dir():
             raise ConfigError(f"{entry['name']}: tree {tree} is not a directory")
+        # An absolute file, or one escaping with "..", would write to the real repository.
+        file_path = (tree / entry["file"]).resolve()
+        if not file_path.is_relative_to(tree):
+            raise ConfigError(
+                f"{entry['name']}: file {entry['file']!r} resolves to {file_path}, "
+                f"outside its tree {tree}"
+            )
         mutations.append(
             Mutation(
                 name=entry["name"],
@@ -184,11 +195,54 @@ def enclosing_module(tree: Path) -> Path | None:
     return None
 
 
+def repository_root(tree: Path) -> Path | None:
+    """The git work tree tree sits inside, or None (the self-test's plain fixtures)."""
+    proc = subprocess.run(
+        ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    return Path(proc.stdout.strip()).resolve() if proc.returncode == 0 else None
+
+
+def tracked_files(repo_root: Path) -> list[str]:
+    """Every path git tracks at repo_root, repository-relative."""
+    listing = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [path for path in listing.split("\0") if path]
+
+
+def copy_tree(tree: Path, dest_root: Path) -> Path:
+    """Copy what tree's tests can reach into dest_root; return the copy of tree itself.
+
+    A mutant must see what CI sees: every file git tracks in tree's repository, laid
+    out exactly as the repository has it, so a test that reads outside the tree by a
+    relative path finds what it expects instead of silently skipping. A tree that is
+    not inside a git work tree falls back to copying only the tree.
+    """
+    repo_root = repository_root(tree)
+    if repo_root is None:
+        work = dest_root / tree.name
+        shutil.copytree(tree, work, symlinks=True)
+        return work
+    for relpath in tracked_files(repo_root):
+        source = repo_root / relpath
+        if not (source.is_file() or source.is_symlink()):
+            continue
+        target = dest_root / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+    return dest_root / tree.relative_to(repo_root)
+
+
 def survives(mutation: Mutation) -> bool:
     """Apply the mutation to a copy and report whether the command still passed."""
     with tempfile.TemporaryDirectory(prefix="gronin-mutation-") as tmp:
-        work = Path(tmp) / mutation.tree.name
-        shutil.copytree(mutation.tree, work, symlinks=True)
+        work = copy_tree(mutation.tree, Path(tmp))
 
         baseline = run(mutation.command, work)
         if baseline.returncode != 0:
@@ -291,6 +345,10 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 ./subject.sh > /dev/null
 """
 
+SELF_TEST_TRACKED_FILES_TEST = """#!/bin/sh
+grep -q ok ../NOTES.md && grep -q ok ../docs/guide.txt && [ ! -e ../SECRET.md ]
+"""
+
 SELF_TEST_BROKEN = """#!/bin/sh
 exit 1
 """
@@ -356,6 +414,120 @@ def self_test() -> int:
             failures.append("a mutation its test detects was counted as a survivor")
         if check([survived], quiet=True) != 1:
             failures.append("a mutation nothing detects was counted as killed")
+
+        # copy_tree: a tracked file outside the tree is reachable, an untracked one is not.
+        tracked_repo = root / "tracked-repo"
+        (tracked_repo / "docs").mkdir(parents=True)
+        (tracked_repo / "docs" / "guide.txt").write_text("ok\n")
+        (tracked_repo / "NOTES.md").write_text("ok\n")
+        tracked_tree = tracked_repo / "tree"
+        tracked_tree.mkdir()
+        (tracked_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (tracked_tree / "subject.sh").chmod(0o755)
+        (tracked_tree / "test.sh").write_text(SELF_TEST_TRACKED_FILES_TEST)
+        (tracked_tree / "test.sh").chmod(0o755)
+        subprocess.run(["git", "init", "-q"], cwd=tracked_repo, check=True)
+        subprocess.run(
+            ["git", "add", "docs", "NOTES.md", "tree"], cwd=tracked_repo, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "x",
+            ],
+            cwd=tracked_repo,
+            check=True,
+        )
+        (tracked_repo / "SECRET.md").write_text("not tracked\n")
+
+        tracked_mutation = Mutation(
+            name="tracked files reachable",
+            tree=tracked_tree,
+            file="subject.sh",
+            find="42",
+            replace="41",
+            command=["./test.sh"],
+        )
+        try:
+            check([tracked_mutation], quiet=True)
+        except ConfigError as err:
+            failures.append(
+                f"a tracked file a test reads outside the mutation tree was not "
+                f"copied, or an untracked one was: {err}"
+            )
+
+        # The old behavior, proven insufficient rather than assumed to be.
+        tree_only = root / "tracked-repo-tree-only"
+        shutil.copytree(tracked_tree, tree_only)
+        naive = subprocess.run(
+            ["./test.sh"], cwd=tree_only, capture_output=True, text=True
+        )
+        if naive.returncode == 0:
+            failures.append(
+                "copying only the tree still satisfied a test that reads outside it"
+            )
+
+        # load()'s refusal of a file naming a path outside its tree.
+        escape_config = root / "escaping-file.json"
+        escape_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": "escaping file",
+                            "tree": str(killed.tree),
+                            "file": "../outside.txt",
+                            "find": "x",
+                            "replace": "y",
+                            "command": ["true"],
+                        }
+                    ]
+                }
+            )
+        )
+        try:
+            load(escape_config)
+        except ConfigError:
+            pass
+        else:
+            failures.append("a file resolving outside its tree was loaded")
+
+        # The same refusal, escaping through a symlink rather than a literal "..".
+        symlink_tree = root / "symlink-tree"
+        symlink_tree.mkdir()
+        outside_target = root / "outside.txt"
+        outside_target.write_text("secret\n")
+        (symlink_tree / "escaping-link").symlink_to(outside_target)
+        symlink_config = root / "escaping-symlink.json"
+        symlink_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": "escaping symlink",
+                            "tree": str(symlink_tree),
+                            "file": "escaping-link",
+                            "find": "x",
+                            "replace": "y",
+                            "command": ["true"],
+                        }
+                    ]
+                }
+            )
+        )
+        try:
+            load(symlink_config)
+        except ConfigError:
+            pass
+        else:
+            failures.append("a file that is a symlink escaping its tree was loaded")
 
         # The refusals matter as much as the counts. A harness that treats a broken
         # baseline or an unapplied mutation as a result reports a number for something
@@ -653,8 +825,9 @@ def self_test() -> int:
     print(
         "check-mutation: self-test ok — counts zero and one, refuses a broken "
         "baseline, an absent target, a mutant that does not compile, a tree below its "
-        "module root and a missing tree, and shards partition the full list while a "
-        "malformed or empty shard is refused"
+        "module root, a missing tree and a file escaping its tree, copies a repository's "
+        "tracked files but not its untracked ones, and shards partition the full list "
+        "while a malformed or empty shard is refused"
     )
     return 0
 

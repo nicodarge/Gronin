@@ -30,14 +30,20 @@ compiles the standard library and the dependencies cold.
 
 The mutations live in [testdata/mutations.json](testdata/mutations.json). Add one when
 you add a guard: a test that has never been watched failing is not evidence of anything.
+Each mutant's copy carries the repository's tracked files, laid out as the repository has
+them, not just the declared tree — a test that reads outside the tree by a relative path
+(the embedded schema against its published contract, in `internal/playbook`) sees what CI
+sees instead of silently skipping. It copies the working tree's content of those files, not
+the committed blob, so CI and a local run agree only on a clean tree — an uncommitted edit
+to a tracked file is what a local mutant run sees too.
 `scripts/check-mutation.py --self-test` shows the harness reporting zero, which is what
 makes the zero it reports on the real mutations worth reading. It also shows it refusing
 rather than reporting — a mutant that does not compile is one of those, because a build
 failure exits non-zero exactly like a failing test and would otherwise be counted as
 caught by a test that never ran, and so is a mutation whose tree holds Go the harness
-cannot compile. It also proves that `--shard K/N` partitions the declared mutants into
-disjoint shards whose union is the full list, and refuses a shard that is malformed or
-selects none.
+cannot compile, and so is a file naming a path outside its tree. It also proves that
+`--shard K/N` partitions the declared mutants into disjoint shards whose union is the
+full list, and refuses a shard that is malformed or selects none.
 
 ## Layout
 

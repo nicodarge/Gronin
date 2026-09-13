@@ -1769,6 +1769,51 @@
       ]
     },
     {
+      "name": "the embedded schema drifts from the published contract",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "\"description\": \"The shape of a playbook.",
+      "replace": "\"description\": \"MUTATED The shape of a playbook.",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheEmbeddedSchemaIsTheContract"
+      ]
+    },
+    {
+      "name": "the documented example's output schema never compiles",
+      "tree": "..",
+      "file": "internal/stage/agent/validate.go",
+      "find": "compiler.Compile(\"output.schema.json\")",
+      "replace": "compiler.Compile(\"output.schema.jsonx\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDocumentedExamplesAreAccepted"
+      ]
+    },
+    {
+      "name": "the shipped prompt exceeds a byte bound only the real file can trip",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "const MaxPromptBytes int64 = 1 << 20",
+      "replace": "const MaxPromptBytes int64 = 100",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheShippedExampleIsAccepted"
+      ]
+    },
+    {
       "name": "the catalogue accepts an unknown key",
       "tree": "..",
       "file": "internal/collections/collections.go",
