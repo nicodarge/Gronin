@@ -40,7 +40,7 @@ jobs:
         working-directory: runtime
       - run: scripts/run-suite.sh
 
-  mutation:
+  mutation-self-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -49,10 +49,28 @@ jobs:
           go-version-file: runtime/go.mod
       - run: go mod download
         working-directory: runtime
-      # The self-test first: a count from a harness that has not shown it can report
-      # zero is not a count.
       - run: scripts/check-mutation.py --self-test
-      - run: scripts/check-mutation.py
+
+  # job-index is zero-based; job-total is the number of jobs in the matrix.
+  mutation:
+    needs: mutation-self-test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only this list's length matters; its values are unused except to label
+        # each job "mutation (N)".
+        leg: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: runtime/go.mod
+      - run: go mod download
+        working-directory: runtime
+      - run: >-
+          scripts/check-mutation.py
+          --shard "$(( ${{ strategy.job-index }} + 1 ))/${{ strategy.job-total }}"
 
   build:
     runs-on: ubuntu-latest
@@ -105,8 +123,10 @@ jobs:
   # every job above and silently stops covering a job added later.
   gate:
     runs-on: ubuntu-latest
-    needs: [checks, suite, mutation, build, static-check-refuses]
+    needs: [checks, suite, mutation-self-test, mutation, build, static-check-refuses]
     if: always()
+    permissions:
+      actions: read
     steps:
       - name: Every gate passed
         env:
@@ -119,3 +139,39 @@ jobs:
               exit 1
             fi
           done
+      # needs.*.result is not documented for a failed matrix leg; check each job's
+      # own conclusion instead.
+      - name: Every job in this run actually succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          jobs=$(gh api --paginate \
+            "repos/${REPO}/actions/runs/${RUN_ID}/jobs?filter=latest" \
+            --jq '.jobs[] | [.name, .conclusion] | @tsv')
+          echo "$jobs"
+          found_mutation_leg=0
+          failed=0
+          while IFS=$'\t' read -r name conclusion; do
+            [ -z "$name" ] && continue
+            case "$name" in
+              "mutation ("*)
+                found_mutation_leg=1
+                ;;
+            esac
+            if [ "$name" = "gate" ]; then
+              continue
+            fi
+            if [ "$conclusion" != "success" ]; then
+              echo "job '$name' concluded '$conclusion', not success" >&2
+              failed=1
+            fi
+          done <<< "$jobs"
+          if [ "$found_mutation_leg" -ne 1 ]; then
+            echo "no 'mutation (...)' matrix leg was found in this run" >&2
+            failed=1
+          fi
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi

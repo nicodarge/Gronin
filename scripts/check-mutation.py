@@ -11,7 +11,9 @@ comfortable number forever. It refuses a mutation whose target text is not found
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
 the count is shown to move in both directions before any real count is read — and against
-two it must refuse outright, a broken baseline and a target text that is not there.
+two it must refuse outright, a broken baseline and a target text that is not there. It also
+proves `--shard K/N` partitions the declared mutants into disjoint shards whose union is
+the full list, and refuses a shard that is malformed or selects none.
 
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
@@ -24,6 +26,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -54,6 +57,64 @@ class Mutation:
     find: str
     replace: str
     command: list[str]
+
+
+# ASCII digits only, matched with a regex rather than str.isdigit(): isdigit() also
+# accepts Unicode digits whose behaviour under int() is not uniform. A superscript
+# ('²') is a digit by isdigit() but raises ValueError from int() -- a crash, not an
+# acceptance. A fullwidth or Arabic-Indic digit ('１', '٣') is instead silently
+# accepted by int() and converted to its ASCII value. A regex anchored to [0-9]
+# takes neither path.
+_SHARD_RE = re.compile(r"([0-9]+)/([0-9]+)")
+
+
+def parse_shard(value: str) -> tuple[int, int]:
+    """Parse "K/N" into (K, N), refusing anything that is not exactly that shape.
+
+    K is 1-based. Refused rather than clamped or defaulted: a malformed shard
+    argument on a CI matrix leg is a configuration mistake, and running the wrong
+    slice of mutants silently is worse than the job failing loudly.
+    """
+    match = _SHARD_RE.fullmatch(value)
+    if match is None:
+        raise ConfigError(f"--shard {value!r}: expected K/N of ASCII digits")
+    k, n = int(match.group(1)), int(match.group(2))
+    if n < 1:
+        raise ConfigError(f"--shard {value!r}: N must be at least 1")
+    if not 1 <= k <= n:
+        raise ConfigError(f"--shard {value!r}: K must be between 1 and N")
+    return k, n
+
+
+def select_shard(mutations: list[Mutation], k: int, n: int) -> list[Mutation]:
+    """The mutants whose position in the declared list is k-1 modulo n.
+
+    Deterministic and disjoint by construction: every mutant lands in exactly one
+    shard, and the union of all N shards is the input list. Refused if empty rather
+    than returning nothing to check silently -- a shard with nothing in it would
+    otherwise print "0 survivors of 0" and exit 0, indistinguishable from a real
+    all-clear.
+    """
+    selected = [m for i, m in enumerate(mutations) if i % n == k - 1]
+    if not selected:
+        raise ConfigError(
+            f"--shard {k}/{n} selects no mutants out of {len(mutations)} declared"
+        )
+    return selected
+
+
+def apply_shard(
+    mutations: list[Mutation], shard: tuple[int, int] | None
+) -> list[Mutation]:
+    """Apply an already-parsed (K, N) shard to a loaded list, or return it unchanged.
+
+    main()'s only use of --shard; the self-test's end-to-end check runs the CLI
+    itself to prove that wiring, not just this function.
+    """
+    if shard is None:
+        return mutations
+    k, n = shard
+    return select_shard(mutations, k, n)
 
 
 def load(config: Path) -> list[Mutation]:
@@ -185,8 +246,19 @@ def survives(mutation: Mutation) -> bool:
         return run(mutation.command, work).returncode == 0
 
 
-def check(mutations: list[Mutation], *, quiet: bool = False) -> int:
-    """Return the number of mutations nothing noticed."""
+def check(
+    mutations: list[Mutation],
+    *,
+    quiet: bool = False,
+    shard: tuple[int, int] | None = None,
+    declared: int | None = None,
+) -> int:
+    """Return the number of mutations nothing noticed.
+
+    `shard` and `declared` only change the summary line's wording, for a run over a
+    shard rather than the whole list -- so it reads as a count of that shard, not a
+    silently partial report of the total.
+    """
     survivors = 0
     for mutation in mutations:
         survived = survives(mutation)
@@ -196,7 +268,14 @@ def check(mutations: list[Mutation], *, quiet: bool = False) -> int:
                 f"check-mutation: {'SURVIVED ' if survived else 'killed   '} {mutation.name}"
             )
     if not quiet:
-        print(f"check-mutation: {survivors} survivors of {len(mutations)} mutants")
+        if shard is not None:
+            k, n = shard
+            print(
+                f"check-mutation: shard {k}/{n}: {survivors} survivors of "
+                f"{len(mutations)} mutants ({declared} declared)"
+            )
+        else:
+            print(f"check-mutation: {survivors} survivors of {len(mutations)} mutants")
     return survivors
 
 
@@ -218,8 +297,8 @@ exit 1
 
 # A Go module, because the compile refusal only applies where there is something to
 # compile, and the shell subjects above have nothing. One package, one test, and a
-# mutation that leaves an import unused — which is the shape every one of the thirteen
-# mutants this refusal was written for had.
+# mutation that leaves an import unused — which is the shape the mutants this
+# refusal was written for had.
 SELF_TEST_GO_MOD = """module example.com/selftest
 
 go 1.24
@@ -318,7 +397,7 @@ def self_test() -> int:
             name="uncompilable mutant",
             tree=gomod,
             file="subject.go",
-            # Orphans the strings import, exactly as the thirteen did.
+            # Orphans the strings import, exactly as this refusal's mutants do.
             find='return strings.TrimSpace(" 42 ")',
             replace='return "41"',
             command=["go", "test", "./...", "-count=1"],
@@ -399,15 +478,183 @@ def self_test() -> int:
         else:
             failures.append("a mutation naming a tree that is not there was loaded")
 
+        # Sharding. The union of every shard must equal the unsharded selection, no
+        # mutant may appear in two shards, and a shard with nothing in it -- out of
+        # range, or N larger than the list -- must be refused rather than reported
+        # as a clean run over zero mutants.
+        universe = [
+            Mutation(
+                name=f"m{i}",
+                tree=killed.tree,
+                file="subject.sh",
+                find="42",
+                replace="41",
+                command=["./test.sh"],
+            )
+            for i in range(13)
+        ]
+        n = 6
+        try:
+            shards = [apply_shard(universe, (k, n)) for k in range(1, n + 1)]
+        except ConfigError as err:
+            failures.append(f"sharding the self-test universe was refused: {err}")
+            shards = []
+
+        if shards:
+            if sorted(m.name for shard in shards for m in shard) != sorted(
+                m.name for m in universe
+            ):
+                failures.append("the union of every shard does not equal the full list")
+            seen: set[str] = set()
+            for shard in shards:
+                names = {m.name for m in shard}
+                if seen & names:
+                    failures.append("two shards selected the same mutant")
+                seen |= names
+
+        if parse_shard("2/6") != (2, 6):
+            failures.append("a well-formed --shard value was not parsed as K, N")
+        for malformed in (
+            "0/6",
+            "7/6",
+            "1/0",
+            "x/6",
+            "1/-1",
+            "1",
+            "1/6/2",
+            "-1/6",
+            "²/6",  # crashed the old path with ValueError
+            "１/6",  # accepted outright by the old isdigit()+int() path
+            "٣/6",  # accepted outright by the old isdigit()+int() path
+        ):
+            try:
+                parse_shard(malformed)
+            except ConfigError:
+                continue
+            failures.append(f"--shard {malformed!r} was accepted rather than refused")
+
+        try:
+            select_shard(universe, len(universe) + 1, len(universe) + 1)
+        except ConfigError:
+            pass
+        else:
+            failures.append(
+                "a shard selecting no mutants was accepted rather than refused"
+            )
+
+        # End to end: run the real CLI per shard -- the checks above never call main().
+        # One fixture mutant is inattentive rather than killed, so the exit code is
+        # checked against what each shard should report, not only against "did not
+        # crash" -- a main() that stopped propagating check()'s result as its exit
+        # code would otherwise go unnoticed as long as it happened not to crash.
+        e2e_dir = root / "e2e"
+        e2e_tree = e2e_dir / "tree"
+        e2e_tree.mkdir(parents=True)
+        (e2e_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (e2e_tree / "subject.sh").chmod(0o755)
+        (e2e_tree / "test.sh").write_text(SELF_TEST_ATTENTIVE)
+        (e2e_tree / "test.sh").chmod(0o755)
+        e2e_survivor_tree = e2e_dir / "survivor-tree"
+        e2e_survivor_tree.mkdir()
+        (e2e_survivor_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (e2e_survivor_tree / "subject.sh").chmod(0o755)
+        (e2e_survivor_tree / "test.sh").write_text(SELF_TEST_INATTENTIVE)
+        (e2e_survivor_tree / "test.sh").chmod(0o755)
+
+        e2e_survivor_name = "e2e-survivor"
+        e2e_names = [e2e_survivor_name] + [f"e2e-{i}" for i in range(6)]
+        e2e_config = e2e_dir / "mutations.json"
+        e2e_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": name,
+                            "tree": "survivor-tree"
+                            if name == e2e_survivor_name
+                            else "tree",
+                            "file": "subject.sh",
+                            "find": "42",
+                            "replace": "41",
+                            "command": ["./test.sh"],
+                        }
+                        for name in e2e_names
+                    ]
+                }
+            )
+        )
+        e2e_n = 6
+        # e2e_survivor_name is first in the declared list (position 0), so it lands
+        # in the shard where 0 % e2e_n == k - 1.
+        e2e_survivor_shard = 0 % e2e_n + 1
+        e2e_shards: list[set[str]] = []
+        for k in range(1, e2e_n + 1):
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    __file__,
+                    "--config",
+                    str(e2e_config),
+                    "--shard",
+                    f"{k}/{e2e_n}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            expected_rc = 1 if k == e2e_survivor_shard else 0
+            if proc.returncode != expected_rc:
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run exited "
+                    f"{proc.returncode}, expected {expected_rc}: {proc.stderr}"
+                )
+                continue
+            if (
+                k == e2e_survivor_shard
+                and f"SURVIVED  {e2e_survivor_name}" not in proc.stdout
+            ):
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run did not report "
+                    f"{e2e_survivor_name!r} as SURVIVED"
+                )
+            if f"shard {k}/{e2e_n}:" not in proc.stdout:
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run's summary line did not "
+                    "name its shard"
+                )
+            e2e_shards.append(
+                {
+                    line.rsplit(" ", 1)[-1]
+                    for line in proc.stdout.splitlines()
+                    if line.startswith("check-mutation: killed")
+                    or line.startswith("check-mutation: SURVIVED")
+                }
+            )
+
+        if e2e_shards:
+            if set().union(*e2e_shards) != set(e2e_names):
+                failures.append(
+                    "the union of the shards run end to end through main() does "
+                    "not equal the full fixture list"
+                )
+            seen_e2e: set[str] = set()
+            for names in e2e_shards:
+                if seen_e2e & names:
+                    failures.append(
+                        "two shards run end to end through main() selected the "
+                        "same mutant"
+                    )
+                seen_e2e |= names
+
         for failure in failures:
             print(f"check-mutation: self-test: {failure}", file=sys.stderr)
         if failures:
             return 1
 
     print(
-        "check-mutation: self-test ok — counts zero and one, and refuses a broken "
+        "check-mutation: self-test ok — counts zero and one, refuses a broken "
         "baseline, an absent target, a mutant that does not compile, a tree below its "
-        "module root and a missing tree"
+        "module root and a missing tree, and shards partition the full list while a "
+        "malformed or empty shard is refused"
     )
     return 0
 
@@ -524,9 +771,34 @@ def _prune_stale_caches(root: Path, min_age_s: int = 900) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="the mutations.json to check (default: the repository's own)",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--self-test", action="store_true", help="prove the harness before trusting it"
+    )
+    mode.add_argument(
+        "--shard",
+        metavar="K/N",
+        help="check only the mutants at position K-1 modulo N (1-based K); shards "
+        "for a fixed N are disjoint and their union is the full declared list",
+    )
     args = parser.parse_args()
+
+    # Parsed once, here, rather than again wherever the result is needed: a
+    # malformed --shard is a configuration mistake, caught before the cache
+    # directory or anything else this run touches is set up.
+    shard: tuple[int, int] | None = None
+    if args.shard is not None:
+        try:
+            shard = parse_shard(args.shard)
+        except ConfigError as err:
+            print(f"check-mutation: {err}", file=sys.stderr)
+            return 2
 
     # A build cache of its own, thrown away when the run ends. Every mutant is a fresh
     # copy of the tree at a fresh path, so the compiler treats it as a distinct source
@@ -553,7 +825,9 @@ def main() -> int:
         try:
             if args.self_test:
                 return self_test()
-            return 1 if check(load(args.config)) else 0
+            declared = load(args.config)
+            mutations = apply_shard(declared, shard)
+            return 1 if check(mutations, shard=shard, declared=len(declared)) else 0
         except ConfigError as err:
             print(f"check-mutation: {err}", file=sys.stderr)
             return 2
