@@ -169,6 +169,10 @@ func beginFailure(ctx context.Context, err error) error {
 // first read — the point up to which a failure is still the transaction never having taken
 // the lock it waited for (see beginFailure). Nil outside tests; a test uses it to end ctx
 // deterministically at exactly that point, rather than racing a live clock against it.
+//
+// It is a package-level var, not one of Index's own seams, because readStored is a free
+// function ReadStored calls with no *Index to hold one: a listing reads an index it has not
+// opened. A test installing it must not run in parallel with another exercising this seam.
 var afterDeferredBegin = func() {}
 
 // commitBusyError is COMMIT giving up on a reader after waiting out commitWait: the
@@ -447,8 +451,6 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 // caller's bound simply ran out first — so it is retryBusy's own held state, not this
 // marking, that decides whether that becomes ErrHeld.
 func readStored(ctx context.Context, db *sql.DB) (stored Stored, err error) {
-	defer func() { err = asBegin(err) }()
-
 	tx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if beginErr != nil {
 		return Stored{}, beginFailure(ctx, beginErr)

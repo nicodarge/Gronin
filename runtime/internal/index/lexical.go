@@ -50,8 +50,6 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 // either is marked a begin failure the same way readStored's are — see index.go's
 // beginFailure for why.
 func (ix *Index) search(ctx context.Context, query string, limit int) (found Found, err error) {
-	defer func() { err = asBegin(err) }()
-
 	tx, beginErr := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if beginErr != nil {
 		return Found{}, beginFailure(ctx, beginErr)
