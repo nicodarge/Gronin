@@ -1637,8 +1637,8 @@
       "name": "the file lock's released returns only at its deadline",
       "tree": "..",
       "file": "internal/run/filelock.go",
-      "find": "\t\tif l.free(name) {\n\t\t\treturn nil\n\t\t}",
-      "replace": "\t\tif l.free(name) && false {\n\t\t\treturn nil\n\t\t}",
+      "find": "\tcase <-time.After(releasedPoll):\n\t\treturn nil\n",
+      "replace": "\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n",
       "command": [
         "go",
         "test",
@@ -1832,8 +1832,8 @@
       "name": "the guard decides after the gather stage",
       "tree": "..",
       "file": "internal/run/execute.go",
-      "find": "\tadmitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)\n",
-      "replace": "\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: os.TempDir()}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)\n",
+      "find": "\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
+      "replace": "\tearly, _ := os.MkdirTemp(\"\", \"early-gather-\")\n\tdefer func() { _ = os.RemoveAll(early) }()\n\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: early}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
       "command": [
         "go",
         "test",
@@ -2374,6 +2374,441 @@
         "-count=1",
         "-run",
         "TestTheIngressAndTheAPIShareOnlyTheRecord"
+      ]
+    },
+    {
+      "name": "a scheduled trigger waits like a manual one",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\treturn kind == record.TriggerManual && errors.Is(err, ErrHeld)\n",
+      "replace": "\treturn (kind == record.TriggerManual || kind == record.TriggerSchedule) && errors.Is(err, ErrHeld)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestOneDeep"
+      ]
+    },
+    {
+      "name": "a full slot is reported as an error, not a refusal",
+      "tree": "..",
+      "file": "internal/record/waiting.go",
+      "find": "\t\t                    WHERE playbook_name = ? AND outcome = 'waiting')`,\n",
+      "replace": "\t\t                    WHERE playbook_name = ? AND outcome = 'no-such-outcome')`,\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestOneDeep"
+      ]
+    },
+    {
+      "name": "a waiting trigger never expires",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\texpiry, err := book.WaitFor()\n",
+      "replace": "\texpiry, err := time.Duration(1<<62), error(nil)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheWaitExpires"
+      ]
+    },
+    {
+      "name": "the wait is measured on the wall clock",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\treturn w.expiry - g.clock().Monotonic().Sub(w.accepted)\n",
+      "replace": "\treturn w.expiry - g.clock().Wall().Sub(w.row.AcceptedAt)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheWaitExpires"
+      ]
+    },
+    {
+      "name": "a dead process's waiting row stays waiting",
+      "tree": "..",
+      "file": "internal/guard/instance.go",
+      "find": "\t\tif alive(stateDir, trigger.Instance) {\n",
+      "replace": "\t\tif alive(stateDir, trigger.Instance) || true {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped"
+      ]
+    },
+    {
+      "name": "a waiting trigger runs the playbook as it stood on arrival",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\treturn &Admitted{\n\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,\n",
+      "replace": "\t_ = edited\n\treturn &Admitted{\n\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: w.book,\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook"
+      ]
+    },
+    {
+      "name": "a waiting trigger follows a rename",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\tif edited.Name != w.book.Name {\n",
+      "replace": "\tif edited.Name != w.book.Name && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook"
+      ]
+    },
+    {
+      "name": "acceptance is recorded only when the wait ends",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\tif err := g.accept(ctx, w); err != nil {\n\t\treturn nil, err\n\t}\n\treturn g.await(ctx, w, held)\n",
+      "replace": "\tadmitted, err := g.await(ctx, w, held)\n\tif acceptErr := g.accept(ctx, w); acceptErr != nil {\n\t\treturn nil, acceptErr\n\t}\n\treturn admitted, err\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped"
+      ]
+    },
+    {
+      "name": "refusals reads without reconciling",
+      "tree": "..",
+      "file": "cmd/gronin/refusals_cmd.go",
+      "find": "\t\t\tif _, err := deployment.reconcile(cmd.Context()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped"
+      ]
+    },
+    {
+      "name": "a live process's waiting trigger is read as dropped",
+      "tree": "..",
+      "file": "internal/guard/instance.go",
+      "find": "\tif err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {\n\t\treturn true\n\t}\n",
+      "replace": "\tif err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {\n\t\treturn false\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped"
+      ]
+    },
+    {
+      "name": "a trigger that waited and ran is also recorded as refused",
+      "tree": "..",
+      "file": "internal/record/runs.go",
+      "find": "\t\tif ended == 0 {\n\t\t\treturn fmt.Errorf(\"run %s: its wait had already ended (waiting trigger %s)\", run.ID, run.WaitingTriggerID)\n\t\t}\n",
+      "replace": "\t\tif ended == 0 {\n\t\t\treturn fmt.Errorf(\"run %s: its wait had already ended (waiting trigger %s)\", run.ID, run.WaitingTriggerID)\n\t\t}\n\t\tif err := s.insertRefusal(ctx, tx, Refusal{\n\t\t\tPlaybookName: run.PlaybookName, TriggerKind: run.TriggerKind,\n\t\t\tWaitingTriggerID: run.WaitingTriggerID, Mechanism: MechanismClaimHeld,\n\t\t\tDetail: \"waited\", RefusedAt: run.StartedAt,\n\t\t}); err != nil {\n\t\t\treturn err\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestAWaitedRun"
+      ]
+    },
+    {
+      "name": "the time waited is not recorded",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\tWaitedMS:         admitted.Waited.Milliseconds(),\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook"
+      ]
+    },
+    {
+      "name": "show omits the wait",
+      "tree": "..",
+      "file": "cmd/gronin/records_cmd.go",
+      "find": "\t\t\tif one.WaitingTriggerID != \"\" {\n",
+      "replace": "\t\t\tif one.WaitingTriggerID != \"\" && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook"
+      ]
+    },
+    {
+      "name": "the guard block refuses wait",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\"guard.wait\": true,\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestGuardBlock"
+      ]
+    },
+    {
+      "name": "the guard block accepts an unknown key",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "    \"guard\": {\n      \"description\": \"Shape only: the durations of the claim set belong to the deployment and are checked by the runtime at startup, not here. An unknown key is refused (FR-119), and so is a key this runtime does not apply yet, by the load gate rather than by this schema.\",\n      \"type\": \"object\",\n      \"additionalProperties\": false,\n",
+      "replace": "    \"guard\": {\n      \"description\": \"Shape only: the durations of the claim set belong to the deployment and are checked by the runtime at startup, not here. An unknown key is refused (FR-119), and so is a key this runtime does not apply yet, by the load gate rather than by this schema.\",\n      \"type\": \"object\",\n      \"additionalProperties\": true,\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestGuardBlock"
+      ]
+    },
+    {
+      "name": "a waiting trigger that meets an unavailable backend keeps waiting",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\t\tcase errors.Is(err, errStillHeld):\n",
+      "replace": "\t\tcase errors.Is(err, errStillHeld), errors.Is(err, ErrUnavailable):\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestAWaitMeetsAnUnavailableBackend"
+      ]
+    },
+    {
+      "name": "every system clock reads from an origin of its own, seen by the guard package",
+      "tree": "..",
+      "file": "internal/guard/clock.go",
+      "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
+      "replace": "func SystemClock() Clock { return systemClock{origin: time.Now()} }\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestSystemClocksReadOnOneAxis"
+      ]
+    },
+    {
+      "name": "the file lock's waiter takes the lock to look",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tif l.poll != nil {\n\t\tl.poll(name)\n\t}\n",
+      "replace": "\tif file, err := l.manager.acquireLock(name); err == nil {\n\t\tif l.poll != nil {\n\t\t\tl.poll(name)\n\t\t}\n\t\tl.manager.releaseLock(file)\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestTheWaitersPollCannotRefuseATick"
+      ]
+    },
+    {
+      "name": "a waiting trigger's playbook is read again without the load gate",
+      "tree": "..",
+      "file": "cmd/gronin/deployment.go",
+      "find": "\t\t\treturn playbook.LoadFile(path, capabilities(cfg, catalog, declared))\n",
+      "replace": "\t\t\treturn playbook.ParseFile(path)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook/refused"
+      ]
+    },
+    {
+      "name": "a file read alone accepts what its directory refuses",
+      "tree": "..",
+      "file": "internal/playbook/load.go",
+      "find": "\tif !loaded.OK() {\n\t\treturn nil, loaded.Err()\n\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestLoadFileRefuses"
+      ]
+    },
+    {
+      "name": "a changed playbook keeps the claim the wait took",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\t\tg.giveBack(ctx, claim)\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestAChangedPlaybookGivesTheClaimBack"
+      ]
+    },
+    {
+      "name": "a run that starts from a waiting trigger leaves its wait open",
+      "tree": "..",
+      "file": "internal/record/runs.go",
+      "find": "\tif run.WaitingTriggerID != \"\" {\n",
+      "replace": "\tif run.WaitingTriggerID != \"\" && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep"
+      ]
+    },
+    {
+      "name": "a waiting trigger that ran is read as dropped",
+      "tree": "..",
+      "file": "internal/guard/instance.go",
+      "find": "\t\tif trigger.RunID != \"\" {\n",
+      "replace": "\t\tif trigger.RunID != \"\" && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestReconcileDoesNotDropATriggerThatRan"
+      ]
+    },
+    {
+      "name": "every system clock reads from an origin of its own, seen by an edited playbook's waited run",
+      "tree": "..",
+      "file": "internal/guard/clock.go",
+      "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
+      "replace": "func SystemClock() Clock { return systemClock{origin: time.Now()} }\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook/edited"
+      ]
+    },
+    {
+      "name": "every system clock reads from an origin of its own, seen by a wait that expires",
+      "tree": "..",
+      "file": "internal/guard/clock.go",
+      "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
+      "replace": "func SystemClock() Clock { return systemClock{origin: time.Now()} }\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitExpiresOnTheSystemClock"
+      ]
+    },
+    {
+      "name": "a waiting trigger takes the claim before it reads its file",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\tedited, err := g.reread(w)\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tclaim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
+      "replace": "\tclaim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tedited, err := g.reread(w)\n\tif err != nil {\n\t\tg.giveBack(decide, claim)\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestATickDuringTheRereadIsNotRefusedByTheWaiter"
+      ]
+    },
+    {
+      "name": "a trigger the guard refuses runs its gather step",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n\tif err != nil {\n\t\treturn record.Run{}, err\n\t}\n",
+      "replace": "\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n\tif err != nil {\n\t\trefused, _ := os.MkdirTemp(\"\", \"refused-gather-\")\n\t\tdefer func() { _ = os.RemoveAll(refused) }()\n\t\t_ = e.gather(ctx, &Run{ID: \"refused\", WorkDir: refused}, book, &problems{}, trigger.Values)\n\t\treturn record.Run{}, err\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped/killed"
+      ]
+    },
+    {
+      "name": "a duration is not rounded to the second",
+      "tree": "..",
+      "file": "internal/guard/duration.go",
+      "find": "\td = d.Round(time.Second)\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestHumanDuration"
+      ]
+    },
+    {
+      "name": "etcd's released returns while the claim is held",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\tif c.watching != nil {\n\t\tc.watching(name)\n\t}\n",
+      "replace": "\tif name != \"\" {\n\t\treturn nil\n\t}\n\tif c.watching != nil {\n\t\tc.watching(name)\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract/C10"
       ]
     }
   ]

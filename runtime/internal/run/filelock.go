@@ -24,6 +24,9 @@ import (
 type FileLock struct {
 	manager *Manager
 	clock   guard.Clock
+	// poll is called each time a waiter polls a lock; nil outside the test that acts at
+	// that instant.
+	poll func(name string)
 }
 
 var _ guard.Coordinator = (*FileLock)(nil)
@@ -83,9 +86,9 @@ func (l *FileLock) held(name string, refusal error) error {
 	if err := json.Unmarshal(data, &holder); err != nil || holder.RunID == "" {
 		return refusal
 	}
-	return fmt.Errorf("%w: %s", ErrAlreadyRunning, guard.Holder{
+	return fmt.Errorf("%w: %w", ErrAlreadyRunning, guard.HeldBy(guard.Holder{
 		Host: holder.Host, Instance: holder.Instance, RunID: holder.RunID,
-	})
+	}))
 }
 
 // record writes the holder into the lock file. A failure to write it costs a refusal its
@@ -126,25 +129,26 @@ func (l *FileLock) tick(ctx context.Context, req guard.AcquireRequest) error {
 	return nil
 }
 
-// releasedPoll is how often Released looks. There is nothing to watch here: the kernel
-// releases a flock without telling anyone, including when the holding process dies.
+// releasedPoll is how often a waiter asks for the lock again. The kernel releases a flock
+// without telling anyone, including when the holding process dies.
 const releasedPoll = 25 * time.Millisecond
 
-// Released implements guard.Coordinator: it returns once the lock can be taken.
+// Released implements guard.Coordinator by returning after one poll interval, which the
+// interface allows. A flock cannot be seen to be free without being taken, and a lock taken
+// only to look is held at the instant a real contender asks for it: a tick is then refused
+// as held, naming a run that already ended, and a tick does not wait. The caller's own
+// Acquire is the check.
 func (l *FileLock) Released(ctx context.Context, name string) error {
-	for {
-		if l.free(name) {
-			return nil
-		}
-		select {
-		case <-time.After(releasedPoll):
-		case <-ctx.Done():
-			return fmt.Errorf("%w: %w", guard.ErrUnavailable, ctx.Err())
-		}
+	if l.poll != nil {
+		l.poll(name)
+	}
+	select {
+	case <-time.After(releasedPoll):
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %w", guard.ErrUnavailable, ctx.Err())
 	}
 }
-
-func (l *FileLock) free(name string) bool { return !l.manager.InFlight(name) }
 
 // fileClaim is one held file lock. Renew and Fence are no-ops: a flock cannot be lost
 // while its holder lives, and the kernel releases it when the holder dies.

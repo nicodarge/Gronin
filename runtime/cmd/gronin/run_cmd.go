@@ -46,9 +46,14 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 			defer deployment.close()
+			if err := deployment.acceptWaiting(cfg, catalog, declared); err != nil {
+				return err
+			}
 
 			finished, err := deployment.executor.Execute(cmd.Context(), book, run.Trigger{
 				Kind: record.TriggerManual, Values: triggerValues(cmd),
+				// Said before the wait begins, so that a caller does not read it as a hang.
+				OnWait: func(waiting guard.Waiting) { cmd.Println(waitingLine(book.Name, waiting)) },
 			})
 			var refused *guard.Refused
 			if errors.As(err, &refused) {
@@ -61,7 +66,16 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 
-			cmd.Printf("%s %s\n", finished.ID, finished.Status)
+			waited := ""
+			recorded, err := deployment.store.GetRun(cmd.Context(), finished.ID)
+			switch {
+			case err != nil:
+				deployment.log.Warn("the run could not be read back to say whether it waited",
+					"run", finished.ID, "err", err)
+			case recorded.WaitingTriggerID != "":
+				waited = " (waited " + waitedFor(recorded) + ")"
+			}
+			cmd.Printf("%s %s%s\n", finished.ID, finished.Status, waited)
 			if finished.Error != "" {
 				cmd.Printf("  %s\n", finished.Error)
 			}
@@ -76,6 +90,20 @@ func newRunCommand() *cobra.Command {
 	command.Flags().StringToString("trigger", nil,
 		"values the playbook may interpolate as ${trigger.x}")
 	return command
+}
+
+// unnamedHolder is what the waiting line says when the coordinator could not name who holds
+// the claim: the file lock between a lock being taken and its holder being written into it.
+const unnamedHolder = "held by another process"
+
+// waitingLine is what `gronin run` says as a trigger begins to wait (contracts/cli.md).
+func waitingLine(playbookName string, waiting guard.Waiting) string {
+	holder := unnamedHolder
+	if waiting.Holder != nil {
+		holder = waiting.Holder.String()
+	}
+	return fmt.Sprintf("%s is running (%s); waiting up to %s",
+		playbookName, holder, guard.HumanDuration(waiting.UpTo))
 }
 
 type errNotSucceeded struct{ status string }

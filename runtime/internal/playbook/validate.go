@@ -483,7 +483,9 @@ func gatherNames(book *Playbook) string {
 // accepts the shape of every key the contract defines; one whose mechanism has not landed
 // is refused here, by name, because accepting it would be a declared bound nothing
 // applies. A key is lifted by adding it.
-var appliedGuardKeys = map[string]bool{}
+var appliedGuardKeys = map[string]bool{
+	"guard.wait": true,
+}
 
 // validateGuard applies FR-119 to the keys the schema's shape layer lets through.
 func validateGuard(book *Playbook) []Problem {

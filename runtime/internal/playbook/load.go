@@ -112,6 +112,26 @@ func Load(dir string, dep Deployment) (Loaded, error) {
 	return loaded, nil
 }
 
+// LoadFile reads one playbook the way a start reads it: the whole directory through Load,
+// refused when anything in it is refused, since a start then arms nothing (FR-042). It is how
+// a trigger that waited reads its playbook again (FR-121), and a re-read that accepted what a
+// start would refuse would run it.
+func LoadFile(path string, dep Deployment) (*Playbook, error) {
+	loaded, err := Load(filepath.Dir(path), dep)
+	if err != nil {
+		return nil, err
+	}
+	if !loaded.OK() {
+		return nil, loaded.Err()
+	}
+	for _, book := range loaded.Playbooks {
+		if filepath.Clean(book.Path) == filepath.Clean(path) {
+			return book, nil
+		}
+	}
+	return nil, fmt.Errorf("%s is not among the playbooks in %s", filepath.Base(path), filepath.Dir(path))
+}
+
 // Find returns the loaded playbook with a name.
 func (l Loaded) Find(name string) (*Playbook, bool) {
 	for _, book := range l.Playbooks {

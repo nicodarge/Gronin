@@ -17,7 +17,13 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 	if run.ParentRunID != "" {
 		parent = run.ParentRunID
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO runs (id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref,
 		                  trigger_kind, parent_run_id, status, started_at,
 		                  waiting_trigger_id, waited_ms, claim_reach, claim_token)
@@ -30,7 +36,26 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 	if err != nil {
 		return fmt.Errorf("recording run %s: %w", run.ID, err)
 	}
-	return nil
+	// The run a waiting trigger becomes and the end of that wait are one step (FR-117): a
+	// process that died between two would leave a run whose trigger reads as waiting, and
+	// a reconciliation would record it as dropped.
+	if run.WaitingTriggerID != "" {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE waiting_triggers SET outcome = ?, outcome_at = ?, run_id = ?
+			 WHERE id = ? AND outcome = 'waiting'`,
+			string(WaitRan), run.StartedAt.UTC().Format(sortableTime), run.ID, run.WaitingTriggerID)
+		if err != nil {
+			return fmt.Errorf("ending the wait run %s started from: %w", run.ID, err)
+		}
+		ended, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if ended == 0 {
+			return fmt.Errorf("run %s: its wait had already ended (waiting trigger %s)", run.ID, run.WaitingTriggerID)
+		}
+	}
+	return tx.Commit()
 }
 
 // FinishRun writes a run's terminal state. Every text field it carries goes through the

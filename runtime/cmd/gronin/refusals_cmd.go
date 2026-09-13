@@ -31,6 +31,12 @@ func newRefusalsCommand() *cobra.Command {
 			}
 			defer deployment.close()
 
+			// A trigger whose process was killed while it waited left nobody to record the
+			// drop. Reading is when it is recorded, which is why it shows here (FR-113).
+			if _, err := deployment.reconcile(cmd.Context()); err != nil {
+				return err
+			}
+
 			limit, _ := cmd.Flags().GetInt("limit")
 			refusals, err := deployment.store.ListRefusals(cmd.Context(), limit)
 			if err != nil {

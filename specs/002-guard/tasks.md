@@ -486,7 +486,7 @@ happens, and the extra invocation is recorded as refused.
 
 ### Tests for User Story 2
 
-- [ ] T065 [P] [US2] SC-105, `TestOneDeep` in `runtime/internal/guard/wait_test.go`: guards with distinct instances
+- [x] T065 [P] [US2] SC-105, `TestOneDeep` in `runtime/internal/guard/wait_test.go`: guards with distinct instances
       sharing one state directory and one fake — each manual invocation is a process of its own, and
       the slot has to hold across them (FR-111). While a run holds the claim, the playbook's
       scheduled tick fires and then three manual invocations arrive. The tick is refused `claim_held`
@@ -495,11 +495,11 @@ happens, and the extra invocation is recorded as refused.
       first invocation's. Counts alone cannot tell this from an implementation that lets the tick wait
       — it too produces one run and three refusals — so the test reads what each record refers to.
       No refused trigger leaves a gather trace (FR-102)
-- [ ] T066 [P] [US2] SC-106, the expiry half, `TestTheWaitExpires…` in `runtime/internal/guard/wait_expiry_test.go`: a
+- [x] T066 [P] [US2] SC-106, the expiry half, `TestTheWaitExpires…` in `runtime/internal/guard/wait_expiry_test.go`: a
       waiting trigger passes its declared wait on the injected monotonic clock and produces no run and
       a `wait_expired` refusal; `wait: 0s` still enters the slot and expires at once; a backward step
       of the wall reading during the wait does not lengthen it (FR-118)
-- [ ] T067 [P] [US2] SC-113 and SC-106's restart half, `TestAKilledWaitIsDropped` in
+- [x] T067 [P] [US2] SC-113 and SC-106's restart half, `TestAKilledWaitIsDropped` in
       `runtime/cmd/gronin/wait_binary_test.go`,
       single-host: a first `gronin run` whose gather step sleeps, and a second that prints that it is
       waiting, both through `bintest.Start`. `gronin refusals` read now shows no `dropped` line — a
@@ -509,7 +509,7 @@ happens, and the extra invocation is recorded as refused.
       started again after the first run ends: no run comes from the dropped trigger, and a further
       manual invocation finds the slot free. The absence alone is satisfied by a runtime that never
       started, so the positive assertions are what give this half a mutant
-- [ ] T068 [P] [US2] SC-110 and SC-114's surface, `TestAWaitingTriggerRunsTheEditedPlaybook` in
+- [x] T068 [P] [US2] SC-110 and SC-114's surface, `TestAWaitingTriggerRunsTheEditedPlaybook` in
       `runtime/cmd/gronin/wait_edit_test.go`, single-host:
       while the second invocation waits, the playbook's gather step is rewritten to produce a
       different line; the run that starts from the waiting trigger records the edited line in its
@@ -517,44 +517,44 @@ happens, and the extra invocation is recorded as refused.
       `gronin show` on that run says it waited and for how long. A second case renames the playbook
       while a trigger waits: no run, and a `playbook_changed` refusal naming what the file now
       declares
-- [ ] T069 [P] [US2] SC-114, `TestAWaitedRun…` in `runtime/internal/guard/waited_test.go`: a trigger that waits and then
+- [x] T069 [P] [US2] SC-114, `TestAWaitedRun…` in `runtime/internal/guard/waited_test.go`: a trigger that waits and then
       runs leaves no refusal record, and its run's `waited_ms` is the monotonic interval from
       acceptance to start on the injected clock
-- [ ] T070 [P] [US2] `TestAWaitMeetsAnUnavailableBackend` in `runtime/internal/guard/wait_backend_test.go`: a waiting trigger that finds the
+- [x] T070 [P] [US2] `TestAWaitMeetsAnUnavailableBackend` in `runtime/internal/guard/wait_backend_test.go`: a waiting trigger that finds the
       backend unreachable when the claim frees is refused `backend_unavailable` and produces no run
       (FR-107)
-- [ ] T071 [P] [US2] In `runtime/internal/record/waiting_test.go`: two stores opened on one directory,
+- [x] T071 [P] [US2] In `runtime/internal/record/waiting_test.go`: two stores opened on one directory,
       as two processes would, cannot both accept a waiting row for one playbook, and accepting writes
       the row before returning (FR-127)
-- [ ] T072 [P] [US2] SC-109, the implemented half for `wait`, `TestGuardBlock…` in
+- [x] T072 [P] [US2] SC-109, the implemented half for `wait`, `TestGuardBlock…` in
       `runtime/internal/playbook/validate_test.go`: a playbook declaring `guard.wait` loads, one
       declaring an unknown `guard` key is still refused — the test tells an implemented key from an
       unimplemented one rather than merely observing a refusal
-- [ ] T073 [P] [US2] SC-108 for this story's mechanisms: `waiting_slot_full`, `wait_expired`,
+- [x] T073 [P] [US2] SC-108 for this story's mechanisms: `waiting_slot_full`, `wait_expired`,
       `playbook_changed` and `dropped` join the table in `runtime/cmd/gronin/refusals_cmd_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T074 [US2] `runtime/internal/record/waiting.go`: accept a waiting trigger in one write
+- [x] T074 [US2] `runtime/internal/record/waiting.go`: accept a waiting trigger in one write
       transaction that inserts the row only if no live `waiting` row exists for the playbook; set its
       outcome. Its `trigger_ref` is stored under the waiting trigger's own identifier, since no run
       exists yet to key it by
-- [ ] T075 [US2] `runtime/internal/guard/instance.go`: an exclusive advisory lock on
+- [x] T075 [US2] `runtime/internal/guard/instance.go`: an exclusive advisory lock on
       `instances/<instance>.lock` in the state directory for the life of every process that can accept
       a waiting trigger; and the reconciliation that marks `dropped` every `waiting` row whose instance
       lock can be taken, writing its refusal record
-- [ ] T076 [US2] `runtime/internal/playbook/validate.go` and `runtime/internal/playbook/playbook.go`: lift
+- [x] T076 [US2] `runtime/internal/playbook/validate.go` and `runtime/internal/playbook/playbook.go`: lift
       `validateGuard`'s refusal of `wait`; the default is 30 minutes when the block or the key is absent
-- [ ] T077 [US2] `runtime/internal/guard/wait.go`: only a manual trigger refused with `ErrHeld` waits
+- [x] T077 [US2] `runtime/internal/guard/wait.go`: only a manual trigger refused with `ErrHeld` waits
       (FR-110); acceptance is recorded durably before the wait begins (FR-127); the wait ends on
       `Released` or on its expiry, enforced on the monotonic reading (FR-112); the trigger then
       re-reads its playbook from the file it was accepted from, through the load gate, and is refused
       `playbook_changed` if the file is gone, declares another name, or is refused (FR-121); it then
       acquires again, and runs, or ends with the matching outcome and refusal. A trigger that waits and
       runs writes no refusal (FR-117)
-- [ ] T078 [US2] `runtime/internal/run/execute.go`: a run started from a waiting trigger records
+- [x] T078 [US2] `runtime/internal/run/execute.go`: a run started from a waiting trigger records
       `waiting_trigger_id` and `waited_ms` (FR-125)
-- [ ] T079 [US2] `runtime/cmd/gronin/run_cmd.go`, `runtime/cmd/gronin/serve_cmd.go`,
+- [x] T079 [US2] `runtime/cmd/gronin/run_cmd.go`, `runtime/cmd/gronin/serve_cmd.go`,
       `runtime/cmd/gronin/refusals_cmd.go` and `runtime/cmd/gronin/records_cmd.go`: `gronin run` says it
       is waiting, for whom and for how long at most, as contracts/cli.md shows; `serve` at startup and
       `gronin refusals` before it reads both run the reconciliation; `gronin show` prints how long a run
@@ -562,26 +562,26 @@ happens, and the extra invocation is recorded as refused.
 
 ### Mutants for User Story 2
 
-- [ ] T080 [US2] SC-105: `a scheduled trigger waits like a manual one`, in `internal/guard/wait.go`,
+- [x] T080 [US2] SC-105: `a scheduled trigger waits like a manual one`, in `internal/guard/wait.go`,
       command `go test ./internal/guard -count=1 -run TestOneDeep`; `a second waiting row is accepted
       beside a live one`, in `internal/record/waiting.go`, same command
-- [ ] T081 [US2] SC-106: `a waiting trigger never expires` and `the wait is measured on the wall
+- [x] T081 [US2] SC-106: `a waiting trigger never expires` and `the wait is measured on the wall
       clock`, in `internal/guard/wait.go`, command `go test ./internal/guard -count=1 -run
       TestTheWaitExpires`; `a dead process's waiting row stays waiting`, in `internal/guard/instance.go`,
       command `go test ./cmd/gronin -count=1 -run TestAKilledWaitIsDropped`
-- [ ] T082 [US2] SC-110: `a waiting trigger runs the playbook as it stood on arrival` and `a waiting
+- [x] T082 [US2] SC-110: `a waiting trigger runs the playbook as it stood on arrival` and `a waiting
       trigger follows a rename`, in `internal/guard/wait.go`, command
       `go test ./cmd/gronin -count=1 -run TestAWaitingTriggerRunsTheEditedPlaybook`
-- [ ] T083 [US2] SC-113: `acceptance is recorded only when the wait ends`, in `internal/guard/wait.go`;
+- [x] T083 [US2] SC-113: `acceptance is recorded only when the wait ends`, in `internal/guard/wait.go`;
       `refusals reads without reconciling`, in `cmd/gronin/refusals_cmd.go`; `a live process's waiting
       trigger is read as dropped`, in `internal/guard/instance.go`. All with command
       `go test ./cmd/gronin -count=1 -run TestAKilledWaitIsDropped`
-- [ ] T084 [US2] SC-114: `a trigger that waited and ran is also recorded as refused`, in
+- [x] T084 [US2] SC-114: `a trigger that waited and ran is also recorded as refused`, in
       `internal/guard/wait.go`, command `go test ./internal/guard -count=1 -run TestAWaitedRun`; `the
       time waited is not recorded`, in `internal/run/execute.go`, and `show omits the wait`, in
       `cmd/gronin/records_cmd.go`, both with command
       `go test ./cmd/gronin -count=1 -run TestAWaitingTriggerRunsTheEditedPlaybook`
-- [ ] T085 [US2] SC-109, SC-104 and SC-108 for this story: `the guard block refuses wait` in
+- [x] T085 [US2] SC-109, SC-104 and SC-108 for this story: `the guard block refuses wait` in
       `internal/playbook/validate.go`, and `the guard block accepts an unknown key` in
       `internal/playbook/playbook.schema.json`, both with command
       `go test ./internal/playbook -count=1 -run TestGuardBlock` — scoped, because the test holding
@@ -589,6 +589,35 @@ happens, and the extra invocation is recorded as refused.
       trigger that meets an unavailable backend keeps waiting`, in `internal/guard/wait.go`, command
       `go test ./internal/guard -count=1 -run TestAWaitMeetsAnUnavailableBackend`; and T063's
       `gronin refusals drops the mechanism`, confirmed still killed now that T073 has widened its table
+      *After review*: T065's FR-102 clause is asserted where a gather step exists, in
+      `TestAKilledWaitIsDropped`, whose third invocation is refused `waiting_slot_full` and leaves the
+      trace where it was; `the guard decides after the gather stage` is declared a second time against
+      it. `a second waiting row is accepted beside a live one` is renamed `a full slot is reported as an
+      error, not a refusal`, which is what it shows (data-model.md, *The slot's two layers*). Added:
+      `the file lock's waiter takes the lock to look` (`internal/run/filelock.go`,
+      `TestTheWaitersPollCannotRefuseATick`); `a waiting trigger's playbook is read again without the
+      load gate` (`cmd/gronin/deployment.go`, `TestAWaitingTriggerRunsTheEditedPlaybook/refused`); `a
+      file read alone accepts a name another file declares` (`internal/playbook/load.go`,
+      `TestLoadFileRefusesANameAnotherFileDeclares`); `a changed playbook keeps the claim the wait took`
+      (`internal/guard/wait.go`, `TestAChangedPlaybookGivesTheClaimBack`); `a run that starts from a
+      waiting trigger leaves its wait open` (`internal/record/runs.go`,
+      `TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep`); `a waiting trigger that ran is read as
+      dropped` (`internal/guard/instance.go`, `TestReconcileDoesNotDropATriggerThatRan`). T084's `a
+      trigger that waited and ran is also recorded as refused` moves to `internal/record/runs.go`, where
+      the run and the end of its wait are now one transaction, and `every system clock reads from an
+      origin of its own` is declared against the binary as well, with
+      `TestAWaitingTriggerRunsTheEditedPlaybook/edited` and `TestAWaitExpiresOnTheSystemClock`.
+      *After the second review*: the second declaration of `the guard decides after the gather stage`
+      against `TestAKilledWaitIsDropped` is withdrawn — its early gather blocks the first invocation, so
+      the test failed before reaching T065's FR-102 line — and replaced by `a trigger the guard refuses
+      runs its gather step` (`internal/run/execute.go`, `TestAKilledWaitIsDropped/killed`), which fails
+      on that line. Added: `a waiting trigger takes the claim before it reads its file`
+      (`internal/guard/wait.go`, `TestATickDuringTheRereadIsNotRefusedByTheWaiter`); `a duration is not
+      rounded to the second` (`internal/guard/duration.go`, `TestHumanDuration`); `etcd's released
+      returns while the claim is held` (`internal/guard/etcd/etcd.go`, `TestEtcdContract/C10`, the
+      half of C10 a watching backend owes). `a file read alone accepts a name another file declares`
+      becomes `a file read alone accepts what its directory refuses`, and `a trigger that waited and ran
+      is also recorded as refused` follows CreateRun's reworded error
 
 **Checkpoint**: a manual invocation that collides is deferred rather than lost, one deep, and every
 way a wait ends — ran, expired, changed, unreachable, dropped — is readable.

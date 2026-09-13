@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -32,15 +33,48 @@ type deployment struct {
 	log             *slog.Logger
 	stateDir        string
 	agentExecutable string
+	// instance is held by a process that lets a trigger wait, for as long as it is open.
+	instance *guard.Instance
 }
 
 func (d *deployment) close() {
+	if d.instance != nil {
+		_ = d.instance.Close()
+	}
 	if d.coordination != nil {
 		d.coordination.close()
 	}
 	if d.store != nil {
 		_ = d.store.Close()
 	}
+}
+
+// acceptWaiting lets this process's manual triggers wait for the run they collide with
+// (FR-110). It holds the instance lock that says this process is alive until the deployment
+// is closed, so a waiting row it writes is never read as dropped while it lives; and it
+// reads a waiting trigger's playbook again through the same gate the directory was loaded
+// through (FR-121).
+func (d *deployment) acceptWaiting(
+	cfg *config.Config, catalog *mcpcatalog.Catalog, declared *collections.Catalog,
+) error {
+	held, err := guard.HoldInstance(d.stateDir, d.executor.Guard.Instance)
+	if err != nil {
+		return err
+	}
+	d.instance = held
+	d.executor.Guard.Slot = &guard.WaitSlot{
+		Instance: held,
+		Reload: func(path string) (*playbook.Playbook, error) {
+			return playbook.LoadFile(path, capabilities(cfg, catalog, declared))
+		},
+		RunID: run.NewRunID,
+	}
+	return nil
+}
+
+// reconcile marks dropped every waiting trigger whose process is gone (FR-113).
+func (d *deployment) reconcile(ctx context.Context) (int, error) {
+	return guard.Reconcile(ctx, d.stateDir, d.store, nil)
 }
 
 // agentEnvVars are the variables the agent child inherits from this process. It is a

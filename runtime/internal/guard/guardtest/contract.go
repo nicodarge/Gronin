@@ -39,6 +39,12 @@ type Subject struct {
 	// NotApplicable names the clauses the contract's table marks n/a for this subject,
 	// each with the reason.
 	NotApplicable map[string]string
+	// NewWatching is New for a coordinator whose Released waits on the backend's own
+	// notification: watching is called once it has begun to, which is how C10 asserts that
+	// it does not return while the claim is held without sleeping. Nil for a coordinator
+	// whose Released returns at each poll, which says why in ReleasedPolls.
+	NewWatching   func(t *testing.T, watching func(name string)) Node
+	ReleasedPolls string
 }
 
 // Node is one host's coordinator on a subject's backend.
@@ -62,6 +68,9 @@ func Contract(t *testing.T, subject Subject) {
 			t.Fatalf("%s is not n/a for any subject in the contract's table", id)
 		}
 	}
+	if (subject.NewWatching == nil) == (subject.ReleasedPolls == "") {
+		t.Fatal("a subject either watches a claim, through NewWatching, or says in ReleasedPolls why it polls")
+	}
 	clauses := []struct {
 		id  string
 		run func(*testing.T, Subject)
@@ -74,6 +83,7 @@ func Contract(t *testing.T, subject Subject) {
 		{"C6", fencing},
 		{"C7", release},
 		{"C10", released},
+		{"C10", releasedWaitsWhileHeld},
 		{"C11", unavailableIsNotHeld},
 		{"C12", theGrantedExpiry},
 		{"C13", oneTickOnce},

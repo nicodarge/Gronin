@@ -31,6 +31,15 @@ func TestEtcdContract(t *testing.T) {
 			}
 		},
 		Seams: true,
+		NewWatching: func(t *testing.T, watching func(name string)) guardtest.Node {
+			t.Helper()
+			proxy := server.Proxy(t)
+			client := guardtest.NewClient(t, proxy.Endpoint())
+			return guardtest.Node{
+				Coordinator: New(client, Options{Prefix: "gronin/", Clock: runtime, Watching: watching}),
+				Hold:        proxy.Hold,
+			}
+		},
 		Unreachable: func(t *testing.T) guard.Coordinator {
 			t.Helper()
 			return New(guardtest.NewClient(t, server.Unreachable()), Options{Prefix: "gronin/", Clock: runtime})

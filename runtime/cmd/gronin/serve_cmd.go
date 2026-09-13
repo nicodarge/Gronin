@@ -101,6 +101,15 @@ func newServeCommand() *cobra.Command {
 			if interrupted > 0 {
 				cmd.Printf("marked %d interrupted run(s) from a previous process\n", interrupted)
 			}
+			// FR-113: nothing runs from a trigger whose process ended while it waited, and
+			// the drop is recorded rather than forgotten.
+			dropped, err := deployment.reconcile(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if dropped > 0 {
+				cmd.Printf("marked %d waiting trigger(s) dropped: their process ended before they ran\n", dropped)
+			}
 
 			scheduler := schedule.New(
 				func(ctx context.Context, name string, dueAt time.Time) error {

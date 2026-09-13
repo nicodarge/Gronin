@@ -87,6 +87,11 @@ func newShowCommand() *cobra.Command {
 			cmd.Printf("playbook  %s\n", one.PlaybookName)
 			cmd.Printf("status    %s\n", one.Status)
 			cmd.Printf("trigger   %s\n", one.TriggerKind)
+			if one.WaitingTriggerID != "" {
+				// A run that started well after it was asked for reads as a late one unless it
+				// says it waited (FR-125).
+				cmd.Printf("waited    %s\n", waitedFor(one))
+			}
 			if one.ClaimReach != "" {
 				// Which guarantee this run ran under. A single-host run says so, rather
 				// than leaving a reader of the record to assume the stronger one.
@@ -254,6 +259,12 @@ func duration(one record.Run) string {
 		return "-"
 	}
 	return one.EndedAt.Sub(one.StartedAt).Round(time.Millisecond).String()
+}
+
+// waitedFor is how long a run waited for the one it collided with, as the waiting process
+// measured it.
+func waitedFor(one record.Run) string {
+	return guard.HumanDuration(time.Duration(one.WaitedMS) * time.Millisecond)
 }
 
 func cost(one record.Run) string {

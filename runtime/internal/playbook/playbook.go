@@ -2,7 +2,10 @@
 // schema cannot express. The refusal rules live here.
 package playbook
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Playbook is the declarative unit an operator writes and shares. It holds no hostname,
 // no address, no credential and no identifier belonging to one deployment: those arrive
@@ -62,6 +65,24 @@ type Guard struct {
 	// Wait is how long a trigger refused because the playbook is running may wait for it
 	// (FR-112). Empty when not declared, which is not the same as "0s".
 	Wait string `yaml:"wait"`
+}
+
+// DefaultWait is how long a trigger waits when its playbook does not say: the agent stage's
+// own default timeout, so that a waiting trigger does not expire merely because the run
+// ahead of it used its declared budget (specs/002-guard/research.md §3).
+const DefaultWait = 30 * time.Minute
+
+// WaitFor is how long a trigger refused because this playbook is running may wait for it
+// (FR-112).
+func (p *Playbook) WaitFor() (time.Duration, error) {
+	if p.Guard == nil || p.Guard.Wait == "" {
+		return DefaultWait, nil
+	}
+	wait, err := time.ParseDuration(p.Guard.Wait)
+	if err != nil {
+		return 0, fmt.Errorf("guard.wait %q is not a duration: %w", p.Guard.Wait, err)
+	}
+	return wait, nil
 }
 
 // Rate is a limit of runs per window, keyed on the playbook name (FR-114).

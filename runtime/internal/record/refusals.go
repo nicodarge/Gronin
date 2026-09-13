@@ -36,6 +36,16 @@ const sortableTime = "2006-01-02T15:04:05.000000000Z07:00"
 // on the way in, like every other record: a backend's error is one of the likeliest
 // places for a credential to surface. An empty identifier is filled in.
 func (s *Store) RecordRefusal(ctx context.Context, refusal Refusal) error {
+	return s.insertRefusal(ctx, s.db, refusal)
+}
+
+// execer is what a refusal is inserted through: the database, or a transaction that ends a
+// wait in the same step.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func (s *Store) insertRefusal(ctx context.Context, db execer, refusal Refusal) error {
 	if refusal.ID == "" {
 		id, err := newRecordID()
 		if err != nil {
@@ -50,7 +60,7 @@ func (s *Store) RecordRefusal(ctx context.Context, refusal Refusal) error {
 	if !refusal.DueAt.IsZero() {
 		due = refusal.DueAt.UTC().Format(sortableTime)
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO refusals (id, playbook_name, trigger_kind, due_at, waiting_trigger_id,
 		                      mechanism, detail, refused_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -98,6 +98,8 @@ type FakeHost struct {
 	held    bool
 	severed bool
 	grant   func(asked time.Duration) time.Duration
+	// watching is called each time Released begins to wait on the fake's notification.
+	watching func(name string)
 }
 
 var _ guard.Coordinator = (*FakeHost)(nil)
@@ -116,6 +118,23 @@ func (h *FakeHost) Sever() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.severed = true
+}
+
+// OnWatch sets what Released calls each time it begins to wait on the fake's own
+// notification, which is how the contract suite knows it is waiting (C10).
+func (h *FakeHost) OnWatch(watching func(name string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.watching = watching
+}
+
+func (h *FakeHost) watched(name string) {
+	h.mu.Lock()
+	watching := h.watching
+	h.mu.Unlock()
+	if watching != nil {
+		watching(name)
+	}
 }
 
 // Resume undoes Hold and Sever.
@@ -239,6 +258,7 @@ func (h *FakeHost) Released(ctx context.Context, name string) error {
 		if free {
 			return nil
 		}
+		h.watched(name)
 		select {
 		case <-changed:
 		case <-f.clock.Changed():
