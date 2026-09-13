@@ -47,8 +47,12 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 		if err != nil {
 			return fmt.Errorf("ending the wait run %s started from: %w", run.ID, err)
 		}
-		if ended, err := result.RowsAffected(); err != nil || ended == 0 {
-			return fmt.Errorf("run %s: waiting trigger %s has already ended", run.ID, run.WaitingTriggerID)
+		ended, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if ended == 0 {
+			return fmt.Errorf("run %s: its wait had already ended (waiting trigger %s)", run.ID, run.WaitingTriggerID)
 		}
 	}
 	return tx.Commit()

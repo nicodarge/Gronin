@@ -3,6 +3,7 @@ package record_test
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,8 +188,9 @@ func TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep(t *testing.T) {
 	}
 
 	// A wait that has already ended does not become a second run.
-	if err := runFrom("20260910T061215Z-000000000002"); err == nil {
-		t.Fatal("a second run was recorded from a wait that had already ended")
+	if err := runFrom("20260910T061215Z-000000000002"); err == nil ||
+		!strings.Contains(err.Error(), "its wait had already ended") {
+		t.Fatalf("a run from a wait that had already ended was not refused saying so: %v", err)
 	}
 	if _, err := store.GetRun(t.Context(), "20260910T061215Z-000000000002"); !errors.Is(err, record.ErrNotFound) {
 		t.Fatalf("the refused run was written anyway: %v", err)
