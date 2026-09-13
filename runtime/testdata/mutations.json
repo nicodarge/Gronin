@@ -3352,21 +3352,6 @@
       ]
     },
     {
-      "name": "text changed during an update is indexed under the walk's digest",
-      "tree": "..",
-      "file": "internal/index/walk.go",
-      "find": "\tif hex.EncodeToString(sum[:]) != document.Digest {\n",
-      "replace": "\tif hex.EncodeToString(sum[:]) != document.Digest && document.Bytes < 0 {\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/index",
-        "-count=1",
-        "-run",
-        "TestAnUpdateNeverIndexesTextUnderAnotherDigest"
-      ]
-    },
-    {
       "name": "a held index is not waited out",
       "tree": "..",
       "file": "internal/index/index.go",
@@ -3472,7 +3457,7 @@
       ]
     },
     {
-      "name": "text changed during an update is indexed under the walk's digest, caught via ./internal/index",
+      "name": "text changed during an update is indexed under the walk's digest",
       "tree": "..",
       "file": "internal/index/walk.go",
       "find": "\tif hex.EncodeToString(sum[:]) != document.Digest {\n",
