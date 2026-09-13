@@ -112,39 +112,24 @@ func Load(dir string, dep Deployment) (Loaded, error) {
 	return loaded, nil
 }
 
-// LoadFile reads one playbook through the same layers Load puts each file through, and
-// returns the refusal when any refuses it. It is how a trigger that waited reads its
-// playbook again (FR-121). Another file in the directory declaring the same name refuses it
-// whichever sorts first: Load refuses the directory for it, so accepting the one file here
-// would run what a start would refuse (FR-042).
+// LoadFile reads one playbook the way a start reads it: the whole directory through Load,
+// refused when anything in it is refused, since a start then arms nothing (FR-042). It is how
+// a trigger that waited reads its playbook again (FR-121), and a re-read that accepted what a
+// start would refuse would run it.
 func LoadFile(path string, dep Deployment) (*Playbook, error) {
-	book, err := ParseFile(path)
+	loaded, err := Load(filepath.Dir(path), dep)
 	if err != nil {
-		return nil, Refusal{Path: path, Reason: err}
+		return nil, err
 	}
-	if problems := Validate(book, dep); len(problems) > 0 {
-		return nil, Refusal{Path: path, Problems: problems}
+	if !loaded.OK() {
+		return nil, loaded.Err()
 	}
-	entries, err := os.ReadDir(filepath.Dir(path))
-	if err != nil {
-		return nil, Refusal{Path: path, Reason: fmt.Errorf("reading the playbook directory: %w", err)}
-	}
-	for _, entry := range entries {
-		sibling := filepath.Join(filepath.Dir(path), entry.Name())
-		if ext := filepath.Ext(entry.Name()); entry.IsDir() || (ext != ".yaml" && ext != ".yml") ||
-			filepath.Clean(sibling) == filepath.Clean(path) {
-			continue
-		}
-		other, err := ParseFile(sibling)
-		if err != nil {
-			continue
-		}
-		if other.Name == book.Name {
-			return nil, Refusal{Path: path, Reason: fmt.Errorf(
-				"name: %q is also declared by %s", book.Name, entry.Name())}
+	for _, book := range loaded.Playbooks {
+		if filepath.Clean(book.Path) == filepath.Clean(path) {
+			return book, nil
 		}
 	}
-	return book, nil
+	return nil, fmt.Errorf("%s is not among the playbooks in %s", filepath.Base(path), filepath.Dir(path))
 }
 
 // Find returns the loaded playbook with a name.
