@@ -47,6 +47,28 @@ func SetBusySeam(ix *Index, busy func()) {
 	ix.seams.busy = busy
 }
 
+// RetryBusy runs retryBusy directly against a synthetic operation, so a test can drive its
+// retry and relabeling exactly, rather than only through however a real SQLite database
+// happens to time a lock.
+func RetryBusy(ctx context.Context, busy func(), operation func() error) error {
+	return retryBusy(ctx, busy, operation)
+}
+
+// SetCommitWait replaces how long COMMIT may wait for a reader before giving up, for as
+// long as the test runs: a test can then make a reader's hold longer than the wait without
+// making the suite wait out a real bound, or a real unboundedCommitWait, to prove it.
+func SetCommitWait(t interface{ Cleanup(func()) }, wait func(ctx context.Context) time.Duration) {
+	previous := commitWait
+	commitWait = wait
+	t.Cleanup(func() { commitWait = previous })
+}
+
+// CommitWait is how long COMMIT would wait for a reader for ctx, exposed so a test can
+// check the figure itself rather than only how long an update ends up waiting.
+func CommitWait(ctx context.Context) time.Duration {
+	return commitWait(ctx)
+}
+
 // SetReadSeam installs what an update calls each time it has read a document's text to
 // index it.
 func SetReadSeam(ix *Index, read func(source string)) {

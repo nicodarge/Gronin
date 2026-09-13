@@ -127,6 +127,45 @@ func TestACancelIsNotReportedAsHeld(t *testing.T) {
 	})
 }
 
+// A BUSY that never went through BeginTx — an ordinary write statement finding the index
+// held, the way a COMMIT does — is not relabeled the index held once the bound ends inside
+// the retry pause, any more than it is at the top of the loop: retryBusy's two points that
+// can end the loop on ctx apply the same rule. Driven directly with a synthetic operation,
+// since nothing in this package's own calls leaves that rule untested once COMMIT's own
+// BUSY is caught earlier and never reaches here at all.
+func TestABusyThatNeverBeganIsNotRelabeledHeldInsideTheRetryPauseEither(t *testing.T) {
+	dir := t.TempDir()
+	indexDir := filepath.Join(dir, "index")
+	ix := openIndex(t, indexDir, filepath.Join(dir, "sources"))
+	if _, err := ix.Update(t.Context(), index.Walk{}); err != nil {
+		t.Fatal(err)
+	}
+	holdWriteLock(t, indexDir)
+
+	busyDB, err := sql.Open("sqlite", "file:"+filepath.Join(indexDir, "runbooks.db")+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = busyDB.Close() })
+
+	index.SetBusyPause(t, 5*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
+	defer cancel()
+
+	err = index.RetryBusy(ctx, nil, func() error {
+		// An ordinary autocommit write, not a BeginTx: exactly the shape of failure a
+		// begin-only rule has to tell apart from one, since nothing marks it as begin.
+		_, err := busyDB.ExecContext(context.Background(), `DELETE FROM documents WHERE source = 'does-not-exist'`)
+		return err
+	})
+	if err == nil {
+		t.Fatal("a write against an index held exclusively elsewhere succeeded")
+	}
+	if errors.Is(err, index.ErrHeld) {
+		t.Errorf("a BUSY that never went through BeginTx is relabeled the index held once the bound ends inside the retry pause: %v", err)
+	}
+}
+
 // Held past the bound, the update is refused when its bound ends, not after a wait of the
 // index's own choosing. The watchdog is well past the bound and well short of a fixed
 // five-second wait inside SQLite.

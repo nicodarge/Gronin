@@ -41,10 +41,20 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 	return found, err
 }
 
-func (ix *Index) search(ctx context.Context, query string, limit int) (Found, error) {
+// A read-only BeginTx is deferred: SQLite takes no lock at BEGIN, only at the first
+// statement that actually reads. So any failure before this returns — not only BeginTx's
+// own — can be that first statement finding the index held, and every one of them is
+// reported that way, the same as readStored (index.go).
+func (ix *Index) search(ctx context.Context, query string, limit int) (found Found, err error) {
+	defer func() {
+		if err != nil && !isBegin(err) {
+			err = &beginError{err}
+		}
+	}()
+
 	tx, err := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return Found{}, &beginError{err}
+		return Found{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -52,7 +62,7 @@ func (ix *Index) search(ctx context.Context, query string, limit int) (Found, er
 	if err != nil {
 		return Found{}, err
 	}
-	found := Found{Generation: generation}
+	found = Found{Generation: generation}
 	if !Searchable(query) {
 		return found, ErrNoWords
 	}

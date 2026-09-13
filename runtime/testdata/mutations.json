@@ -3745,23 +3745,23 @@
       "name": "any failure once the index was found held is reported as held",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "\t\tif held && ctx.Err() != nil && isBegin(err) {\n",
-      "replace": "\t\tif held && ctx.Err() != nil {\n",
+      "find": "\tif isBegin(err) && errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "replace": "\tif errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
       "command": [
         "go",
         "test",
         "./internal/index",
         "-count=1",
         "-run",
-        "TestAFailureAfterTheLockIsTakenIsNotReportedAsHeld"
+        "TestABusyThatNeverBeganIsNotRelabeledHeldInsideTheRetryPauseEither"
       ]
     },
     {
       "name": "a cancel is reported as a held index",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "\tif errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
-      "replace": "\tif ctx.Err() != nil {\n",
+      "find": "\tif isBegin(err) && errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "replace": "\tif isBegin(err) && ctx.Err() != nil {\n",
       "command": [
         "go",
         "test",
@@ -3775,7 +3775,7 @@
       "name": "a reader open at commit makes the transaction be redone",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "fmt.Sprintf(\"PRAGMA busy_timeout = %d\", commitWait(ctx).Milliseconds())",
+      "find": "fmt.Sprintf(\"PRAGMA busy_timeout = %d\", wait.Milliseconds())",
       "replace": "\"PRAGMA busy_timeout = 0\"",
       "command": [
         "go",
@@ -3784,6 +3784,36 @@
         "-count=1",
         "-run",
         "TestAReaderOpenAtCommitIsWaitedOutWithoutReadingAgain"
+      ]
+    },
+    {
+      "name": "commit waits no more than a fixed cap when the caller's own bound is longer",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\treturn max(time.Until(deadline), time.Millisecond)\n",
+      "replace": "\t\treturn min(max(time.Until(deadline), time.Millisecond), 30*time.Second)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestCommitWaitIsTheCallersRemainingBoundOrUnboundedWithNone"
+      ]
+    },
+    {
+      "name": "commit waits no more than a fixed cap when the caller sets no bound",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\treturn unboundedCommitWait\n}",
+      "replace": "\treturn min(unboundedCommitWait, 30*time.Second)\n}",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestCommitWaitIsTheCallersRemainingBoundOrUnboundedWithNone"
       ]
     }
   ]

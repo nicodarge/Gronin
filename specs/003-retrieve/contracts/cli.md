@@ -25,9 +25,15 @@ brought into service with.
 
 None of the three reads a run's record, so `list` and `show` work with no run history. All three
 work while `serve` is running, since the index is a database two processes can open, but not at the
-instant another connection holds it: `list` and `show` wait at most 3 seconds behind it before
-saying `the index is held by another connection`, since a process stopped mid-update holds it until it
-is killed, and `rebuild` waits for as long as the writer takes.
+instant another connection holds it: `list` and `show` wait at most 3 seconds behind the holder
+before saying `the index is held by another connection`, since a process stopped mid-update holds
+it until it is killed, and `rebuild` waits for as long as the writer takes.
+
+An update or a rebuild that reaches COMMIT waits out a reader still open there — not another
+writer, so not `the index is held by another connection` — for the same bound: a retrieval's own
+remaining time, or, for `rebuild`, unbounded. A reader outlasting that fails naming why it gave up,
+and the previous generation stays in place; it is not retried, since retrying would mean rereading
+and reindexing every document COMMIT was about to write.
 
 All three have to run as the deployment's user. An index file is created readable and writable by
 its owner alone, a wider one is narrowed only by its owner, and one the command cannot write is

@@ -157,11 +157,14 @@ ten walks. A refusal names a changed file only while the file is still changing:
 has read every document it adds unchanged, a later refusal is for its own cause. Waiting for a
 write lock another process holds is inside the same bound. A search open at COMMIT holds the
 database as well, and under the rollback journal COMMIT cannot take it exclusively until the
-search ends: the update waits for it there, within the same bound, and neither redoes its
-transaction nor reads any document again for it. A search reads inside one transaction, so it
-sees the generation before or the one after, never part of either. A seam between reading the
-generation and opening the transaction is what lets a test hold one update there while another
-commits (SC-211).
+search ends: the update waits for it there — for its own remaining bound in full, uncapped, or,
+with no bound of its own (a rebuild), for as long as the search takes — and neither redoes its
+transaction nor reads any document again for it. A search that outlasts that wait is not another
+writer, so the refusal is not "the index is held by another connection"; it names why COMMIT gave
+up instead, and the previous generation stays in place, rolled back like any other refused update.
+A search reads inside one transaction, so it sees the generation before or the one after, never
+part of either. A seam between reading the generation and opening the transaction is what lets a
+test hold one update there while another commits (SC-211).
 
 One SQLite write transaction per update survives a kill, and no generation is a file renamed into
 place: SC-211's kill decided it, and [research.md](./research.md) §12 records what it showed. The
