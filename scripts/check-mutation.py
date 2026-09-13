@@ -18,7 +18,9 @@ the full list, and refuses a shard that is malformed or selects none.
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
 The tree's repository is copied by its tracked files, laid out as the repository has
-them, so a test that reads outside the tree by a relative path sees what CI sees.
+them, so a test that reads outside the tree by a relative path sees what CI sees. The
+copy is each file's working-tree content, not its committed blob, so this and CI agree
+only on a clean tree.
 """
 
 from __future__ import annotations
@@ -496,6 +498,36 @@ def self_test() -> int:
             pass
         else:
             failures.append("a file resolving outside its tree was loaded")
+
+        # The same refusal, escaping through a symlink rather than a literal "..".
+        symlink_tree = root / "symlink-tree"
+        symlink_tree.mkdir()
+        outside_target = root / "outside.txt"
+        outside_target.write_text("secret\n")
+        (symlink_tree / "escaping-link").symlink_to(outside_target)
+        symlink_config = root / "escaping-symlink.json"
+        symlink_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": "escaping symlink",
+                            "tree": str(symlink_tree),
+                            "file": "escaping-link",
+                            "find": "x",
+                            "replace": "y",
+                            "command": ["true"],
+                        }
+                    ]
+                }
+            )
+        )
+        try:
+            load(symlink_config)
+        except ConfigError:
+            pass
+        else:
+            failures.append("a file that is a symlink escaping its tree was loaded")
 
         # The refusals matter as much as the counts. A harness that treats a broken
         # baseline or an unapplied mutation as a result reports a number for something
