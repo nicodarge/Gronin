@@ -2360,6 +2360,21 @@
         "-run",
         "TestCredentials"
       ]
+    },
+    {
+      "name": "the ingress imports the operator API",
+      "tree": "..",
+      "file": "internal/ingress/doc.go",
+      "find": "package ingress\n",
+      "replace": "package ingress\n\nimport _ \"github.com/nicodarge/Gronin/runtime/internal/api\"\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheIngressAndTheAPIShareOnlyTheRecord"
+      ]
     }
   ]
 }
