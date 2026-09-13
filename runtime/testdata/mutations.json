@@ -2617,7 +2617,7 @@
       ]
     },
     {
-      "name": "every system clock reads from an origin of its own",
+      "name": "every system clock reads from an origin of its own, seen by the guard package",
       "tree": "..",
       "file": "internal/guard/clock.go",
       "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
@@ -2722,7 +2722,7 @@
       ]
     },
     {
-      "name": "every system clock reads from an origin of its own",
+      "name": "every system clock reads from an origin of its own, seen by an edited playbook's waited run",
       "tree": "..",
       "file": "internal/guard/clock.go",
       "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
@@ -2737,7 +2737,7 @@
       ]
     },
     {
-      "name": "every system clock reads from an origin of its own",
+      "name": "every system clock reads from an origin of its own, seen by a wait that expires",
       "tree": "..",
       "file": "internal/guard/clock.go",
       "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
