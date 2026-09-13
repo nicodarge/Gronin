@@ -146,13 +146,20 @@ var errNoRoot = errors.New("this walk was not made by WalkDirectory, so its docu
 // contentOf reads a walked document again to index it, and refuses one whose content no
 // longer has the digest the walk took: indexed, it would sit under a generation naming
 // content the index does not hold.
-func (w Walk) contentOf(document Document) ([]byte, error) {
+//
+// read, when not nil, is told of each document whose text has been read, by the read
+// itself: reported anywhere else, a read and its report could be moved apart, and a test
+// of where reading happens would follow the report.
+func (w Walk) contentOf(document Document, read func(source string)) ([]byte, error) {
 	if w.root == "" {
 		return nil, errNoRoot
 	}
 	content, err := readDocument(filepath.Join(w.root, filepath.FromSlash(document.Source)))
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", document.Source, err)
+	}
+	if read != nil {
+		read(document.Source)
 	}
 	sum := sha256.Sum256(content)
 	if hex.EncodeToString(sum[:]) != document.Digest {

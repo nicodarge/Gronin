@@ -124,14 +124,23 @@ const busyPause = 20 * time.Millisecond
 
 // retryBusy runs operation until it does not find the database held by another
 // connection, or until ctx ends. The wait is the caller's bound — a retrieval's own
-// remaining time — and not a figure of this package's: SQLite's busy_timeout is kept to a
-// slice, because a busy handler sleeping inside SQLite does not notice a context ending.
+// remaining time — and not a figure of this package's.
+//
+// SQLite's own busy_timeout is zero, so that every wait is here. A busy handler sleeping
+// inside SQLite is interrupted when the context ends, and what comes back then is the
+// context's error or SQLite's "interrupted", not the index being held. Once an operation
+// has found the index held, an error at the end of the bound is reported as that.
 func retryBusy(ctx context.Context, busy func(), operation func() error) error {
+	held := false
 	for {
 		err := operation()
+		if err != nil && held && ctx.Err() != nil {
+			return fmt.Errorf("%w: %w", ErrHeld, errors.Join(ctx.Err(), err))
+		}
 		if !isBusy(err) {
 			return err
 		}
+		held = true
 		if busy != nil {
 			busy()
 		}
@@ -234,7 +243,7 @@ func Open(ctx context.Context, dir, collection string, cfg Configuration) (*Inde
 	if err := private(file); err != nil {
 		return nil, fmt.Errorf("opening the index of %s: %w", collection, err)
 	}
-	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(100)&_txlock=immediate")
+	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(0)&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("opening the index of %s: %w", collection, err)
 	}
@@ -282,7 +291,7 @@ func ReadStored(ctx context.Context, dir, collection string) (Stored, bool, erro
 	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
 		return Stored{}, false, nil
 	}
-	db, err := sql.Open("sqlite", "file:"+file+"?mode=rw&_pragma=busy_timeout(100)")
+	db, err := sql.Open("sqlite", "file:"+file+"?mode=rw&_pragma=busy_timeout(0)")
 	if err != nil {
 		return Stored{}, false, err
 	}
@@ -568,12 +577,9 @@ func (c change) apply(ctx context.Context, tx *sql.Tx, read func(source string))
 		}
 	}
 	for _, document := range c.add {
-		content, err := c.walk.contentOf(document)
+		content, err := c.walk.contentOf(document, read)
 		if err != nil {
 			return err
-		}
-		if read != nil {
-			read(document.Source)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,
 			document.Source, document.Digest, document.Bytes); err != nil {

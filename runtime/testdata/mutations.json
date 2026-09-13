@@ -3280,8 +3280,8 @@
       "name": "the listing opens the index read-only",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=rw&_pragma=busy_timeout(100)\")",
-      "replace": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=ro&_pragma=busy_timeout(100)\")",
+      "find": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=rw&_pragma=busy_timeout(0)\")",
+      "replace": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=ro&_pragma=busy_timeout(0)\")",
       "command": [
         "go",
         "test",
@@ -3385,7 +3385,7 @@
       "name": "a held index is waited out for a fixed time",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "\"file:\"+file+\"?_pragma=busy_timeout(100)&_txlock=immediate\"",
+      "find": "\"file:\"+file+\"?_pragma=busy_timeout(0)&_txlock=immediate\"",
       "replace": "\"file:\"+file+\"?_pragma=busy_timeout(5000)&_txlock=immediate\"",
       "command": [
         "go",
@@ -3671,7 +3671,7 @@
       "tree": "..",
       "file": "internal/index/index.go",
       "find": "\ttx, err := ix.db.BeginTx(ctx, nil)\n",
-      "replace": "\tfor _, document := range diff.add {\n\t\tif _, err := diff.walk.contentOf(document); err == nil && ix.seams.read != nil {\n\t\t\tix.seams.read(document.Source)\n\t\t}\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "replace": "\tfor _, document := range diff.add {\n\t\t_, _ = diff.walk.contentOf(document, ix.seams.read)\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
       "command": [
         "go",
         "test",
@@ -3724,6 +3724,21 @@
         "-count=1",
         "-run",
         "TestAnUpdateAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "the documents are read into memory before the write lock and indexed from it",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tcontent, err := c.walk.contentOf(document, read)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "replace": "\t\tcontent := preread[document.Source]\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\nvar preread = map[string][]byte{}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tpreread = map[string][]byte{}\n\tfor _, document := range diff.add {\n\t\tcontent, err := diff.walk.contentOf(document, ix.seams.read)\n\t\tif err != nil {\n\t\t\treturn Generation{}, err\n\t\t}\n\t\tpreread[document.Source] = content\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestADocumentIsReadInsideTheWriteTransaction"
       ]
     }
   ]
