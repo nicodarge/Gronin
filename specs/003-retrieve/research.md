@@ -56,6 +56,16 @@ two documents holding `disk` or `logs`, and the hostile string searched without 
 engine provides. The query is split and quoted before it reaches `MATCH`, and SC-217's fixture is
 the three strings above plus a field filter.
 
+**Revised on 2026-09-13, when the field filter reached the fixture**: splitting at whitespace is
+not enough. `text:disk` is one whitespace-separated word; quoted, it is the FTS5 string
+`"text:disk"`, which `unicode61` tokenizes into the phrase "text disk" and which finds those two
+words side by side only — not what `text disk` finds searched as plain terms. The query is
+therefore split where `unicode61` splits: at every character that is not a letter, a number or a
+private-use character, judged by Go's Unicode tables where the tokenizer uses Unicode 6.1's, so a
+character newer than that can be split differently. Each word is quoted, embedded quotes doubled,
+and the words are joined with `OR`. A query holding no such word searches nothing, and is refused
+like an empty one (FR-228).
+
 ## 3. Scores on a small collection
 
 **Question**: what does `bm25()` produce on a collection the size of a first deployment's?
@@ -410,6 +420,38 @@ Reading every file on every retrieval makes the read a bound to state: a file ov
 with that reason (FR-213), the size to which a gather step's output and a playbook's prompt are
 already held. The largest file in the three sets of §8 is 99 KB. The walk counts toward FR-209's
 bound.
+
+## 12. What a killed update leaves
+
+**Question**: plan.md and data-model.md left open whether one SQLite write transaction per update
+is enough for FR-219, or whether a generation has to be a file built beside the index and renamed
+into place, and gave the decision to SC-211's kill rather than to argument.
+
+**Method**: `TestAKilledRebuildLeavesThePreviousGeneration` in
+`runtime/internal/index/generation_test.go`, run on 2026-09-13. A generation over two one-line
+documents is committed. The sources are then replaced by two documents beside 600 files of about
+8 KB, enough that a rebuild overflows SQLite's page cache before it commits. A re-execution of the
+test binary opens the index, starts a rebuild, and blocks at a seam inside its write transaction —
+after the old passages are deleted and the new ones inserted, before the generation row is written
+— where it is sent SIGKILL. The index uses SQLite's default rollback journal, with writes taking the
+lock when they begin. The test then requires the journal the kill left to be non-empty, before it
+reads anything, and reads the index the way `gronin collections list` does.
+
+An earlier version of this test, reviewed the same day, killed a rebuild over two one-line files.
+That rebuild never overflowed the cache, so no journal was hot and any reader would have named the
+previous generation: it could not fail for the case it named.
+
+**Answer**: the kill left a non-empty `runbooks.db-journal`. Read through a read-only connection,
+which is how the listing opened the index until then, the index refused to be read at all —
+`attempt to write a readonly database (776)`, SQLite's code for a hot journal a read-only
+connection cannot roll back — so `collections list` would have said the collection cannot be
+listed. Read through a read-write connection, the journal was rolled back, the index named the
+previous generation, and a search returned that generation's passages and none of the killed
+rebuild's.
+
+**Decision**: one write transaction per update, and no file swapped by rename. The listing opens the
+index read-write and reads inside a read-only transaction, so that recovering from a kill is
+something its read can do.
 
 ## Open
 

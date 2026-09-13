@@ -19,6 +19,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
 // deployment is everything one invocation needs: where this deployment keeps its state,
@@ -264,6 +265,24 @@ func openConfig(cmd *cobra.Command) (*config.Config, error) {
 // reads config.json.
 func openCatalog(cmd *cobra.Command) (*mcpcatalog.Catalog, error) {
 	return mcpcatalog.Load(stateDirOf(cmd))
+}
+
+// indexDir is where every collection's index lives: in the state directory, as derived
+// data a walk of the sources restores (FR-216).
+func indexDir(stateDir string) string {
+	return filepath.Join(stateDir, "index")
+}
+
+// retrieving hands the executor the retrieve stage over the collections this deployment
+// declares. Only a command that runs a playbook calls it, so a malformed collections.json
+// withholds nothing from one that reads run history.
+func (d *deployment) retrieving(declared *collections.Catalog) {
+	d.executor.Retrieve = &retrieve.Stage{
+		Catalog:  declared,
+		IndexDir: indexDir(d.stateDir),
+		Config:   d.config,
+		Redactor: d.store.Redactor(),
+	}
 }
 
 // openCollections reads the collection catalogue once per invocation, the way openCatalog

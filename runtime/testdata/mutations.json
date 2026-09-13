@@ -1769,51 +1769,6 @@
       ]
     },
     {
-      "name": "the embedded schema drifts from the published contract",
-      "tree": "..",
-      "file": "internal/playbook/playbook.schema.json",
-      "find": "\"description\": \"The shape of a playbook.",
-      "replace": "\"description\": \"MUTATED The shape of a playbook.",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1",
-        "-run",
-        "TestTheEmbeddedSchemaIsTheContract"
-      ]
-    },
-    {
-      "name": "the documented example's output schema never compiles",
-      "tree": "..",
-      "file": "internal/stage/agent/validate.go",
-      "find": "compiler.Compile(\"output.schema.json\")",
-      "replace": "compiler.Compile(\"output.schema.jsonx\")",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1",
-        "-run",
-        "TestDocumentedExamplesAreAccepted"
-      ]
-    },
-    {
-      "name": "the shipped prompt exceeds a byte bound only the real file can trip",
-      "tree": "..",
-      "file": "internal/playbook/validate.go",
-      "find": "const MaxPromptBytes int64 = 1 << 20",
-      "replace": "const MaxPromptBytes int64 = 100",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1",
-        "-run",
-        "TestTheShippedExampleIsAccepted"
-      ]
-    },
-    {
       "name": "the catalogue accepts an unknown key",
       "tree": "..",
       "file": "internal/collections/collections.go",
@@ -2407,6 +2362,51 @@
       ]
     },
     {
+      "name": "the embedded schema drifts from the published contract",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "\"description\": \"The shape of a playbook.",
+      "replace": "\"description\": \"MUTATED The shape of a playbook.",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheEmbeddedSchemaIsTheContract"
+      ]
+    },
+    {
+      "name": "the documented example's output schema never compiles",
+      "tree": "..",
+      "file": "internal/stage/agent/validate.go",
+      "find": "compiler.Compile(\"output.schema.json\")",
+      "replace": "compiler.Compile(\"output.schema.jsonx\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDocumentedExamplesAreAccepted"
+      ]
+    },
+    {
+      "name": "the shipped prompt exceeds a byte bound only the real file can trip",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "const MaxPromptBytes int64 = 1 << 20",
+      "replace": "const MaxPromptBytes int64 = 100",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheShippedExampleIsAccepted"
+      ]
+    },
+    {
       "name": "the ingress imports the operator API",
       "tree": "..",
       "file": "internal/ingress/doc.go",
@@ -2857,6 +2857,966 @@
       ]
     },
     {
+      "name": "the results file is written after the agent stage",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tretrieveErr := e.retrieve(ctx, stages, started, book, incomplete, trigger.Values)\n",
+      "replace": "\tvar retrieveErr error\n\tdefer func() { _ = e.retrieve(ctx, stages, started, book, incomplete, trigger.Values) }()\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheAgentReadsWhatWasRetrieved"
+      ]
+    },
+    {
+      "name": "the results file is never written",
+      "tree": "..",
+      "file": "internal/stage/retrieve/retrieve.go",
+      "find": "\tif err := os.WriteFile(filepath.Join(workDir, filepath.Base(declared.As)), file, 0o600); err != nil {\n",
+      "replace": "\tif _, err := os.Stat(filepath.Join(workDir, filepath.Base(declared.As))); err != nil && !os.IsNotExist(err) {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheAgentReadsWhatWasRetrieved"
+      ]
+    },
+    {
+      "name": "query_from is ignored for the trigger",
+      "tree": "..",
+      "file": "internal/stage/retrieve/query.go",
+      "find": "\tif declared.QueryFrom != \"\" {\n\t\tdata, err",
+      "replace": "\tif value, found := trigger[declared.QueryFrom]; found {\n\t\treturn value, nil\n\t}\n\tif declared.QueryFrom != \"\" {\n\t\tdata, err",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheQuery"
+      ]
+    },
+    {
+      "name": "the gate refuses every retrieve block",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tvar problems []Problem\n\n\t// What a name may collide with",
+      "replace": "\tproblems := []Problem{{Field: \"retrieve\", Found: \"declared, and this runtime does not apply it yet\"}}\n\n\t// What a name may collide with",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestRetrieveBlock"
+      ]
+    },
+    {
+      "name": "the walk follows symbolic links",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tinfo, err := entry.Info()\n",
+      "replace": "\t\tinfo, err := os.Stat(path)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheWalk"
+      ]
+    },
+    {
+      "name": "a file past the document bound is read",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tcase info.Size() > MaxDocumentBytes:\n\t\t\tskip(ReasonTooLarge)\n\t\t\treturn nil\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheWalk"
+      ]
+    },
+    {
+      "name": "a file that is not text is indexed",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tif bytes.IndexByte(content, 0) >= 0 || !utf8.Valid(content) {\n",
+      "replace": "\t\tif bytes.IndexByte(content, 0) < -1 && !utf8.Valid(content) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheWalk"
+      ]
+    },
+    {
+      "name": "a listing walking a collection follows symbolic links too",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tinfo, err := entry.Info()\n",
+      "replace": "\t\tinfo, err := os.Stat(path)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAListingNamesEverySkippedFile"
+      ]
+    },
+    {
+      "name": "an update ignores removed documents",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tif !present[document.Source] {\n\t\t\tdiff.remove",
+      "replace": "\t\tif !present[document.Source] && document.Source == \"\" {\n\t\t\tdiff.remove",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUpdateMatchesARebuild"
+      ]
+    },
+    {
+      "name": "an update ignores changed digests",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tcase digest != document.Digest:\n\t\t\tdiff.remove = append(diff.remove, document.Source)\n",
+      "replace": "\t\tcase digest != document.Digest && !found:\n\t\t\tdiff.remove = append(diff.remove, document.Source)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUpdateMatchesARebuild"
+      ]
+    },
+    {
+      "name": "the listing never reports a change",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tcomparison.Changed = comparison.Target != stored.Generation.ID\n",
+      "replace": "\tcomparison.Changed = false\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUpdateMatchesARebuild"
+      ]
+    },
+    {
+      "name": "the index is kept outside the state directory",
+      "tree": "..",
+      "file": "cmd/gronin/deployment.go",
+      "find": "\treturn filepath.Join(stateDir, \"index\")\n",
+      "replace": "\treturn filepath.Join(filepath.Dir(stateDir), filepath.Base(stateDir)+\"-index-outside\")\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAnUpdateMatchesARebuild"
+      ]
+    },
+    {
+      "name": "an update commits in two transactions",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tix.seam(ix.seams.inTransaction)\n",
+      "replace": "\tif err := tx.Commit(); err != nil {\n\t\treturn Generation{}, err\n\t}\n\ttx, err = ix.db.BeginTx(ctx, nil)\n\tif err != nil {\n\t\treturn Generation{}, err\n\t}\n\tix.seam(ix.seams.inTransaction)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAKilledRebuildLeavesThePreviousGeneration"
+      ]
+    },
+    {
+      "name": "an update writes without checking the generation it read",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif current.ID != readID {\n",
+      "replace": "\tif current.ID != readID && readID == \"-\" {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestConcurrentUpdatesLeaveOneWholeGeneration"
+      ]
+    },
+    {
+      "name": "the results file is not recorded",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\trow.ResultsRef = ref\n",
+      "replace": "\t\t_ = ref\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheRecordHoldsWhatWasRetrieved"
+      ]
+    },
+    {
+      "name": "the retrieval row omits its generation",
+      "tree": "..",
+      "file": "internal/record/retrievals.go",
+      "find": "\t\tnullable(retrieval.Generation), formatTime(retrieval.GenerationBuiltAt),\n",
+      "replace": "\t\tnil, formatTime(retrieval.GenerationBuiltAt),\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestTheRecordHoldsWhatWasRetrieved"
+      ]
+    },
+    {
+      "name": "a replay does not restore the retrieved files",
+      "tree": "..",
+      "file": "internal/run/replay.go",
+      "find": "\t\tif err := os.WriteFile(filepath.Join(started.WorkDir, filepath.Base(retrieval.AsName)), restored.Results, 0o600); err != nil {\n",
+      "replace": "\t\tif err := error(nil); err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestAReplayDoesNotSearch"
+      ]
+    },
+    {
+      "name": "lexical ties are left in index order",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\t\t ORDER BY bm25(passages), source, ordinal\n",
+      "replace": "\t\t ORDER BY bm25(passages)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTiesFollowTheKey"
+      ]
+    },
+    {
+      "name": "the query reaches MATCH unquoted",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\t\tquoted = append(quoted, `\"`+strings.ReplaceAll(word, `\"`, `\"\"`)+`\"`)\n",
+      "replace": "\t\tquoted = append(quoted, word)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAQueryIsPlainText"
+      ]
+    },
+    {
+      "name": "the query is not cut",
+      "tree": "..",
+      "file": "internal/stage/retrieve/query.go",
+      "find": "\tif len(query) <= MaxQueryBytes {\n",
+      "replace": "\tif len(query) >= 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestBounds"
+      ]
+    },
+    {
+      "name": "the result count is not capped",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\tif len(hits) > limit {\n",
+      "replace": "\tif len(hits) > limit && limit < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestBounds"
+      ]
+    },
+    {
+      "name": "the byte bound is not applied",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\tif total <= maxBytes {\n",
+      "replace": "\tif total >= 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestBounds"
+      ]
+    },
+    {
+      "name": "a cut is not recorded as truncated",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\treturn out, items, true\n",
+      "replace": "\treturn out, items, false\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestBounds"
+      ]
+    },
+    {
+      "name": "a passage exceeds the cap",
+      "tree": "..",
+      "file": "internal/index/passage.go",
+      "find": "\tfor block.end-start > PassageBytes {\n",
+      "replace": "\tfor block.end-start > 4*PassageBytes {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestPassages"
+      ]
+    },
+    {
+      "name": "a missing directory walks as empty",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\troot, err := filepath.EvalSymlinks(dir)\n\tif err != nil {\n",
+      "replace": "\troot, err := filepath.EvalSymlinks(dir)\n\tif errors.Is(err, fs.ErrNotExist) {\n\t\treturn Walk{}, nil\n\t}\n\tif err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "a refused retrieval lets the run continue",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tif retrieveErr != nil {\n",
+      "replace": "\tif retrieveErr != nil && len(book.Retrieve) < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "a refused retrieval is recorded failed",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\t\toutcome.Status = record.StatusRefused\n\t\toutcome.Error = retrieveErr.Error()\n",
+      "replace": "\t\toutcome.Status = record.StatusFailed\n\t\toutcome.Error = retrieveErr.Error()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "nothing found is not said",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\t\tpieces = append(pieces, piece{head: \"\\n\" + nothingMatched + \"\\n\"})\n",
+      "replace": "\t\tpieces = append(pieces, piece{head: \"\\n\"})\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestNothingFoundIsSaid"
+      ]
+    },
+    {
+      "name": "the listing opens the index read-only",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=rw&_pragma=busy_timeout(0)\")",
+      "replace": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=ro&_pragma=busy_timeout(0)\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAKilledRebuildLeavesThePreviousGeneration"
+      ]
+    },
+    {
+      "name": "an empty query is searched",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\t\treturn found, ErrNoWords\n",
+      "replace": "\t\treturn found, nil\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestASearchHoldingNoWordIsRefused"
+      ]
+    },
+    {
+      "name": "a pipe is read as a document",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tcase !info.Mode().IsRegular():\n\t\t\tskip(ReasonNotRegular)\n\t\t\treturn nil\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheWalk"
+      ]
+    },
+    {
+      "name": "a result heading is written without its passage",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tbreak\n\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a retrieval that handed the agent nothing is recorded found",
+      "tree": "..",
+      "file": "internal/stage/retrieve/retrieve.go",
+      "find": "\tif len(items) == 0 {\n",
+      "replace": "\tif len(hits) == 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a held index is not waited out",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tif !isBusy(err) {\n",
+      "replace": "\t\tif !isBusy(err) || err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexIsWaitedOutWithinTheRetrievalBound"
+      ]
+    },
+    {
+      "name": "a held index is waited out for a fixed time",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\"file:\"+file+\"?_pragma=busy_timeout(0)&_txlock=immediate\"",
+      "replace": "\"file:\"+file+\"?_pragma=busy_timeout(5000)&_txlock=immediate\"",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexHeldPastTheRetrievalBoundRefusesAtTheBound"
+      ]
+    },
+    {
+      "name": "the index is created with SQLite's default mode",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif err := private(file); err != nil {\n",
+      "replace": "\tif err := error(nil); err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheIndexIsReadableOnlyByItsOwner"
+      ]
+    },
+    {
+      "name": "Searchable accepts an empty query",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\treturn plainQuery(query) != \"\"\n",
+      "replace": "\treturn true\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "the query's line breaks reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "Printable(strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))",
+      "replace": "redactor.Redact(head.query)",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a source's control characters reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "at+1, Printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),",
+      "replace": "at+1, redactor.Redact(hit.Source), hit.Ordinal, hit.Score),",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a result heading is written without its passage, caught via ./internal/stage/retrieve",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tbreak\n\t\t}\n",
+      "replace": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tout = append(out, full[:keep]...)\n\t\t\tbreak\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "text changed during an update is indexed under the walk's digest",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\tif hex.EncodeToString(sum[:]) != document.Digest {\n",
+      "replace": "\tif hex.EncodeToString(sum[:]) != document.Digest && document.Bytes < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileChangedDuringAnUpdateIsIndexedAsItNowStands"
+      ]
+    },
+    {
+      "name": "a listing waits for a held index without a bound",
+      "tree": "..",
+      "file": "cmd/gronin/collections_cmd.go",
+      "find": "bounded, cancel := context.WithTimeout(ctx, listingWait)",
+      "replace": "bounded, cancel := context.WithCancel(ctx)",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAListingDoesNotWaitForeverBehindAnUpdate"
+      ]
+    },
+    {
+      "name": "a file changed during an update refuses it rather than being walked again",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\t\tchanged = err\n",
+      "replace": "\t\t\treturn Generation{}, err\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileChangedDuringAnUpdateIsIndexedAsItNowStands"
+      ]
+    },
+    {
+      "name": "a file that keeps changing is not named when the bound ends",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\t\terr = errors.Join(err, changed)\n",
+      "replace": "\t\t\t_ = changed\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileThatKeepsChangingIsRefusedAtTheBound"
+      ]
+    },
+    {
+      "name": "a rebuild walks a file that keeps changing without end",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {",
+      "replace": "if _, bounded := ctx.Deadline(); !bounded && rewalks < 0 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestARebuildOverAFileThatKeepsChangingFailsNamingIt"
+      ]
+    },
+    {
+      "name": "a blank query walks the collection before it is refused",
+      "tree": "..",
+      "file": "internal/stage/retrieve/retrieve.go",
+      "find": "\tif !index.Searchable(query) {\n",
+      "replace": "\tif !index.Searchable(query) && len(query) < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheQueryHoldingNoWord"
+      ]
+    },
+    {
+      "name": "a query left empty by the cut is refused as if declared empty",
+      "tree": "..",
+      "file": "internal/stage/retrieve/query.go",
+      "find": "\tif truncated {\n",
+      "replace": "\tif truncated && len(\"\") > 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheQueryHoldingNoWord"
+      ]
+    },
+    {
+      "name": "a query's control characters reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "Printable(strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))",
+      "replace": "strings.Join(strings.Fields(redactor.Redact(head.query)), \" \")",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a line separator reaches the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "if unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp) {",
+      "replace": "if unicode.IsControl(r) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "an index file holding no table cannot be listed",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif tables == 0 {\n",
+      "replace": "\tif tables < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileHoldingNoGenerationIsNotIndexedYet"
+      ]
+    },
+    {
+      "name": "an index file the runtime cannot write is opened anyway",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif err := writable(file); err != nil {\n",
+      "replace": "\tif err := writable(file); err != nil && owner < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileTheRuntimeCannotWriteIsRefusedSayingWhy"
+      ]
+    },
+    {
+      "name": "an index file this user owns is left wider than its owner",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif wide {\n",
+      "replace": "\tif wide && owner < -1 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileWiderThanItsOwnerIsNarrowed"
+      ]
+    },
+    {
+      "name": "the search does not refuse a query with no word",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\tif !Searchable(query) {\n",
+      "replace": "\tif false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestASearchHoldingNoWordIsRefused"
+      ]
+    },
+    {
+      "name": "an index file another user owns is used at a wider mode",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif wide && owner != os.Getuid() {\n",
+      "replace": "\tif wide && owner != os.Getuid() && owner < -1 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileAnotherUserOwnsAtAWiderModeIsRefused"
+      ]
+    },
+    {
+      "name": "a held index at the bound blames a file that settled",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "if changed != nil && ctx.Err() != nil && !errors.Is(err, ErrHeld) {",
+      "replace": "if changed != nil && ctx.Err() != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "an update that read every document unchanged still blames an earlier file",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "func() { changed = nil })",
+      "replace": "func() {})",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnUpdateAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "the documents are read into memory before the write lock and indexed from it",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tcontent, err := c.walk.contentOf(document, read)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\n//\n// It runs on a connection of its own, so the wait it gives COMMIT is set on that\n// connection alone and taken off again before the connection goes back to the pool.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tconn, err := ix.db.Conn(ctx)\n\tif err != nil {\n\t\treturn Generation{}, &beginError{err}\n\t}\n\tdefer func() {\n\t\t_, _ = conn.ExecContext(context.Background(), \"PRAGMA busy_timeout = 0\")\n\t\t_ = conn.Close()\n\t}()\n\ttx, err := conn.BeginTx(ctx, nil)\n",
+      "replace": "\t\tcontent := preread[document.Source]\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\nvar preread = map[string][]byte{}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\n//\n// It runs on a connection of its own, so the wait it gives COMMIT is set on that\n// connection alone and taken off again before the connection goes back to the pool.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tconn, err := ix.db.Conn(ctx)\n\tif err != nil {\n\t\treturn Generation{}, &beginError{err}\n\t}\n\tdefer func() {\n\t\t_, _ = conn.ExecContext(context.Background(), \"PRAGMA busy_timeout = 0\")\n\t\t_ = conn.Close()\n\t}()\n\tpreread = map[string][]byte{}\n\tfor _, document := range diff.add {\n\t\tcontent, err := diff.walk.contentOf(document, ix.seams.read)\n\t\tif err != nil {\n\t\t\treturn Generation{}, err\n\t\t}\n\t\tpreread[document.Source] = content\n\t}\n\ttx, err := conn.BeginTx(ctx, nil)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestADocumentIsReadInsideTheWriteTransaction"
+      ]
+    },
+    {
+      "name": "a bound that ran out on a held index is not reported as held",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\treturn fmt.Errorf(\"%w: %w\", ErrHeld, errors.Join(ctx.Err(), err))\n",
+      "replace": "\t\treturn errors.Join(ctx.Err(), err)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "any failure once the index was found held is reported as held",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBegin(err) && errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "replace": "\tif errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestABusyThatNeverBeganIsNotRelabeledHeldInsideTheRetryPauseEither"
+      ]
+    },
+    {
+      "name": "a cancel is reported as a held index",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBegin(err) && errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "replace": "\tif isBegin(err) && ctx.Err() != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestACancelIsNotReportedAsHeld"
+      ]
+    },
+    {
+      "name": "a reader open at commit makes the transaction be redone",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "fmt.Sprintf(\"PRAGMA busy_timeout = %d\", wait.Milliseconds())",
+      "replace": "\"PRAGMA busy_timeout = 0\"",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAReaderOpenAtCommitIsWaitedOutWithoutReadingAgain"
+      ]
+    },
+    {
+      "name": "commit waits no more than a fixed cap when the caller's own bound is longer",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\treturn max(time.Until(deadline), time.Millisecond)\n",
+      "replace": "\t\treturn min(max(time.Until(deadline), time.Millisecond), 30*time.Second)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestCommitWaitIsTheCallersRemainingBoundOrUnboundedWithNone"
+      ]
+    },
+    {
+      "name": "commit waits no more than a fixed cap when the caller sets no bound",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\treturn unboundedCommitWait\n}",
+      "replace": "\treturn min(unboundedCommitWait, 30*time.Second)\n}",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestCommitWaitIsTheCallersRemainingBoundOrUnboundedWithNone"
+      ]
+    },
+    {
+      "name": "a COMMIT busy re-enters operation instead of being reported once",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tvar atCommit *commitBusyError\n\t\tif errors.As(err, &atCommit) {\n\t\t\treturn err\n\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestACommitThatExhaustsItsWaitFailsWithoutRedoingTheTransaction"
+      ]
+    },
+    {
       "name": "cmd/gronin's TestMain stops cleaning up the fakeagent build directory",
       "tree": "..",
       "file": "cmd/gronin/binary_test.go",
@@ -2906,6 +3866,51 @@
         "test",
         "./internal/testcleanup",
         "-count=1"
+      ]
+    },
+    {
+      "name": "beginFailure no longer marks a ctx-only failure a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif isBusy(err) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestABeginTxFailureIsABeginFailureWhateverCausedIt|TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure|TestAFirstReadFailingInSearchBecauseCtxEndedRightAfterBeginTxIsABeginFailure"
+      ]
+    },
+    {
+      "name": "beginFailure marks every failure a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif true {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAGenuineUnrelatedFailureAtReadStoredsFirstReadIsNotABeginFailure|TestAGenuineUnrelatedFailureAtSearchsFirstReadIsNotABeginFailure"
+      ]
+    },
+    {
+      "name": "beginFailure never marks a genuine busy hit a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif ctx.Err() != nil && errors.Is(err, ctx.Err()) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughReadStored|TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughSearch"
       ]
     }
   ]

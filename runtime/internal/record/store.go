@@ -144,6 +144,10 @@ func (s *Store) Close() error { return s.db.Close() }
 // Blobs is the artifact store this record writes through.
 func (s *Store) Blobs() *Blobs { return s.blobs }
 
+// Redactor is the redactor this store applies at its write boundary, for a stage that has
+// to remove the same values from what it writes elsewhere.
+func (s *Store) Redactor() *Redactor { return s.redactor }
+
 // ErrNotFound is returned for a run identifier nothing holds.
 var ErrNotFound = errors.New("no such run")
 

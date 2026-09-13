@@ -252,8 +252,6 @@ func corpus(t *testing.T, dir string) []string {
 // happens, and the agent would run without the context its prompt was written around.
 // Lifting that is one line of this table.
 func TestRetrieveBlockRefusals(t *testing.T) {
-	const retrieveApplied = false
-
 	gather := []playbook.Step{{Run: "df -h /var", As: "facts.txt"}}
 	for name, probe := range map[string]struct {
 		retrieve []playbook.Retrieval
@@ -314,25 +312,16 @@ func TestRetrieveBlockRefusals(t *testing.T) {
 		})
 	}
 
-	// The block with nothing wrong with it. Its only problem is the one above, and that
-	// is what makes this case the one T039's lift changes.
+	// The block with nothing wrong with it, accepted with no problem at all. Before the
+	// stage existed every retrieve block was refused, so this is the case that can fail.
 	valid := []playbook.Retrieval{
 		{Collection: "runbooks", As: "runbooks.md", Query: "disk full on ${trigger.mountpoint}"},
 		{Collection: "runbooks", As: "by-facts.md", QueryFrom: "facts.txt", MaxResults: 5, MaxBytes: 4096},
 	}
 	problems := playbook.Validate(
 		&playbook.Playbook{Name: "p", Gather: gather, Retrieve: valid}, deployment())
-	notApplied := refusedAs(problems, "retrieve", "does not apply it yet")
-	switch {
-	case retrieveApplied && notApplied:
-		t.Fatalf("the retrieve block is applied and was refused as not applied: %v", problems)
-	case !retrieveApplied && !notApplied:
-		t.Fatalf("the retrieve block is not applied yet and was accepted: %v", problems)
-	}
 	for _, problem := range problems {
-		if problem.Field != "retrieve" {
-			t.Errorf("a well-formed retrieve block was also refused for %s", problem.Error())
-		}
+		t.Errorf("a well-formed retrieve block was refused for %s", problem.Error())
 	}
 }
 

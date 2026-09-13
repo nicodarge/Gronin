@@ -7,22 +7,43 @@ here are unchanged.
 
 | Command | Change | Exit code |
 | ------- | ------ | --------- |
-| `gronin collections list` | New. One line per collection: its name, mode, source, the generation its index holds and when that was built, and whether the sources have changed since (FR-215) | Non-zero if `collections.json` is refused |
-| `gronin collections show <collection>` | New. The same header, then every document the source holds and every file it skipped with the reason, each document marked against the generation (FR-215) | Non-zero if the collection is not declared, or its source cannot be read |
-| `gronin collections rebuild <collection>` | New. Rebuilds the collection's index in full, outside any run (FR-220) | Non-zero, naming the cause, if the rebuild fails; the previous generation stays in place (FR-219) |
+| `gronin collections list` | New. One line per collection: its name, mode, source, the generation its index holds and when that was built, and whether the sources have changed since (FR-215) | Non-zero if `collections.json` is refused. A collection whose source cannot be read, or whose index another connection holds for more than 3 seconds, is stated on its own line and the exit stays zero |
+| `gronin collections show <collection>` | New. The same header, then every document the source holds and every file it skipped with the reason, each document marked against the generation (FR-215) | Non-zero if the collection is not declared, its source cannot be read, or its index is held by another connection for more than 3 seconds |
+| `gronin collections rebuild <collection>` | New. Rebuilds the collection's index in full, outside any run (FR-220). A file that changes while it is being indexed is read again with a fresh walk of the directory | Non-zero, naming the cause, if the rebuild fails — a file that changed again on each of ten walks among the causes, named; the previous generation stays in place (FR-219) |
 | `gronin show <run>` | Adds each retrieval: collection, mode, generation, the query as searched, the outcome, and each result's rank, score and source | |
 | `gronin show <run> --retrieval <as>` | New flag. Writes the results file that retrieval handed the agent to standard output, byte for byte, from the record (FR-225) | Non-zero if the run has no retrieval of that name |
 | `gronin validate`, `gronin serve`, `gronin run` | Read `collections.json`; refuse a playbook whose `retrieve` block names an undeclared collection (FR-204) | As today |
 
-`list` and `show` walk and digest the sources to say what has changed, and write nothing: listing a
+`list` and `show` walk and digest the sources to say what has changed, and write nothing to the
+index but in one case: a rebuild killed mid-transaction leaves a hot journal, and reading the index
+rolls it back to the previous generation, which only a connection able to write can do. Listing a
 collection is not a request to index it, and for a semantic collection it sends nothing (FR-221).
 That is what lets an operator read, before turning the option on, every document an embeddings API
 would receive (US3 scenario 5). `rebuild` is one of the two things that may index a collection — a
 retrieval is the other — and the one a collection too large to embed inside a run's bound is
 brought into service with.
 
-None of the three reads a run's record, so `list` and `show` work with no run history, and all
-three work while `serve` is running: the index is a database two processes can open.
+None of the three reads a run's record, so `list` and `show` work with no run history. All three
+work while `serve` is running, since the index is a database two processes can open, but not at the
+instant another connection holds it: `list` and `show` wait at most 3 seconds behind the holder
+before saying `the index is held by another connection`, since a process stopped mid-update holds
+it until it is killed, and `rebuild` waits for as long as the writer takes.
+
+An update or a rebuild that reaches COMMIT waits out a reader still open there — not another
+writer, so not `the index is held by another connection` — for the same bound: a retrieval's own
+remaining time, or, for `rebuild`, unbounded. A reader outlasting that fails naming why it gave up,
+and the previous generation stays in place; it is not retried, since retrying would mean rereading
+and reindexing every document COMMIT was about to write.
+
+`rebuild`'s wait at COMMIT is therefore unbounded, and neither Ctrl-C nor SIGTERM can interrupt it:
+the driver commits under a background context of its own, not the process's, so once COMMIT is
+waiting on a reader, only ending the process reaches it — `rebuild` installs no signal handler of
+its own, so the ordinary effect of either signal (process exit) is what stops it. A `rebuild` ended
+there leaves the previous generation in place, the same as a kill at any other point (FR-219).
+
+All three have to run as the deployment's user. An index file is created readable and writable by
+its owner alone, a wider one is narrowed only by its owner, and one the command cannot write is
+refused naming both users.
 
 ## Output
 
@@ -51,7 +72,16 @@ skipped     shared                symbolic link, not followed
 ```
 
 For a reports collection each document is a run identifier. For a collection not indexed yet, the
-`generation` line says so and every document is marked `not indexed`.
+`generation` line says so, the `changed` line reads `changed     not indexed yet`, and every
+document is marked `not indexed`.
+
+A skipped entry's reason is one of `symbolic link, not followed`, `larger than 1 MiB`, `not text`,
+and `not a regular file` for a named pipe, a socket or a device ([data-model.md](../data-model.md)).
+
+`list` states a collection whose source cannot be read on that collection's line, as
+`cannot be listed: <cause>` in place of its generation, and still exits zero: one collection's
+missing directory does not withhold the others. `show` names a single collection, so the same
+cause is its non-zero exit.
 
 A retrieval in a run's record:
 
@@ -60,6 +90,7 @@ $ gronin show 20260910T061214Z-a41c09e7b6f2
 ...
 retrieved runbooks.md from runbooks (lexical) generation 3f9a1c0b2e4d built 2026-09-10T06:00:00Z: found 3
   query     disk full on /var
+  cut       the result count
   result    1  -2.2713  disk-full.md#2
   result    2  -1.9320  disk-full.md#1
   result    3  -0.8841  swap.md#1

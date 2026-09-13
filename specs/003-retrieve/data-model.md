@@ -82,7 +82,12 @@ embeddings API would receive before anything is sent (FR-221, US3 scenario 5).
 
 A directory walk never follows a symbolic link (FR-213), and records it as skipped instead. A file
 is skipped, with its reason, when it is a symbolic link, when it is larger than 1 MiB, or when it is
-not text: it holds a NUL byte, or it is not valid UTF-8. Nothing else is skipped. A file that cannot
+not text: it holds a NUL byte, or it is not valid UTF-8. An entry that is none of a directory, a
+regular file and a symbolic link — a named pipe, a socket, a device — is skipped as not a regular
+file: a pipe with no writer reads as an empty document, and one with a writer holds the walk.
+Nothing else is skipped. The collection's own directory is the one path resolved before the walk,
+every component of it links included: it is the path the deployment declared, and a mount point is
+often a link. Nothing below it is followed. A file that cannot
 be read, and a directory that does not exist, refuse the retrieval and name the path (FR-228)
 rather than reading as an empty collection.
 
@@ -139,14 +144,32 @@ embeds the passages of what was added or changed — the only network step, and 
 time — before it opens a write transaction. Inside the transaction it checks that the generation
 is still the one it read; if another update committed meanwhile, it rolls back and works the
 difference out again from the new one, inside the same retrieval bound. Otherwise it applies the
-difference and the new generation's row and commits. A search reads inside one transaction, so it
-sees the generation before or the one after, never part of either. A seam between reading the
-generation and opening the transaction is what lets a test hold one update there while another
-commits (SC-211).
+difference and the new generation's row and commits.
 
-Whether one SQLite transaction survives a kill as the plan expects, or a generation has to be a
-whole file renamed into place, is decided by SC-211's kill rather than argued here. The listing and
-the record see the same fields either way.
+It reads the text of each document it adds as it indexes that document, one at a time inside the
+transaction, and checks the text still has the digest the walk took: reading every added file first
+would hold the whole collection's text until the commit on a rebuild or a first retrieval, with no
+bound on its size. A file changed since the walk is never indexed under the earlier digest: the
+update rolls back, walks the sources again and works the difference out afresh, inside the same
+retrieval bound, and is refused naming the file only when the bound ends with the file still
+changing. A rebuild, which has no bound, is refused naming the file once it has changed on each of
+ten walks. A refusal names a changed file only while the file is still changing: once an attempt
+has read every document it adds unchanged, a later refusal is for its own cause. Waiting for a
+write lock another process holds is inside the same bound. A search open at COMMIT holds the
+database as well, and under the rollback journal COMMIT cannot take it exclusively until the
+search ends: the update waits for it there — for its own remaining bound in full, uncapped, or,
+with no bound of its own (a rebuild), for as long as the search takes — and neither redoes its
+transaction nor reads any document again for it. A search that outlasts that wait is not another
+writer, so the refusal is not "the index is held by another connection"; it names why COMMIT gave
+up instead, and the previous generation stays in place, rolled back like any other refused update.
+A search reads inside one transaction, so it sees the generation before or the one after, never
+part of either. A seam between reading the generation and opening the transaction is what lets a
+test hold one update there while another commits (SC-211).
+
+One SQLite write transaction per update survives a kill, and no generation is a file renamed into
+place: SC-211's kill decided it, and [research.md](./research.md) §12 records what it showed. The
+listing reads the index through a connection that can roll a hot journal back, which a read-only
+one cannot.
 
 ### Retrieval (in the record store)
 

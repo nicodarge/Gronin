@@ -19,6 +19,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
 	"github.com/nicodarge/Gronin/runtime/internal/stage/agent"
 	"github.com/nicodarge/Gronin/runtime/internal/stage/gather"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
 // Executor runs one playbook end to end: gather, one agent, the sinks, and the record of
@@ -46,6 +47,10 @@ type Executor struct {
 	// Nil is the single-host file lock of FR-109, which is what a deployment with no
 	// coordination backend gets.
 	Guard *guard.Guard
+
+	// Retrieve is the stage between gather and the agent. Nil refuses a playbook that
+	// declares a retrieval, rather than running its agent without what it retrieves.
+	Retrieve *retrieve.Stage
 
 	Client         *http.Client
 	Log            *slog.Logger
@@ -157,6 +162,15 @@ func (e *Executor) Execute(
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 
+	// FR-202: after gather, so a query can be formed from what it gathered, and before
+	// the prompt and the agent, so a refused retrieval spends no token.
+	retrieveErr := e.retrieve(ctx, stages, started, book, incomplete, trigger.Values)
+	if retrieveErr != nil {
+		outcome.Status = record.StatusRefused
+		outcome.Error = retrieveErr.Error()
+		return e.finished(started.ID, &outcome, incomplete)
+	}
+
 	prompt, err := e.prompt(started, book, trigger.Values)
 	if err != nil {
 		outcome.Status = record.StatusRefused
@@ -168,6 +182,52 @@ func (e *Executor) Execute(
 	// The same path a replay takes, so a replay cannot end up bounded differently from
 	// the run it derives from.
 	return e.agentAndSinks(ctx, stages, hold, started, book, prompt.text, &outcome, incomplete, trigger.Values)
+}
+
+// retrieve runs the retrieve stage and copies what it wrote into the record while the
+// working directory still exists, as gather's inputs are. The retrievals it reached are
+// recorded whatever happened, the refused one included: they are what explains a refusal.
+func (e *Executor) retrieve(
+	ctx, stages context.Context, started *Run, book *playbook.Playbook, incomplete *problems,
+	trigger map[string]string,
+) error {
+	if len(book.Retrieve) == 0 {
+		return nil
+	}
+	if e.Retrieve == nil {
+		return errors.New("this playbook retrieves, and this deployment was given no retrieve stage")
+	}
+	retrieved, err := e.Retrieve.Run(stages, started.WorkDir, book.Retrieve, trigger)
+	for _, one := range retrieved {
+		e.recordRetrieval(ctx, started.ID, one, incomplete)
+	}
+	return err
+}
+
+// recordRetrieval writes a retrieval, its results file and each result's content into the
+// record: content rather than a pointer into the index, which moves under a run's feet.
+func (e *Executor) recordRetrieval(
+	ctx context.Context, runID string, retrieved retrieve.Retrieved, incomplete *problems,
+) {
+	row := retrieved.Record
+	row.Items = append([]record.RetrievedItem(nil), row.Items...)
+	if retrieved.Results != nil {
+		ref, err := e.Store.Blobs().Put(runID,
+			fmt.Sprintf("retrieval-%03d-results.md", row.Sequence), retrieved.Results)
+		incomplete.note(err)
+		row.ResultsRef = ref
+	}
+	for at := range row.Items {
+		if at >= len(retrieved.Contents) {
+			break
+		}
+		ref, err := e.Store.Blobs().Put(runID,
+			fmt.Sprintf("retrieval-%03d-result-%03d.md", row.Sequence, row.Items[at].Rank),
+			[]byte(retrieved.Contents[at]))
+		incomplete.note(err)
+		row.Items[at].ContentRef = ref
+	}
+	incomplete.note(e.Store.AddRetrieval(ctx, runID, row))
 }
 
 // admit puts the trigger through the guard, which decides before anything is created

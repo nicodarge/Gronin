@@ -238,46 +238,46 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
 
 ### Tests for User Story 1
 
-- [ ] T015 [P] [US1] SC-201, `TestTheAgentReadsWhatWasRetrieved` in
+- [x] T015 [P] [US1] SC-201, `TestTheAgentReadsWhatWasRetrieved` in
       `runtime/cmd/gronin/retrieve_binary_test.go`: three files, a query matching one, a playbook
       whose agent is the stub with `FAKECLAUDE_QUOTE` naming the results file. The report quotes
       the matching passage; `gronin show` names the collection, `lexical`, a generation and the
       passage's source. A second retrieval with `query_from` a gather step's output finds what that
       output names — the query formed from gathered input that FR-202 orders the stages for
-- [ ] T016 [P] [US1] SC-201, `TestTheQuery…` in `runtime/internal/stage/retrieve/query_test.go`: a
+- [x] T016 [P] [US1] SC-201, `TestTheQuery…` in `runtime/internal/stage/retrieve/query_test.go`: a
       `query` resolves `${trigger.…}` and `${config.…}` and nothing else; a `query_from` reads the
       named file from the working directory whole; with `query_from` set, nothing in the trigger is
       read, so a trigger value shaped like a query never becomes one
-- [ ] T017 [P] [US1] SC-203, the acceptance half, in `runtime/internal/playbook/validate_test.go`: the
+- [x] T017 [P] [US1] SC-203, the acceptance half, in `runtime/internal/playbook/validate_test.go`: the
       valid block of T008 is accepted with no problem at all, and the refusals of T009 still hold.
       The runtime refuses every `retrieve` block before this feature, so the valid case is the one
       that can fail
-- [ ] T018 [P] [US1] `TestPassages…` in `runtime/internal/index/passage_test.go`, research.md §8's text
+- [x] T018 [P] [US1] `TestPassages…` in `runtime/internal/index/passage_test.go`, research.md §8's text
       rules as a table: blank lines separate blocks, an ATX heading opens a passage, a setext
       underline does not; blocks pack while they fit 1,024 bytes; a longer block is cut at its last
       whitespace, and one with none at a character boundary, a multi-byte character straddling the
       cap included; no passage is empty or over the cap; ordinals and offsets are as the document
       holds them
-- [ ] T019 [P] [US1] SC-207, the walk, `TestTheWalk…` in `runtime/internal/index/walk_test.go`: a
+- [x] T019 [P] [US1] SC-207, the walk, `TestTheWalk…` in `runtime/internal/index/walk_test.go`: a
       directory holding a text file, a file holding a NUL byte, a text file of 1 MiB and one byte, a
       symbolic link to a file outside it whose content is a marker, and a symbolic link to its own
       parent. The documents and the skipped entries are asserted exactly, each skip with its reason;
       the walk returns inside a deadline of the test's own, so a walk that follows the parent link
       fails as an assertion rather than a hang. A directory that does not exist is an error naming
       it, never an empty walk
-- [ ] T020 [P] [US1] SC-207, the operator's surface, `TestAListingNamesEverySkippedFile` in
+- [x] T020 [P] [US1] SC-207, the operator's surface, `TestAListingNamesEverySkippedFile` in
       `runtime/cmd/gronin/collections_cmd_test.go`: T019's directory as a collection, and
       `gronin collections show` printing its lines exactly as [contracts/cli.md](./contracts/cli.md)
       shows them. A run retrieving from it with a query made of the outside file's other words then
       leaves the marker in no result, no row of `record.db`, and no blob — the query itself never
       holds the marker, or the record would hold it for an innocent reason
-- [ ] T021 [P] [US1] SC-209, `TestAnUpdateMatchesARebuild` in `runtime/cmd/gronin/retrieve_update_test.go`:
+- [x] T021 [P] [US1] SC-209, `TestAnUpdateMatchesARebuild` in `runtime/cmd/gronin/retrieve_update_test.go`:
       a retrieval; one document added, one changed, one removed, the removed one carrying a marker;
       `gronin collections list` says the sources changed; the second retrieval reflects all three
       and holds no marker. Its results equal those after `gronin collections rebuild`, and those
       after the state directory's `index/` is deleted and the next retrieval rebuilds it; the
       listing then shows a generation whose build time is after the deletion
-- [ ] T022 [P] [US1] SC-211, in `runtime/internal/index/generation_test.go`.
+- [x] T022 [P] [US1] SC-211, in `runtime/internal/index/generation_test.go`.
       `TestAKilledRebuildLeavesThePreviousGeneration`: a re-execution of the test binary — the
       pattern of `TestALockHeldByAKilledProcessIsAcquirable` — opens an index holding generation G1,
       starts a rebuild over changed sources, and at the seam inside its write transaction says so
@@ -287,31 +287,31 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
       the seam between reading the generation and writing, update B commits, A is released; the
       generation left matches one full rebuild of the sources as they stand. The interleaving is
       injected rather than hoped for
-- [ ] T023 [P] [US1] SC-214, `TestTheRecordHoldsWhatWasRetrieved` in
+- [x] T023 [P] [US1] SC-214, `TestTheRecordHoldsWhatWasRetrieved` in
       `runtime/cmd/gronin/retrieve_record_test.go`: the stub agent copies the results file it read
       into its report; `gronin show <run> --retrieval <as>` reproduces it byte for byte and `show`
       names the generation. Then the source changes and `gronin collections rebuild` runs: the
       earlier run's `show --retrieval` output and generation are unchanged. A record pointing into
       the index fails the second half
-- [ ] T024 [P] [US1] SC-215, the lexical half, `TestAReplayDoesNotSearch` in
+- [x] T024 [P] [US1] SC-215, the lexical half, `TestAReplayDoesNotSearch` in
       `runtime/internal/run/retrieve_replay_test.go`: a run retrieves; the collection's index file
       is deleted and its directory removed; the run is replayed. The replay succeeds, the stub
       agent's quoted results file is byte-identical to the original's, and the replay's record holds
       the same retrieval rows
-- [ ] T025 [P] [US1] SC-216, the lexical half, `TestTiesFollowTheKey` in
+- [x] T025 [P] [US1] SC-216, the lexical half, `TestTiesFollowTheKey` in
       `runtime/internal/index/tiebreak_test.go`: passages that tie exactly — the same words at the
       same length (research.md §3) — written to the index in an order that disagrees with
       `(source, ordinal)`. Ten repeated searches return one order, and it is the key's
-- [ ] T026 [P] [US1] SC-217, `TestAQueryIsPlainText` in `runtime/internal/index/lexical_test.go`:
+- [x] T026 [P] [US1] SC-217, `TestAQueryIsPlainText` in `runtime/internal/index/lexical_test.go`:
       `disk NOT logs`, `cert*`, `disk" AND (`, and a column filter `text:disk` each return what the
       same words searched as plain terms return, and none errors (research.md §2)
-- [ ] T027 [P] [US1] SC-218, `TestBounds…` in `runtime/internal/stage/retrieve/bounds_test.go`, each
+- [x] T027 [P] [US1] SC-218, `TestBounds…` in `runtime/internal/stage/retrieve/bounds_test.go`, each
       fixture past its bound: a query of 1,500 bytes is cut at its last whitespace before 1,024 and
       recorded `query_truncated`; a search matching 30 passages with `max_results: 10` returns 10
       and is recorded `count_truncated`; results totalling more than `max_bytes` produce a file of
       at most `max_bytes`, ending in the line [contracts/cli.md](./contracts/cli.md) gives, recorded
       `bytes_truncated`. A fixture inside a bound passes whether or not the bound exists
-- [ ] T028 [P] [US1] SC-219, in `runtime/internal/run/retrieve_refusal_test.go`.
+- [x] T028 [P] [US1] SC-219, in `runtime/internal/run/retrieve_refusal_test.go`.
       `TestARetrievalThatCannotRunRefuses`: a collection whose directory is missing, and a query
       that resolves to whitespace, each refuse the run with the status `refused` — not `failed` —
       and an error naming the directory or the empty query; the stub agent never starts, and the
@@ -321,29 +321,30 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
 
 ### Implementation for User Story 1
 
-- [ ] T029 [US1] `runtime/internal/index/doc.go` and `runtime/internal/index/passage.go`: research.md
+- [x] T029 [US1] `runtime/internal/index/doc.go` and `runtime/internal/index/passage.go`: research.md
       §8's rules for text, and the passage rule's version constant that the configuration identity
       carries
-- [ ] T030 [US1] `runtime/internal/index/walk.go`: `fs.WalkDir` over the directory, which does not
+- [x] T030 [US1] `runtime/internal/index/walk.go`: `fs.WalkDir` over the directory, which does not
       follow links; a symbolic link skipped as such; a regular file's size read from its `lstat`
       and the file skipped past 1 MiB without being read; the rest read, skipped when it holds a NUL
       byte or is not valid UTF-8, and digested with SHA-256. A directory that does not exist, and a
       file that cannot be read, are errors naming the path (FR-228)
-- [ ] T031 [US1] `runtime/internal/index/index.go` and `runtime/internal/index/schema.sql`: one
+- [x] T031 [US1] `runtime/internal/index/index.go` and `runtime/internal/index/schema.sql`: one
       database per collection at `<state-dir>/index/<collection>.db`; the configuration identity and
       the generation as [data-model.md](./data-model.md) defines them; `Update`, which works the
       difference out from a read of the stored generation, then inside one write transaction checks
       the generation is unchanged — working it out again if another update committed — and applies
       it; `Rebuild`; and `Status`, the generation, its build time, identity and documents, compared
       with a fresh walk for the listing. An index under another identity is emptied first. Two seams,
-      nil outside tests: after the read, and inside the write transaction. When T022's kill leaves
-      a torn generation, the generation becomes a file built beside the index and renamed into
-      place, and research.md records which the kill decided
-- [ ] T032 [US1] `runtime/internal/index/lexical.go`: the FTS5 table over passage text with the
-      `unicode61` tokenizer (research.md §10); the query split on whitespace, each word quoted with
-      embedded quotes doubled, joined with `OR` (§2); `ORDER BY bm25(…), source, ordinal`, the
+      nil outside tests: after the read, and inside the write transaction. T022's kill decided that
+      one write transaction is enough and no generation file is renamed into place; research.md
+      §12 records it
+- [x] T032 [US1] `runtime/internal/index/lexical.go`: the FTS5 table over passage text with the
+      `unicode61` tokenizer (research.md §10); the query split where `unicode61` splits rather
+      than on whitespace, each word quoted with embedded quotes doubled, joined with `OR` (§2, as
+      revised); `ORDER BY bm25(…), source, ordinal`, the
       search read inside one transaction
-- [ ] T033 [US1] `runtime/internal/stage/retrieve/doc.go`, `query.go`, `retrieve.go` and `results.go`:
+- [x] T033 [US1] `runtime/internal/stage/retrieve/doc.go`, `query.go`, `retrieve.go` and `results.go`:
       a `Stage` holding the catalogue, the index directory, the configuration and the redactor.
       Per retrieval, in declared order: resolve the query, from `query` or `query_from`; cut it to
       1,024 bytes at the last whitespace; refuse it empty; open the collection's index under a
@@ -352,72 +353,73 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
       [contracts/cli.md](./contracts/cli.md) within `max_bytes`; pass it through the redactor; write
       it to the working directory under `as`. It returns, per retrieval, what the record needs, and
       stops at the first refusal
-- [ ] T034 [US1] `runtime/internal/run/execute.go`: `Executor.Retrieve`, the stage, run after gather and
+- [x] T034 [US1] `runtime/internal/run/execute.go`: `Executor.Retrieve`, the stage, run after gather and
       before the prompt is read (FR-202); each outcome recorded — `AddRetrieval`, the results file
       and each item's content put in the blob store — while the working directory exists, as
       gathered inputs are; a refusal ends the run `refused`, naming the retrieval by its position and
       its collection, before any agent is started
-- [ ] T035 [US1] `runtime/internal/run/replay.go`: `Replay` reads the parent's retrievals, writes each
+- [x] T035 [US1] `runtime/internal/run/replay.go`: `Replay` reads the parent's retrievals, writes each
       recorded results file back to the working directory under its `as_name`, and records the same
       rows for the replay. It opens no index (FR-226)
-- [ ] T036 [US1] `runtime/cmd/gronin/deployment.go`: the stage built with `<state-dir>/index`, the
+- [x] T036 [US1] `runtime/cmd/gronin/deployment.go`: the stage built with `<state-dir>/index`, the
       catalogue, the configuration and the deployment's redactor, and handed to the executor
-- [ ] T037 [US1] `runtime/cmd/gronin/collections_cmd.go` and `runtime/cmd/gronin/root.go`:
+- [x] T037 [US1] `runtime/cmd/gronin/collections_cmd.go` and `runtime/cmd/gronin/root.go`:
       `gronin collections list`, `show` and `rebuild`, with the output of
       [contracts/cli.md](./contracts/cli.md). `list` and `show` walk and compare, and write nothing;
       `rebuild` exits non-zero naming the cause
-- [ ] T038 [US1] `runtime/cmd/gronin/records_cmd.go`: `gronin show` prints each retrieval and its
+- [x] T038 [US1] `runtime/cmd/gronin/records_cmd.go`: `gronin show` prints each retrieval and its
       results as [contracts/cli.md](./contracts/cli.md) shows; `--retrieval <as>` writes the recorded
       results file to standard output unchanged, and exits non-zero for a name the run did not
       retrieve
-- [ ] T039 [US1] `runtime/internal/playbook/validate.go`: `validateRetrieve` stops refusing a well-formed
+- [x] T039 [US1] `runtime/internal/playbook/validate.go`: `validateRetrieve` stops refusing a well-formed
       block as not yet applied; T009's table loses that row
 
 ### Mutants for User Story 1
 
-- [ ] T040 [US1] SC-201: `the results file is written after the agent stage` — the stage's call
+- [x] T040 [US1] SC-201: `the results file is written after the agent stage` — the stage's call
       deferred until `Execute` returns, which is the implementation SC-201 names — in
       `internal/run/execute.go`, and `the results file is never written`, in
       `internal/stage/retrieve/retrieve.go`, both with command
       `go test ./cmd/gronin -count=1 -run TestTheAgentReadsWhatWasRetrieved`; `query_from is
       ignored for the trigger`, in `internal/stage/retrieve/query.go`, command
       `go test ./internal/stage/retrieve -count=1 -run TestTheQuery`
-- [ ] T041 [US1] SC-203: `the gate refuses every retrieve block` — T039's lift put back, a problem
+- [x] T041 [US1] SC-203: `the gate refuses every retrieve block` — T039's lift put back, a problem
       appended for any declared block — in `internal/playbook/validate.go`, command
       `go test ./internal/playbook -count=1 -run TestRetrieveBlock`. Only the valid case kills it;
       confirm T014's mutants are still killed now that the block is accepted
-- [ ] T042 [US1] SC-207: `the walk follows symbolic links`, `a file past the document bound is read`
+- [x] T042 [US1] SC-207: `the walk follows symbolic links`, `a file past the document bound is read`
       and `a file that is not text is indexed`, in `internal/index/walk.go`, each with command
       `go test ./internal/index -count=1 -run TestTheWalk`; the first declared a second time with
       command `go test ./cmd/gronin -count=1 -run TestAListingNamesEverySkippedFile`, so that the
       test driving the built binary is shown to fail on its own
-- [ ] T043 [US1] SC-209, all with command `go test ./cmd/gronin -count=1 -run
+- [x] T043 [US1] SC-209, all with command `go test ./cmd/gronin -count=1 -run
       TestAnUpdateMatchesARebuild`: `an update ignores removed documents` and `an update ignores
       changed digests`, in `internal/index/index.go`; `the listing never reports a change`, in
       `internal/index/index.go`; `the index is kept outside the state directory`, in
       `cmd/gronin/deployment.go`
-- [ ] T044 [US1] SC-211: `an update commits in two transactions`, in `internal/index/index.go`, command
+- [x] T044 [US1] SC-211: `an update commits in two transactions`, in `internal/index/index.go`, command
       `go test ./internal/index -count=1 -run TestAKilledRebuildLeavesThePreviousGeneration`; `an
       update writes without checking the generation it read`, same file, command
       `go test ./internal/index -count=1 -run TestConcurrentUpdatesLeaveOneWholeGeneration`
-- [ ] T045 [US1] SC-214, command `go test ./cmd/gronin -count=1 -run
+- [x] T045 [US1] SC-214, command `go test ./cmd/gronin -count=1 -run
       TestTheRecordHoldsWhatWasRetrieved`: `the results file is not recorded`, in
       `internal/run/execute.go`; `the retrieval row omits its generation`, in
       `internal/record/retrievals.go`
-- [ ] T046 [US1] SC-215: `a replay does not restore the retrieved files`, in `internal/run/replay.go`,
+- [x] T046 [US1] SC-215: `a replay does not restore the retrieved files`, in `internal/run/replay.go`,
       command `go test ./internal/run -count=1 -run TestAReplayDoesNotSearch`
-- [ ] T047 [US1] SC-216: `lexical ties are left in index order`, in `internal/index/lexical.go`, command
+- [x] T047 [US1] SC-216: `lexical ties are left in index order`, in `internal/index/lexical.go`, command
       `go test ./internal/index -count=1 -run TestTiesFollowTheKey`
-- [ ] T048 [US1] SC-217: `the query reaches MATCH unquoted`, in `internal/index/lexical.go`, command
+- [x] T048 [US1] SC-217: `the query reaches MATCH unquoted`, in `internal/index/lexical.go`, command
       `go test ./internal/index -count=1 -run TestAQueryIsPlainText`
-- [ ] T049 [US1] SC-218, command `go test ./internal/stage/retrieve -count=1 -run TestBounds`: `the
+- [x] T049 [US1] SC-218, command `go test ./internal/stage/retrieve -count=1 -run TestBounds`: `the
       query is not cut`, in `internal/stage/retrieve/query.go`; `the result count is not capped`,
       `the byte bound is not applied` and `a cut is not recorded as truncated`, in
       `internal/stage/retrieve/results.go`. And `a passage exceeds the cap`, in
       `internal/index/passage.go`, command `go test ./internal/index -count=1 -run TestPassages`
-- [ ] T050 [US1] SC-219, command `go test ./internal/run -count=1 -run
+- [x] T050 [US1] SC-219, command `go test ./internal/run -count=1 -run
       TestARetrievalThatCannotRunRefuses`: `a missing directory walks as empty`, in
-      `internal/index/walk.go`; `an empty query is searched`, in `internal/stage/retrieve/query.go`;
+      `internal/index/walk.go`; `an empty query is searched`, in `internal/index/lexical.go`, where a query holding no word to
+      search is refused;
       `a refused retrieval lets the run continue` and `a refused retrieval is recorded failed`, in
       `internal/run/execute.go`. And `nothing found is not said`, in
       `internal/stage/retrieve/results.go`, command

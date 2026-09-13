@@ -58,6 +58,7 @@ func newServeCommand() *cobra.Command {
 				return errSilent{err}
 			}
 			defer deployment.close()
+			deployment.retrieving(declared)
 
 			// FR-109: the reach of the guarantee is the first thing said about the guard,
 			// so an operator never has to infer which one this deployment has.
