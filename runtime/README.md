@@ -41,7 +41,9 @@ makes the zero it reports on the real mutations worth reading. It also shows it 
 rather than reporting — a mutant that does not compile is one of those, because a build
 failure exits non-zero exactly like a failing test and would otherwise be counted as
 caught by a test that never ran, and so is a mutation whose tree holds Go the harness
-cannot compile, and so is a file naming a path outside its tree. It also proves that
+cannot compile, and so is a `go test` baseline whose `-run` matches no test (an unmutated
+pass with nothing behind it, exactly the shape a stale declaration takes once the test it
+names is renamed or removed), and so is a file naming a path outside its tree. It also proves that
 `--shard K/N` partitions the declared mutants into disjoint shards whose union is the
 full list, and refuses a shard that is malformed or selects none.
 

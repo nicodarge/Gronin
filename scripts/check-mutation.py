@@ -7,7 +7,10 @@ this harness can report a failure is to watch it report zero when there is none.
 
 So it does three things a naive version skips. It runs the command on an unmutated copy
 first: a harness whose baseline is already broken can never print zero, and will report a
-comfortable number forever. It refuses a mutation whose target text is not found exactly
+comfortable number forever — and a `go test` baseline that matched no tests is refused the
+same way, since an empty run passes for the same reason a broken one does not, and a
+declaration whose `-run` no longer names anything would otherwise be reported killed
+without ever executing a test. It refuses a mutation whose target text is not found exactly
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
 the count is shown to move in both directions before any real count is read — and against
@@ -61,6 +64,24 @@ class Mutation:
     find: str
     replace: str
     command: list[str]
+
+
+# go test prints this to stdout (inside a summary line's brackets) and, with
+# GOFLAGS unset, `testing: warning: no tests to run` to stderr, whenever -run (or a
+# package with no matching test) leaves nothing to execute. It still exits 0: a test
+# that has been renamed or removed out from under a mutant's -run is indistinguishable,
+# by exit code alone, from one that ran and passed.
+NO_TESTS_RAN_MARKER = "no tests to run"
+
+
+def _is_go_test_command(command: list[str]) -> bool:
+    """True for a `go test ...` invocation, where the "no tests to run" marker applies.
+
+    Checked on the command as declared, not on the tree: the self-test's shell
+    fixtures must be unaffected, and a command is what actually printed the baseline
+    output being inspected.
+    """
+    return len(command) >= 2 and Path(command[0]).name == "go" and command[1] == "test"
 
 
 # ASCII digits only, matched with a regex rather than str.isdigit(): isdigit() also
@@ -250,6 +271,14 @@ def survives(mutation: Mutation) -> bool:
                 f"{mutation.name}: the command already fails on an unmutated copy, so "
                 f"nothing it reports afterwards means anything:\n{baseline.stdout}"
                 f"{baseline.stderr}"
+            )
+        if _is_go_test_command(mutation.command) and NO_TESTS_RAN_MARKER in (
+            baseline.stdout + baseline.stderr
+        ):
+            raise ConfigError(
+                f"{mutation.name}: the baseline run of {' '.join(mutation.command)} "
+                f"matched no tests, so nothing would check the mutant either:\n"
+                f"{baseline.stdout}{baseline.stderr}"
             )
 
         target = work / mutation.file
@@ -575,6 +604,27 @@ def self_test() -> int:
             command=["go", "test", "./...", "-count=1"],
         )
 
+        # The stale-declaration defect this refusal exists for: a -run naming a test
+        # that was renamed or removed matches nothing, `go test` still exits 0, and
+        # the baseline would otherwise be counted a pass with nothing having run.
+        refusals["a go test baseline that matches no tests"] = Mutation(
+            name="no tests ran",
+            tree=gomod,
+            file="subject.go",
+            # Unlike the uncompilable-mutant fixture above, this find/replace must
+            # leave the tree compiling: the baseline's "no tests to run" has to be
+            # what refuses it, not the unrelated compile gate.
+            find='" 42 "',
+            replace='" 41 "',
+            command=[
+                "go",
+                "test",
+                "-count=1",
+                "-run=TestNoSuchTestAnymore",
+                "./...",
+            ],
+        )
+
         # A tree inside a module but below its root. The compile gate can only run
         # where `go test ./...` resolves, and skipping silently there is how the defect
         # above would come back for a mutation scoped to a package directory rather
@@ -824,10 +874,11 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, refuses a broken "
-        "baseline, an absent target, a mutant that does not compile, a tree below its "
-        "module root, a missing tree and a file escaping its tree, copies a repository's "
-        "tracked files but not its untracked ones, and shards partition the full list "
-        "while a malformed or empty shard is refused"
+        "baseline, a go test baseline that matches no tests, an absent target, a "
+        "mutant that does not compile, a tree below its module root, a missing tree "
+        "and a file escaping its tree, copies a repository's tracked files but not "
+        "its untracked ones, and shards partition the full list while a malformed "
+        "or empty shard is refused"
     )
     return 0
 
