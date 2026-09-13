@@ -13,9 +13,19 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	fakeagent.Cleanup()
-	os.Exit(code)
+	os.Exit(runAndCleanUp(m))
+}
+
+// runAndCleanUp defers fakeagent.Cleanup around m.Run() rather than calling it as a
+// plain statement after: os.Exit never returns, so a cleanup placed after m.Run() in
+// TestMain itself would never run at all. Deferring it here still runs it if m.Run()
+// itself panics before returning; it does not reach a panic from inside an actual Test
+// function, since each runs in its own goroutine and an unrecovered panic there
+// crashes the whole process before any other goroutine's defers get to run — see
+// bintest.Main's doc comment, which this mirrors.
+func runAndCleanUp(m *testing.M) (code int) {
+	defer fakeagent.Cleanup()
+	return m.Run()
 }
 
 func options(t *testing.T, mode string) agent.Options {

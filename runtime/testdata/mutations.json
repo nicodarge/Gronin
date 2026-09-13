@@ -2868,6 +2868,19 @@
         "./internal/testcleanup",
         "-count=1"
       ]
+    },
+    {
+      "name": "the cleanup guard resolves a call by its raw identifier again, not its import path",
+      "tree": "..",
+      "file": "internal/testcleanup/cleanup_guard_test.go",
+      "find": "\t\tif names[sel.pkg] == importPath && funcNames[sel.name] {\n",
+      "replace": "\t\tif sel.pkg == path.Base(importPath) && funcNames[sel.name] {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
     }
   ]
 }
