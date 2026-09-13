@@ -147,6 +147,30 @@ func asBegin(err error) error {
 	return err
 }
 
+// beginFailure marks err a begin failure when it is either a genuine BUSY or exactly ctx's
+// own error — the two ways BeginTx, or the first statement of a deferred read-only
+// transaction, never takes the lock it waited for: a real BUSY, or database/sql refusing to
+// even ask the driver because ctx had already ended by the time the call was made, the way
+// a retry attempt starting just after retryBusy's own bound check does. An unrelated
+// failure (disk I/O, corruption, a permission error, schema drift) is neither, and is left
+// exactly as it is: it is not the index held, whatever ctx happens to be doing at the same
+// moment.
+func beginFailure(ctx context.Context, err error) error {
+	if err == nil || isBegin(err) {
+		return err
+	}
+	if isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {
+		return &beginError{err}
+	}
+	return err
+}
+
+// afterDeferredBegin runs once a deferred read-only transaction has begun, before its
+// first read — the point up to which a failure is still the transaction never having taken
+// the lock it waited for (see beginFailure). Nil outside tests; a test uses it to end ctx
+// deterministically at exactly that point, rather than racing a live clock against it.
+var afterDeferredBegin = func() {}
+
 // commitBusyError is COMMIT giving up on a reader after waiting out commitWait: the
 // transaction, still open (SQLite does not roll back a failed COMMIT), is exactly as it
 // was when the reader appeared, and the deferred rollback returns it to the previous
@@ -412,20 +436,31 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 // statement that actually reads. So a genuine BUSY before this returns — not only
 // BeginTx's own — can be that first statement finding the index held, and is reported
 // that way; anything else stays exactly as it is, since it is not the index held.
+//
+// Neither BeginTx nor that first read statement has taken a real lock yet, so a failure at
+// either is a begin failure whether it is a genuine BUSY or the bare context error
+// database/sql returns when ctx already ended before the call could even ask the driver
+// anything — the way a retry attempt starting just after retryBusy's own bound check does.
+// A later statement failing after the lock was actually taken (a commit-side BUSY, an I/O
+// error, a missing table) is not marked this way, and neither is an unrelated failure here
+// (see beginFailure): it is not the index held, whether the index is still busy or the
+// caller's bound simply ran out first — so it is retryBusy's own held state, not this
+// marking, that decides whether that becomes ErrHeld.
 func readStored(ctx context.Context, db *sql.DB) (stored Stored, err error) {
 	defer func() { err = asBegin(err) }()
 
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return Stored{}, err
+	tx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if beginErr != nil {
+		return Stored{}, beginFailure(ctx, beginErr)
 	}
 	defer func() { _ = tx.Rollback() }()
+	afterDeferredBegin()
 
 	var tables int
 	if err := tx.QueryRowContext(ctx,
 		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'generation'`,
 	).Scan(&tables); err != nil {
-		return Stored{}, err
+		return Stored{}, beginFailure(ctx, err)
 	}
 	if tables == 0 {
 		return Stored{}, nil

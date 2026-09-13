@@ -45,18 +45,23 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 // statement that actually reads. So a genuine BUSY before this returns — not only
 // BeginTx's own — can be that first statement finding the index held, and is reported
 // that way, the same as readStored (index.go); anything else stays exactly as it is.
+//
+// Neither BeginTx nor that first read statement has taken a real lock yet, so a failure at
+// either is marked a begin failure the same way readStored's are — see index.go's
+// beginFailure for why.
 func (ix *Index) search(ctx context.Context, query string, limit int) (found Found, err error) {
 	defer func() { err = asBegin(err) }()
 
-	tx, err := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return Found{}, err
+	tx, beginErr := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if beginErr != nil {
+		return Found{}, beginFailure(ctx, beginErr)
 	}
 	defer func() { _ = tx.Rollback() }()
+	afterDeferredBegin()
 
 	generation, err := readGeneration(ctx, tx)
 	if err != nil {
-		return Found{}, err
+		return Found{}, beginFailure(ctx, err)
 	}
 	found = Found{Generation: generation}
 	if !Searchable(query) {

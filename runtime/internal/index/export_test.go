@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"time"
@@ -60,6 +61,39 @@ func RetryBusy(ctx context.Context, busy func(), operation func() error) error {
 // happens to time a lock and a later, unrelated failure.
 func AsBegin(err error) error {
 	return asBegin(err)
+}
+
+// BeginFailure marks err the way BeginTx's own failure is marked, whatever err is — the
+// same unconditional wrap readStored and commit apply at their BeginTx call, so a test can
+// drive retryBusy's classification of it directly rather than only through however a live
+// database happens to time a BeginTx against an already-ended context.
+func BeginFailure(err error) error {
+	return &beginError{err}
+}
+
+// IsBegin reports whether err is marked a begin failure, so a test can check readStored's
+// and search's own classification of a BeginTx failure directly, rather than only through
+// whatever retryBusy and heldAtBound go on to do with it.
+func IsBegin(err error) bool {
+	return isBegin(err)
+}
+
+// ReadStoredRaw runs readStored directly against db, so a test can drive it with a context
+// already past its deadline — the shape of failure BeginTx itself returns when ctx ended
+// before it could ask the driver anything — deterministically, rather than by racing a
+// live BeginTx against a context that happens to end at the right moment.
+func ReadStoredRaw(ctx context.Context, db *sql.DB) (Stored, error) {
+	return readStored(ctx, db)
+}
+
+// SetAfterDeferredBegin installs what readStored and search call once their deferred
+// read-only transaction has begun, before its first read, for as long as the test runs: a
+// test can then end ctx exactly there, deterministically, rather than by racing a live
+// clock against the retry loop's own timing.
+func SetAfterDeferredBegin(t interface{ Cleanup(func()) }, fn func()) {
+	previous := afterDeferredBegin
+	afterDeferredBegin = fn
+	t.Cleanup(func() { afterDeferredBegin = previous })
 }
 
 // SetCommitWait replaces how long COMMIT may wait for a reader before giving up, for as

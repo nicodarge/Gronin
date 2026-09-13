@@ -103,3 +103,80 @@ func TestANonBusyErrorAfterAPriorBusyHitIsNotRelabeledHeldByAsBegin(t *testing.T
 		t.Errorf("an unrelated failure after a prior busy hit is reported as the index held: %v", err)
 	}
 }
+
+// BeginTx's own failure is a begin failure whatever caused it — not only a genuine BUSY.
+// That matters because database/sql refuses to even start BeginTx once ctx has already
+// ended, returning ctx's bare error without ever asking the driver anything: the exact
+// shape of failure a retry attempt gets when the caller's bound runs out in the narrow
+// window between retryBusy's own check and the next attempt actually beginning. Left
+// unmarked, that bare error reaching heldAtBound after a genuine BUSY was already seen is
+// not relabeled ErrHeld, and a listing behind a held index prints "context deadline
+// exceeded" instead of saying the index is held. Driven directly through readStored with a
+// context already past its deadline, so the failure is guaranteed, not raced.
+func TestABeginTxFailureIsABeginFailureWhateverCausedIt(t *testing.T) {
+	dir := t.TempDir()
+	indexDir := filepath.Join(dir, "index")
+	ix := openIndex(t, indexDir, filepath.Join(dir, "sources"))
+	if _, err := ix.Update(t.Context(), index.Walk{}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(indexDir, "runbooks.db")+"?mode=rw&_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err = index.ReadStoredRaw(expired, db)
+	if err == nil {
+		t.Fatal("readStored against an already-expired context succeeded")
+	}
+	if !index.IsBegin(err) {
+		t.Errorf("a BeginTx that never reached the driver because ctx had already ended "+
+			"is not marked a begin failure: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not carry the context's own deadline: %v", err)
+	}
+}
+
+// The same, for the other point a transaction has not yet taken a real lock: a deferred
+// read-only BeginTx succeeds without asking the driver for one, so ctx can just as well end
+// between BeginTx returning and the first read that actually asks for the lock — and that
+// failure must be marked a begin failure exactly as BeginTx's own would be, not left bare.
+// Ended deterministically by SetAfterDeferredBegin, at the one point between BeginTx and
+// the first read, rather than by racing a live query against a context that happens to end
+// there.
+func TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure(t *testing.T) {
+	dir := t.TempDir()
+	indexDir := filepath.Join(dir, "index")
+	ix := openIndex(t, indexDir, filepath.Join(dir, "sources"))
+	if _, err := ix.Update(t.Context(), index.Walk{}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(indexDir, "runbooks.db")+"?mode=rw&_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(5*time.Millisecond))
+	defer cancel()
+	index.SetAfterDeferredBegin(t, func() { time.Sleep(20 * time.Millisecond) })
+
+	_, err = index.ReadStoredRaw(ctx, db)
+	if err == nil {
+		t.Fatal("readStored against a context that ended before its first read succeeded")
+	}
+	if !index.IsBegin(err) {
+		t.Errorf("a first read failing because ctx ended right after BeginTx "+
+			"is not marked a begin failure: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not carry the context's own deadline: %v", err)
+	}
+}
