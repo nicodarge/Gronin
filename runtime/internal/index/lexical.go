@@ -53,10 +53,10 @@ func (ix *Index) search(ctx context.Context, query string, limit int) (Found, er
 		return Found{}, err
 	}
 	found := Found{Generation: generation}
-	match := plainQuery(query)
-	if match == "" {
+	if !Searchable(query) {
 		return found, ErrNoWords
 	}
+	match := plainQuery(query)
 
 	rows, err := tx.QueryContext(ctx, `
 		SELECT source, ordinal, start, text, bm25(passages)
@@ -75,6 +75,13 @@ func (ix *Index) search(ctx context.Context, query string, limit int) (Found, er
 		found.Hits = append(found.Hits, hit)
 	}
 	return found, rows.Err()
+}
+
+// Searchable reports whether query holds a word the index can search. The retrieve stage
+// asks before it walks a collection, and Search asks again, so both refuse one query for
+// one reason.
+func Searchable(query string) bool {
+	return plainQuery(query) != ""
 }
 
 // plainQuery turns text into an FTS5 query that holds no FTS5 syntax (FR-211): its words,

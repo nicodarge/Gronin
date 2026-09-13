@@ -11,6 +11,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
 // newRunsCommand lists runs, most recent first (FR-021).
@@ -203,7 +204,7 @@ func printRetrieval(cmd *cobra.Command, retrieval record.Retrieval) {
 	cmd.Printf("retrieved %s from %s (%s)%s: %s\n",
 		retrieval.AsName, retrieval.Collection, retrieval.Mode, searched, outcome)
 	if retrieval.Query != "" {
-		cmd.Printf("  query     %s\n", strings.Join(strings.Fields(retrieval.Query), " "))
+		cmd.Printf("  query     %s\n", retrieve.Printable(strings.Join(strings.Fields(retrieval.Query), " ")))
 	}
 	var cut []string
 	if retrieval.QueryTruncated {

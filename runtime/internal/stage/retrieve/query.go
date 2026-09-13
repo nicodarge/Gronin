@@ -18,11 +18,16 @@ import (
 // faster than its length.
 const MaxQueryBytes = 1024
 
-// errEmptyQuery refuses a query that holds no word the index can search, whitespace alone
-// included (FR-228). It is decided where the words are, in the index's search: a second
-// test here would be one of two guards, and a defect in either would be hidden by the other.
-var errEmptyQuery = errors.New("the query is empty once resolved: it holds no word the index " +
-	"can search, so nothing was searched")
+// emptyQuery refuses a query that holds no word the index can search, whitespace alone
+// included (FR-228).
+func emptyQuery(truncated bool) error {
+	if truncated {
+		return errors.New("the query is empty once resolved: it holds no word the index can " +
+			"search after it was cut to 1,024 bytes, so nothing was searched")
+	}
+	return errors.New("the query is empty once resolved: it holds no word the index can " +
+		"search, so nothing was searched")
+}
 
 // queryOf is the query a retrieval searches: resolved, and cut to the bound.
 func queryOf(

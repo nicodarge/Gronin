@@ -133,17 +133,30 @@ func WalkDirectory(ctx context.Context, dir string) (Walk, error) {
 	return walk, nil
 }
 
+// changedError is a document whose content no longer has the digest the walk took.
+type changedError struct{ source string }
+
+func (e *changedError) Error() string {
+	return e.source + " changed while it was being indexed"
+}
+
+// errNoRoot is a Walk not made by WalkDirectory, whose documents cannot be read again.
+var errNoRoot = errors.New("this walk was not made by WalkDirectory, so its documents cannot be read again")
+
 // contentOf reads a walked document again to index it, and refuses one whose content no
 // longer has the digest the walk took: indexed, it would sit under a generation naming
 // content the index does not hold.
 func (w Walk) contentOf(document Document) ([]byte, error) {
+	if w.root == "" {
+		return nil, errNoRoot
+	}
 	content, err := readDocument(filepath.Join(w.root, filepath.FromSlash(document.Source)))
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", document.Source, err)
 	}
 	sum := sha256.Sum256(content)
 	if hex.EncodeToString(sum[:]) != document.Digest {
-		return nil, fmt.Errorf("%s changed while it was being indexed, and nothing of this update was kept", document.Source)
+		return nil, &changedError{source: document.Source}
 	}
 	return content, nil
 }

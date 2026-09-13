@@ -50,9 +50,9 @@ type piece struct {
 // render writes contracts/cli.md's results file within maxBytes. Every part is redacted
 // before it is sized, so the bound holds for the file the agent reads and the record keeps.
 //
-// Only a passage may break a line. The query comes from whoever fired the run and a
-// source's name from whatever the directory holds, and either, written with its line
-// breaks, would open a result of its own in the file the agent reads.
+// Only a passage may break a line or carry a control character. The query comes from
+// whoever fired the run and a source's name from whatever the directory holds, and either,
+// written as it is, would open a result of its own in the file the agent reads.
 //
 // A result that does not fit what remains is cut at the last character boundary that
 // fits, the results after it are dropped, and the file says so on its last line. A result
@@ -60,7 +60,7 @@ type piece struct {
 func render(head heading, hits []index.Hit, maxBytes int, redactor *record.Redactor) ([]byte, []written, bool) {
 	pieces := []piece{{head: fmt.Sprintf("# Retrieved from %s (%s, generation %s)\n# Query: %s\n",
 		head.collection, head.mode, head.generation,
-		strings.Join(strings.Fields(redactor.Redact(head.query)), " "))}}
+		Printable(strings.Join(strings.Fields(redactor.Redact(head.query)), " ")))}}
 	if len(hits) == 0 {
 		pieces = append(pieces, piece{head: "\n" + nothingMatched + "\n"})
 	}
@@ -68,7 +68,7 @@ func render(head heading, hits []index.Hit, maxBytes int, redactor *record.Redac
 		hit := &hits[at]
 		pieces = append(pieces, piece{
 			head: fmt.Sprintf("\n## %d. %s, passage %d (score %.4f)\n\n",
-				at+1, printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),
+				at+1, Printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),
 			body: redactor.Redact(hit.Text) + "\n",
 			rank: at + 1,
 			hit:  hit,
@@ -107,7 +107,7 @@ func fill(pieces []piece, budget int) ([]byte, []written) {
 			break
 		}
 		out = append(out, full[:keep]...)
-		if one.hit != nil && keep > len(one.head) {
+		if one.hit != nil {
 			text := strings.TrimSuffix(full[len(one.head):keep], "\n")
 			items = append(items, written{rank: one.rank, hit: *one.hit, text: text})
 		}
@@ -118,11 +118,13 @@ func fill(pieces []piece, budget int) ([]byte, []written) {
 	return out, items
 }
 
-// printable writes each control character of text as its escape, a line break as `\n`.
-func printable(text string) string {
+// Printable writes each control character of text, and each line or paragraph separator,
+// as its Go escape, a line break as `\n`. It is for text that must stay on its line — a
+// query, a source's name — in a file an agent reads or a terminal shows.
+func Printable(text string) string {
 	var out strings.Builder
 	for _, r := range text {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp) {
 			quoted := strconv.QuoteRune(r)
 			out.WriteString(quoted[1 : len(quoted)-1])
 			continue

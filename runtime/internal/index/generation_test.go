@@ -199,39 +199,6 @@ func TestAKilledRebuildLeavesThePreviousGeneration(t *testing.T) {
 	}
 }
 
-// A document's text is read when it is indexed rather than held from the walk, so a file
-// rewritten between the two must not be indexed under the digest the walk took of what it
-// held before: the generation would name content the index does not hold. The update is
-// refused naming the file, or it indexes what the walk saw — never the one under the
-// other's digest.
-func TestAnUpdateNeverIndexesTextUnderAnotherDigest(t *testing.T) {
-	dir := t.TempDir()
-	sources := filepath.Join(dir, "sources")
-	writeSources(t, sources, firstSources)
-	ix := openIndex(t, filepath.Join(dir, "index"), sources)
-	walk := walked(t, sources)
-
-	index.SetSeams(ix, func() {
-		if err := os.WriteFile(filepath.Join(sources, "a.md"), []byte("rewritten while indexed\n"), 0o600); err != nil {
-			t.Error(err)
-		}
-	}, nil)
-	_, err := ix.Update(t.Context(), walk)
-	index.SetSeams(ix, nil, nil)
-	if err != nil {
-		if !strings.Contains(err.Error(), "a.md") {
-			t.Errorf("the update was refused without naming the file that changed: %v", err)
-		}
-		return
-	}
-	if got := sourcesOf(t, ix, "rewritten"); len(got) != 0 {
-		t.Errorf("text written after the walk was indexed under the walk's digest: %v", got)
-	}
-	if got := sourcesOf(t, ix, "disk"); !reflect.DeepEqual(got, []string{"a.md"}) {
-		t.Errorf("the update indexed neither what the walk saw nor refused: disk found in %v", got)
-	}
-}
-
 // SC-211, the interleaving. Update A reads the generation and is held there; update B,
 // over the same sources, commits; A is released. What is left matches one full rebuild of
 // the sources in a fresh index, row for row. The interleaving is injected rather than

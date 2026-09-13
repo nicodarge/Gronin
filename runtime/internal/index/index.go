@@ -13,8 +13,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
 	// The driver the record store already links; FTS5 is compiled into it.
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -114,6 +116,9 @@ func (ix *Index) seam(at func()) {
 	}
 }
 
+// ErrHeld is an index another update held for as long as the caller was willing to wait.
+var ErrHeld = errors.New("the index is held by another update")
+
 // busyPause is how long an operation that found the index held waits before trying again.
 const busyPause = 20 * time.Millisecond
 
@@ -132,7 +137,7 @@ func retryBusy(ctx context.Context, busy func(), operation func() error) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("the index is held by another process: %w", errors.Join(ctx.Err(), err))
+			return fmt.Errorf("%w: %w", ErrHeld, errors.Join(ctx.Err(), err))
 		case <-time.After(busyPause):
 		}
 	}
@@ -157,18 +162,51 @@ func path(dir, collection string) (string, error) {
 	return filepath.Join(dir, collection+".db"), nil
 }
 
-// private creates an index file readable by its owner alone, and narrows one created wider
-// before. An index holds the collection's text unredacted, and SQLite gives its journal
-// the database file's mode.
+// private creates an index file readable by its owner alone. An index holds the
+// collection's text unredacted, and SQLite gives its journal the database file's mode.
+//
+// A file that already exists is narrowed only when this user owns it: chmod on another
+// user's file fails, and would refuse every retrieval for a mode the owner chose. A file
+// this process cannot write is refused naming why, since the likeliest cause is a
+// `gronin collections` command run as another user than the deployment's.
 func private(file string) error {
-	handle, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the index path, from a checked collection name
+	info, err := os.Stat(file)
+	if errors.Is(err, os.ErrNotExist) {
+		handle, createErr := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // the index path, from a checked collection name
+		if createErr == nil {
+			return handle.Close()
+		}
+		if !errors.Is(createErr, os.ErrExist) {
+			return createErr
+		}
+		info, err = os.Stat(file)
+	}
 	if err != nil {
 		return err
 	}
-	if err := handle.Close(); err != nil {
-		return err
+	owner := ownerOf(info)
+	if owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 {
+		if err := os.Chmod(file, 0o600); err != nil {
+			return err
+		}
 	}
-	return os.Chmod(file, 0o600)
+	if err := writable(file); err != nil {
+		return fmt.Errorf("%s belongs to uid %d and this process, uid %d, cannot write it; "+
+			"gronin collections has to run as the deployment's user: %w", file, owner, os.Getuid(), err)
+	}
+	return nil
+}
+
+// writable is whether this process can write an index file.
+var writable = func(file string) error {
+	return unix.Access(file, unix.W_OK)
+}
+
+func ownerOf(info os.FileInfo) int {
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		return int(stat.Uid)
+	}
+	return -1
 }
 
 // Open opens or creates a collection's index under dir.
@@ -186,7 +224,7 @@ func Open(ctx context.Context, dir, collection string, cfg Configuration) (*Inde
 		return nil, fmt.Errorf("creating the index directory: %w", err)
 	}
 	if err := private(file); err != nil {
-		return nil, fmt.Errorf("creating the index of %s: %w", collection, err)
+		return nil, fmt.Errorf("opening the index of %s: %w", collection, err)
 	}
 	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(100)&_txlock=immediate")
 	if err != nil {
@@ -226,6 +264,8 @@ type StoredDocument struct {
 // one exception. The connection is read-write, never read-only, because a rebuild killed
 // mid-transaction leaves a hot journal, and only a connection that can write rolls it back
 // to the previous generation — a read-only one refuses to read at all (SC-211).
+//
+// It waits for an update holding the index for as long as ctx allows, and no longer.
 func ReadStored(ctx context.Context, dir, collection string) (Stored, bool, error) {
 	file, err := path(dir, collection)
 	if err != nil {
@@ -274,12 +314,25 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 
 // readStored reads the generation and its documents inside one read transaction, so the
 // two cannot come from different generations.
+//
+// A database with no generation table is not indexed yet: a first retrieval creates the
+// file before it writes the schema into it, and a listing can land in between.
 func readStored(ctx context.Context, db *sql.DB) (Stored, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Stored{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	var tables int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'generation'`,
+	).Scan(&tables); err != nil {
+		return Stored{}, err
+	}
+	if tables == 0 {
+		return Stored{}, nil
+	}
 
 	generation, err := readGeneration(ctx, tx)
 	if err != nil {
@@ -365,12 +418,21 @@ func Compare(cfg Configuration, stored Stored, walk Walk) Comparison {
 // between its read and its write.
 var errMoved = errors.New("another update committed a generation since this one read it")
 
+// maxRewalks is how often an update with no deadline walks its sources again for a file
+// that keeps changing while it is read. An update with a deadline — a retrieval — walks
+// again until its bound ends.
+const maxRewalks = 10
+
 // Update brings the index up to date with a walk of its sources (FR-217). It works the
-// difference out from a read of the stored generation, then inside one write transaction
-// checks that generation is still the one it read — working the difference out again if
-// another update committed meanwhile — and applies it with the new generation's row. A
-// search therefore sees the generation before or the one after, never part of either
-// (FR-219). An index stored under another identity is emptied first.
+// difference out from a read of the stored generation, reads and cuts the text it will
+// add, then inside one write transaction checks that generation is still the one it read —
+// working the difference out again if another update committed meanwhile — and applies it
+// with the new generation's row. A search therefore sees the generation before or the one
+// after, never part of either (FR-219). An index stored under another identity is emptied
+// first.
+//
+// A file whose content no longer has the digest the walk took is never indexed under it:
+// the sources are walked again and the difference worked out afresh.
 func (ix *Index) Update(ctx context.Context, walk Walk) (Generation, error) {
 	return ix.write(ctx, walk, false)
 }
@@ -382,40 +444,67 @@ func (ix *Index) Rebuild(ctx context.Context, walk Walk) (Generation, error) {
 }
 
 func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation, error) {
-	target := GenerationOf(ix.identity, walk.Documents)
-	for {
-		if err := ctx.Err(); err != nil {
-			return Generation{}, err
+	var changed error
+	fail := func(err error) (Generation, error) {
+		if changed != nil && ctx.Err() != nil {
+			err = errors.Join(err, changed)
 		}
+		return Generation{}, err
+	}
+
+	for rewalks := 0; ; {
+		if err := ctx.Err(); err != nil {
+			return fail(err)
+		}
+		target := GenerationOf(ix.identity, walk.Documents)
 		var read Stored
 		if err := ix.whileBusy(ctx, func() error {
 			var err error
 			read, err = readStored(ctx, ix.db)
 			return err
 		}); err != nil {
-			return Generation{}, err
+			return fail(err)
 		}
 		if !rebuild && read.Generation.ID == target {
 			return read.Generation, nil
 		}
 		ix.seam(ix.seams.afterRead)
 
+		ready, err := difference(ix.identity, read, walk, rebuild).prepare()
+		var moved *changedError
+		if errors.As(err, &moved) {
+			changed = err
+			rewalks++
+			if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {
+				return Generation{}, fmt.Errorf("%w again on each of %d walks", err, rewalks)
+			}
+			if walk, err = WalkDirectory(ctx, walk.root); err != nil {
+				return fail(err)
+			}
+			continue
+		}
+		if err != nil {
+			return fail(err)
+		}
+
 		var generation Generation
-		err := ix.whileBusy(ctx, func() error {
+		err = ix.whileBusy(ctx, func() error {
 			var err error
-			generation, err = ix.commit(ctx, read.Generation.ID,
-				difference(ix.identity, read, walk, rebuild), target)
+			generation, err = ix.commit(ctx, read.Generation.ID, ready, target)
 			return err
 		})
 		if errors.Is(err, errMoved) {
 			continue
 		}
-		return generation, err
+		if err != nil {
+			return fail(err)
+		}
+		return generation, nil
 	}
 }
 
 // change is what an update applies: everything removed first, or the named sources, then
-// the documents added, whose text is read from the walk's directory as each is indexed.
+// the documents added.
 type change struct {
 	everything bool
 	remove     []string
@@ -453,15 +542,35 @@ func difference(identity string, read Stored, walk Walk, rebuild bool) change {
 	return diff
 }
 
-func (c change) apply(ctx context.Context, tx *sql.Tx) error {
-	if c.everything {
+// ready is a change whose added documents have been read and cut, so that nothing is read
+// from the sources while the write lock is held, and a retry for a busy database repeats
+// the transaction alone.
+type ready struct {
+	change
+	passages [][]Passage
+}
+
+func (c change) prepare() (ready, error) {
+	prepared := ready{change: c, passages: make([][]Passage, len(c.add))}
+	for at, document := range c.add {
+		content, err := c.walk.contentOf(document)
+		if err != nil {
+			return ready{}, err
+		}
+		prepared.passages[at] = TextPassages(document.Source, content)
+	}
+	return prepared, nil
+}
+
+func (r ready) apply(ctx context.Context, tx *sql.Tx) error {
+	if r.everything {
 		for _, statement := range []string{`DELETE FROM passages`, `DELETE FROM documents`} {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
 			}
 		}
 	}
-	for _, source := range c.remove {
+	for _, source := range r.remove {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM passages WHERE source = ?`, source); err != nil {
 			return err
 		}
@@ -469,16 +578,12 @@ func (c change) apply(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	for _, document := range c.add {
-		content, err := c.walk.contentOf(document)
-		if err != nil {
-			return err
-		}
+	for at, document := range r.add {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,
 			document.Source, document.Digest, document.Bytes); err != nil {
 			return fmt.Errorf("indexing %s: %w", document.Source, err)
 		}
-		for _, passage := range TextPassages(document.Source, content) {
+		for _, passage := range r.passages[at] {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,
 				passage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {
@@ -489,7 +594,7 @@ func (c change) apply(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func (ix *Index) commit(ctx context.Context, readID string, diff change, target string) (Generation, error) {
+func (ix *Index) commit(ctx context.Context, readID string, diff ready, target string) (Generation, error) {
 	tx, err := ix.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Generation{}, err

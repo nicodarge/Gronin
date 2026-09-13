@@ -110,6 +110,40 @@ func TestTheQueryResolvesOnlyTheTriggerAndTheConfiguration(t *testing.T) {
 	}
 }
 
+// FR-228: a query holding no word to search is refused before the collection is walked or
+// its index touched. Walked first, a blank query over a missing directory is refused for the
+// directory, and one over a present directory creates and fills an index for nothing. Cut to
+// the query bound, the refusal says so, since what was refused is not what was declared.
+func TestTheQueryHoldingNoWordIsRefusedBeforeTheIndexIsTouched(t *testing.T) {
+	stage, workDir := stageOver(t, runbooks)
+	collection, _ := stage.Catalog.Get("runbooks")
+	if err := os.RemoveAll(collection.Directory); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := retrieveOne(t, stage, workDir, playbook.Retrieval{
+		Collection: "runbooks", As: "runbooks.md", Query: "${trigger.symptom}",
+	}, map[string]string{"symptom": "  \t "})
+	switch {
+	case err == nil:
+		t.Fatal("a blank query was not refused")
+	case !strings.Contains(err.Error(), "empty"):
+		t.Errorf("a blank query was refused for another cause: %v", err)
+	case strings.Contains(err.Error(), collection.Directory):
+		t.Errorf("a blank query was refused for the directory rather than for itself: %v", err)
+	}
+	if _, err := os.Stat(stage.IndexDir); !os.IsNotExist(err) {
+		t.Errorf("refusing a blank query touched the index directory %s", stage.IndexDir)
+	}
+
+	_, err = retrieveOne(t, stage, workDir, playbook.Retrieval{
+		Collection: "runbooks", As: "runbooks.md", Query: strings.Repeat("*", 1100) + " journal",
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "after it was cut to 1,024 bytes") {
+		t.Errorf("a query left with no word by the cut is not refused saying so: %v", err)
+	}
+}
+
 // SC-201: query_from reads the named gathered file, whole, as the query.
 func TestTheQueryFromAGatheredFileIsReadWhole(t *testing.T) {
 	stage, workDir := stageOver(t, runbooks)

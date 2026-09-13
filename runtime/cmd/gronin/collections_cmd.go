@@ -105,6 +105,11 @@ type inspection struct {
 	comparison index.Comparison
 }
 
+// listingWait is how long `list` and `show` wait behind an update holding the index before
+// saying so. A rebuild holds it for as long as it takes, and a process stopped mid-update
+// holds it until it is killed.
+const listingWait = 3 * time.Second
+
 // errNotADirectory is a collection this runtime cannot walk yet.
 var errNotADirectory = errors.New("only a collection over a directory can be listed")
 
@@ -118,7 +123,12 @@ func inspect(ctx context.Context, stateDir string, collection collections.Collec
 	if err != nil {
 		return inspection{}, err
 	}
-	stored, _, err := index.ReadStored(ctx, indexDir(stateDir), collection.Name)
+	bounded, cancel := context.WithTimeout(ctx, listingWait)
+	defer cancel()
+	stored, _, err := index.ReadStored(bounded, indexDir(stateDir), collection.Name)
+	if errors.Is(err, index.ErrHeld) {
+		return inspection{}, fmt.Errorf("%w for more than %s", index.ErrHeld, listingWait)
+	}
 	if err != nil {
 		return inspection{}, err
 	}

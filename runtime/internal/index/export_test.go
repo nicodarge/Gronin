@@ -12,6 +12,15 @@ func SetSeams(ix *Index, afterRead, inTransaction func()) {
 	ix.seams.afterRead, ix.seams.inTransaction = afterRead, inTransaction
 }
 
+// SetWritable replaces the check of whether this process can write an index file, for as
+// long as the test runs. The suite runs as root inside its network namespace, and root
+// writes a file whatever its mode, so a file made unwritable by its mode cannot stand in.
+func SetWritable(t interface{ Cleanup(func()) }, check func(file string) error) {
+	previous := writable
+	writable = check
+	t.Cleanup(func() { writable = previous })
+}
+
 // SetBusySeam installs what an operation calls each time it finds the index held by
 // another connection, before it waits and tries again.
 func SetBusySeam(ix *Index, busy func()) {

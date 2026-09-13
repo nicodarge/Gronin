@@ -93,6 +93,11 @@ func (s *Stage) retrieve(
 	if err != nil {
 		return refuse(err)
 	}
+	// Before the collection is walked or its index opened: a query with nothing to search
+	// is refused for itself, not for a directory it never needed.
+	if !index.Searchable(query) {
+		return refuse(emptyQuery(truncated))
+	}
 
 	// FR-209: one bound over the walk, the update and the search.
 	bounded, cancel := context.WithTimeout(ctx, collection.RetrievalTimeout)
@@ -100,7 +105,7 @@ func (s *Stage) retrieve(
 	found, err := s.search(bounded, collection, query, declared.ResultCount()+1)
 	switch {
 	case errors.Is(err, index.ErrNoWords):
-		return refuse(errEmptyQuery)
+		return refuse(emptyQuery(truncated))
 	case err != nil:
 		if errors.Is(bounded.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			err = fmt.Errorf("it did not complete within %s, the collection's retrieval_timeout: %w",
