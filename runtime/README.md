@@ -38,16 +38,22 @@ the committed blob, so CI and a local run agree only on a clean tree — an unco
 to a tracked file is what a local mutant run sees too.
 `scripts/check-mutation.py --self-test` shows the harness reporting zero, which is what
 makes the zero it reports on the real mutations worth reading. It also shows it refusing
-rather than reporting — a mutant that does not compile is one of those, because a build
-failure exits non-zero exactly like a failing test and would otherwise be counted as
-caught by a test that never ran, and so is a mutation whose tree holds Go the harness
-cannot compile, and so is a `go test` baseline where every named package's own summary line
-says it matched no test (an unmutated pass with nothing behind it, exactly the shape a stale
-declaration takes once the test it names is renamed or removed — a command naming several
-packages is refused only when none of them ran one), and so is a file naming a path outside
-its tree. It also proves that
-`--shard K/N` partitions the declared mutants into disjoint shards whose union is the
-full list, and refuses a shard that is malformed or selects none.
+rather than reporting, on each of:
+
+- a mutant that does not compile — a build failure exits non-zero exactly like a failing
+  test and would otherwise be counted as caught by a test that never ran
+- a mutation whose tree holds Go the harness cannot compile
+- a `go test` baseline where every named package's own summary line says it matched no
+  test, an unmutated pass with nothing behind it and exactly the shape a stale declaration
+  takes once the test it names is renamed or removed — a command naming several packages
+  is refused only when none of them ran one, whatever coverage or verbosity flags it also
+  carries
+- a `go test` baseline where no package produced a summary line at all, because none of
+  the named packages has any test file — a declaration that can never be killed
+- a file naming a path outside its tree
+
+It also proves that `--shard K/N` partitions the declared mutants into disjoint shards
+whose union is the full list, and refuses a shard that is malformed or selects none.
 
 ## Layout
 

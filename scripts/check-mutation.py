@@ -11,7 +11,11 @@ comfortable number forever — and a `go test` baseline where every package's ow
 line says it ran no tests is refused the same way, since a run that matched nothing passes
 for the same reason a broken one does not, and a declaration whose `-run` no longer names
 anything would otherwise be reported killed without ever executing a test. A command naming
-several packages is refused only when none of them ran a test; one that did is enough. It
+several packages is refused only when none of them ran a test; one that did is enough, and
+so is a package tested with -cover or -v, whose summary line carries an extra clause or an
+extra line the refusal is not fooled by. A baseline whose named packages have no test files
+at all -- so it never printed a summary to read in the first place -- is refused outright,
+since such a declaration could never be killed by anything. It
 refuses a mutation whose target text is not found exactly
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
@@ -68,18 +72,24 @@ class Mutation:
     command: list[str]
 
 
-# go test's per-package summary line, one per package under test: "ok  <pkg>  <time>"
-# for a package that ran at least one test, with "[no tests to run]" appended when
-# -run (or the package) left nothing to execute. Anchored per line (MULTILINE) and
-# anchored to the whole line ($) rather than searched for as a bare substring: a test's
-# own stdout can legitimately print the words "no tests to run" in a log line, and that
-# must not be mistaken for the summary. A package with no test files at all prints
-# "?   <pkg>  [no test files]" instead of "ok" and is intentionally not matched here —
-# it never ran a test to begin with, which is a different, pre-existing shape than a
-# stale -run matching nothing in a package that does have tests.
-_GO_TEST_OK_LINE = re.compile(
-    r"^ok\s+\S+\s+\S+(?P<no_tests>\s+\[no tests to run\])?\s*$", re.MULTILINE
-)
+# go test's per-package summary line, one per package under test: "ok  <pkg>  <time>",
+# where <time> is either a duration or "(cached)", optionally followed by a coverage
+# clause ("coverage: N.N% of statements") when the command carries -cover, and ending
+# in "[no tests to run]" when -run (or the package) left nothing to execute. The
+# package name and the fixed leading columns are matched literally; everything after
+# them is captured as one group and only its own trailing text decides whether the
+# marker is present, so a coverage clause or a cached time token sits harmlessly in
+# the middle instead of breaking the match. Anchored per line (MULTILINE) and to the
+# whole line ($) rather than searched for as a bare substring: a test's own printed
+# output can legitimately contain the words "no tests to run" (its own -v run prints
+# "testing: warning: no tests to run" on a line of its own, which this does not match
+# and must not be swayed by), and that must not be mistaken for the summary. A package
+# with no test files at all prints "?   <pkg>  [no test files]" instead of "ok" and is
+# deliberately not matched by this regex — it is handled separately below, since a
+# baseline where no package produced an "ok" line at all can never be killed by
+# anything and is refused unconditionally rather than folded into "matched nothing".
+_GO_TEST_OK_LINE = re.compile(r"^ok\s+\S+\s+(?P<summary>.*)$", re.MULTILINE)
+_NO_TESTS_SUFFIX = "[no tests to run]"
 
 
 def _is_go_test_command(command: list[str]) -> bool:
@@ -92,18 +102,22 @@ def _is_go_test_command(command: list[str]) -> bool:
     return len(command) >= 2 and Path(command[0]).name == "go" and command[1] == "test"
 
 
-def _go_test_matched_no_tests(stdout: str) -> bool:
-    """True when a go test baseline's own summary shows no package ran a test.
+def _go_test_baseline_ran_nothing(stdout: str) -> bool | None:
+    """Whether a go test baseline's own summary shows no package ran a test.
 
     A command can name several packages (`go test ./pkga ./pkgb -run ...`), and only
     some of them may match nothing -- the mutant declaration is still meaningful as
-    long as one package under test actually ran. So this is true only when there is at
-    least one "ok" summary line and every one of them carries "[no tests to run]"; a
-    baseline with no "ok" line at all (a shape this function does not recognise) is
-    left to the caller's own returncode check rather than guessed at here.
+    long as one package under test actually ran. So this is True only when there is at
+    least one "ok" summary line and every one of them ends in "[no tests to run]".
+    None means a different, more severe shape: no "ok" line at all -- every named
+    package had no test files, or the command otherwise never reached testing.Main --
+    which the caller refuses outright rather than folding into this boolean, since
+    False would wrongly read as "some package ran a test".
     """
     ok_lines = list(_GO_TEST_OK_LINE.finditer(stdout))
-    return bool(ok_lines) and all(m.group("no_tests") for m in ok_lines)
+    if not ok_lines:
+        return None
+    return all(m.group("summary").rstrip().endswith(_NO_TESTS_SUFFIX) for m in ok_lines)
 
 
 # ASCII digits only, matched with a regex rather than str.isdigit(): isdigit() also
@@ -294,14 +308,21 @@ def survives(mutation: Mutation) -> bool:
                 f"nothing it reports afterwards means anything:\n{baseline.stdout}"
                 f"{baseline.stderr}"
             )
-        if _is_go_test_command(mutation.command) and _go_test_matched_no_tests(
-            baseline.stdout
-        ):
-            raise ConfigError(
-                f"{mutation.name}: the baseline run of {' '.join(mutation.command)} "
-                f"matched no tests in any package, so nothing would check the mutant "
-                f"either:\n{baseline.stdout}{baseline.stderr}"
-            )
+        if _is_go_test_command(mutation.command):
+            ran_nothing = _go_test_baseline_ran_nothing(baseline.stdout)
+            if ran_nothing is None:
+                raise ConfigError(
+                    f"{mutation.name}: the baseline run of {' '.join(mutation.command)} "
+                    f'produced no "ok" summary for any package (every named package '
+                    f"has no test files, or nothing was tested at all), so this "
+                    f"declaration can never be killed:\n{baseline.stdout}{baseline.stderr}"
+                )
+            if ran_nothing:
+                raise ConfigError(
+                    f"{mutation.name}: the baseline run of {' '.join(mutation.command)} "
+                    f"matched no tests in any package, so nothing would check the "
+                    f"mutant either:\n{baseline.stdout}{baseline.stderr}"
+                )
 
         target = work / mutation.file
         if not target.is_file():
@@ -647,6 +668,69 @@ def self_test() -> int:
             ],
         )
 
+        # The same defect under -cover: the coverage clause ("coverage: 0.0% of
+        # statements") sits between the time and the "[no tests to run]" marker on
+        # the same "ok" line, and a parse anchored to a fixed number of fields after
+        # the package name would miss it.
+        refusals["a go test -cover baseline that matches no tests"] = Mutation(
+            name="no tests ran under -cover",
+            tree=gomod,
+            file="subject.go",
+            find='" 42 "',
+            replace='" 41 "',
+            command=[
+                "go",
+                "test",
+                "-count=1",
+                "-run=TestNoSuchTestAnymore",
+                "-cover",
+                "./...",
+            ],
+        )
+
+        # The same defect under -v: -v additionally prints "testing: warning: no
+        # tests to run" and "PASS" as lines of their own before the "ok" summary.
+        # Those extra lines must not be what decides the refusal -- only the "ok"
+        # line's own ending does -- so this fixture is refused for the same reason
+        # as the plain case above, not because that warning line is present.
+        refusals["a go test -v baseline that matches no tests"] = Mutation(
+            name="no tests ran under -v",
+            tree=gomod,
+            file="subject.go",
+            find='" 42 "',
+            replace='" 41 "',
+            command=[
+                "go",
+                "test",
+                "-count=1",
+                "-run=TestNoSuchTestAnymore",
+                "-v",
+                "./...",
+            ],
+        )
+
+        # A declaration that can never be killed at all: every named package has no
+        # test files, so the baseline produces no "ok" line whatsoever and still
+        # exits 0. Refused unconditionally rather than folded into "matched nothing",
+        # since silently accepting it would let a mutant survive by construction and
+        # report SURVIVED later instead of failing validation up front.
+        no_test_files_mod = root / "no-test-files"
+        no_test_files_mod.mkdir()
+        (no_test_files_mod / "go.mod").write_text(
+            "module example.com/notestfiles\n\ngo 1.24\n"
+        )
+        (no_test_files_mod / "subject.go").write_text(
+            'package notestfiles\n\nfunc Answer() string { return "42" }\n'
+        )
+        refusals["a go test baseline with no test files in any package"] = Mutation(
+            name="no test files",
+            tree=no_test_files_mod,
+            file="subject.go",
+            find='"42"',
+            replace='"41"',
+            command=["go", "test", "-count=1", "./..."],
+        )
+
         # The inverse of the refusal above: a command naming several packages where
         # only SOME of them matched no test must not be refused -- one package that
         # ran a test is enough for the baseline to mean something. This is the shape
@@ -951,7 +1035,8 @@ def self_test() -> int:
 
     print(
         "check-mutation: self-test ok — counts zero and one, refuses a broken "
-        "baseline, a go test baseline that matches no tests, an absent target, a "
+        "baseline, a go test baseline that matches no tests plain, under -cover, or "
+        "under -v, a baseline with no test files in any package, an absent target, a "
         "mutant that does not compile, a tree below its module root, a missing tree "
         "and a file escaping its tree, copies a repository's tracked files but not "
         "its untracked ones, and shards partition the full list while a malformed "
