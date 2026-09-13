@@ -17,6 +17,8 @@ the full list, and refuses a shard that is malformed or selects none.
 
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
+The tree's repository is copied by its tracked files, laid out as the repository has
+them, so a test that reads outside the tree by a relative path sees what CI sees.
 """
 
 from __future__ import annotations
@@ -124,6 +126,13 @@ def load(config: Path) -> list[Mutation]:
         tree = (config.parent / entry["tree"]).resolve()
         if not tree.is_dir():
             raise ConfigError(f"{entry['name']}: tree {tree} is not a directory")
+        # An absolute file, or one escaping with "..", would write to the real repository.
+        file_path = (tree / entry["file"]).resolve()
+        if not file_path.is_relative_to(tree):
+            raise ConfigError(
+                f"{entry['name']}: file {entry['file']!r} resolves to {file_path}, "
+                f"outside its tree {tree}"
+            )
         mutations.append(
             Mutation(
                 name=entry["name"],
@@ -184,30 +193,54 @@ def enclosing_module(tree: Path) -> Path | None:
     return None
 
 
-# Directories a test inside the mutation tree is known to read by a path that reaches
-# outside it (runtime/internal/playbook's repoRoot-relative lookups of the schema
-# contract, the documentation and the shipped examples). Copied alongside the tree so
-# those lookups resolve under the harness instead of silently skipping: a test that
-# cannot run must not look like one that passed. Named explicitly rather than copying
-# every sibling of the tree, which would also drag in .git and whatever else sits next
-# to it in a real checkout.
-SIBLING_DIRS = ("specs", "docs", "examples")
+def repository_root(tree: Path) -> Path | None:
+    """The git work tree tree sits inside, or None (the self-test's plain fixtures)."""
+    proc = subprocess.run(
+        ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    return Path(proc.stdout.strip()).resolve() if proc.returncode == 0 else None
 
 
-def copy_siblings(tree: Path, work: Path) -> None:
-    """Copy tree's SIBLING_DIRS, the ones present, next to its copy at work."""
-    for name in SIBLING_DIRS:
-        source = tree.parent / name
-        if source.is_dir():
-            shutil.copytree(source, work.parent / name, symlinks=True)
+def tracked_files(repo_root: Path) -> list[str]:
+    """Every path git tracks at repo_root, repository-relative."""
+    listing = subprocess.run(
+        ["git", "-C", str(repo_root), "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [path for path in listing.split("\0") if path]
+
+
+def copy_tree(tree: Path, dest_root: Path) -> Path:
+    """Copy what tree's tests can reach into dest_root; return the copy of tree itself.
+
+    A mutant must see what CI sees: every file git tracks in tree's repository, laid
+    out exactly as the repository has it, so a test that reads outside the tree by a
+    relative path finds what it expects instead of silently skipping. A tree that is
+    not inside a git work tree falls back to copying only the tree.
+    """
+    repo_root = repository_root(tree)
+    if repo_root is None:
+        work = dest_root / tree.name
+        shutil.copytree(tree, work, symlinks=True)
+        return work
+    for relpath in tracked_files(repo_root):
+        source = repo_root / relpath
+        if not (source.is_file() or source.is_symlink()):
+            continue
+        target = dest_root / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target, follow_symlinks=False)
+    return dest_root / tree.relative_to(repo_root)
 
 
 def survives(mutation: Mutation) -> bool:
     """Apply the mutation to a copy and report whether the command still passed."""
     with tempfile.TemporaryDirectory(prefix="gronin-mutation-") as tmp:
-        work = Path(tmp) / mutation.tree.name
-        shutil.copytree(mutation.tree, work, symlinks=True)
-        copy_siblings(mutation.tree, work)
+        work = copy_tree(mutation.tree, Path(tmp))
 
         baseline = run(mutation.command, work)
         if baseline.returncode != 0:
@@ -310,8 +343,8 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 ./subject.sh > /dev/null
 """
 
-SELF_TEST_SIBLING_TEST = """#!/bin/sh
-grep -q ok ../specs/marker.txt
+SELF_TEST_TRACKED_FILES_TEST = """#!/bin/sh
+grep -q ok ../NOTES.md && grep -q ok ../docs/guide.txt && [ ! -e ../SECRET.md ]
 """
 
 SELF_TEST_BROKEN = """#!/bin/sh
@@ -380,58 +413,89 @@ def self_test() -> int:
         if check([survived], quiet=True) != 1:
             failures.append("a mutation nothing detects was counted as killed")
 
-        # copy_siblings: what runtime/internal/playbook needs the harness to carry
-        # alongside the copied tree -- the schema contract in specs/, the
-        # documentation, and the shipped examples -- so those lookups resolve instead
-        # of silently skipping. Proven both ways: a named sibling is copied next to
-        # the tree's copy, and one that is not named is left behind.
-        siblings_source = root / "siblings"
-        (siblings_source / "specs").mkdir(parents=True)
-        (siblings_source / "specs" / "marker.txt").write_text("ok\n")
-        (siblings_source / "unlisted").mkdir()
-        (siblings_source / "unlisted" / "marker.txt").write_text("ok\n")
-        siblings_tree = siblings_source / "tree"
-        siblings_tree.mkdir()
-        siblings_work = root / "siblings-copy" / "tree"
-        copy_siblings(siblings_tree, siblings_work)
-        if not (siblings_work.parent / "specs" / "marker.txt").is_file():
-            failures.append(
-                "copy_siblings did not copy an existing named sibling directory"
-            )
-        if (siblings_work.parent / "unlisted").exists():
-            failures.append("copy_siblings copied a directory it was not told to")
+        # copy_tree: a tracked file outside the tree is reachable, an untracked one is not.
+        tracked_repo = root / "tracked-repo"
+        (tracked_repo / "docs").mkdir(parents=True)
+        (tracked_repo / "docs" / "guide.txt").write_text("ok\n")
+        (tracked_repo / "NOTES.md").write_text("ok\n")
+        tracked_tree = tracked_repo / "tree"
+        tracked_tree.mkdir()
+        (tracked_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (tracked_tree / "subject.sh").chmod(0o755)
+        (tracked_tree / "test.sh").write_text(SELF_TEST_TRACKED_FILES_TEST)
+        (tracked_tree / "test.sh").chmod(0o755)
+        subprocess.run(["git", "init", "-q"], cwd=tracked_repo, check=True)
+        subprocess.run(
+            ["git", "add", "docs", "NOTES.md", "tree"], cwd=tracked_repo, check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "-m",
+                "x",
+            ],
+            cwd=tracked_repo,
+            check=True,
+        )
+        (tracked_repo / "SECRET.md").write_text("not tracked\n")
 
-        # The same thing end to end, through survives(): a test inside the mutation
-        # tree that reads a fixture outside it must see that fixture, not fail the
-        # way it would have before copy_siblings existed.
-        siblingcheck = root / "siblingcheck"
-        (siblingcheck / "specs").mkdir(parents=True)
-        (siblingcheck / "specs" / "marker.txt").write_text("ok\n")
-        siblingcheck_tree = siblingcheck / "tree"
-        siblingcheck_tree.mkdir()
-        (siblingcheck_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
-        (siblingcheck_tree / "subject.sh").chmod(0o755)
-        (siblingcheck_tree / "test.sh").write_text(SELF_TEST_SIBLING_TEST)
-        (siblingcheck_tree / "test.sh").chmod(0o755)
+        tracked_mutation = Mutation(
+            name="tracked files reachable",
+            tree=tracked_tree,
+            file="subject.sh",
+            find="42",
+            replace="41",
+            command=["./test.sh"],
+        )
         try:
-            check(
-                [
-                    Mutation(
-                        name="sibling directory reachable",
-                        tree=siblingcheck_tree,
-                        file="subject.sh",
-                        find="42",
-                        replace="41",
-                        command=["./test.sh"],
-                    )
-                ],
-                quiet=True,
-            )
+            check([tracked_mutation], quiet=True)
         except ConfigError as err:
             failures.append(
-                f"a sibling directory a test reads outside the mutation tree was "
-                f"not copied into the harness: {err}"
+                f"a tracked file a test reads outside the mutation tree was not "
+                f"copied, or an untracked one was: {err}"
             )
+
+        # The old behavior, proven insufficient rather than assumed to be.
+        tree_only = root / "tracked-repo-tree-only"
+        shutil.copytree(tracked_tree, tree_only)
+        naive = subprocess.run(
+            ["./test.sh"], cwd=tree_only, capture_output=True, text=True
+        )
+        if naive.returncode == 0:
+            failures.append(
+                "copying only the tree still satisfied a test that reads outside it"
+            )
+
+        # load()'s refusal of a file naming a path outside its tree.
+        escape_config = root / "escaping-file.json"
+        escape_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": "escaping file",
+                            "tree": str(killed.tree),
+                            "file": "../outside.txt",
+                            "find": "x",
+                            "replace": "y",
+                            "command": ["true"],
+                        }
+                    ]
+                }
+            )
+        )
+        try:
+            load(escape_config)
+        except ConfigError:
+            pass
+        else:
+            failures.append("a file resolving outside its tree was loaded")
 
         # The refusals matter as much as the counts. A harness that treats a broken
         # baseline or an unapplied mutation as a result reports a number for something
@@ -729,8 +793,9 @@ def self_test() -> int:
     print(
         "check-mutation: self-test ok — counts zero and one, refuses a broken "
         "baseline, an absent target, a mutant that does not compile, a tree below its "
-        "module root and a missing tree, and shards partition the full list while a "
-        "malformed or empty shard is refused"
+        "module root, a missing tree and a file escaping its tree, copies a repository's "
+        "tracked files but not its untracked ones, and shards partition the full list "
+        "while a malformed or empty shard is refused"
     )
     return 0
 
