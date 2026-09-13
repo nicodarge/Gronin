@@ -44,8 +44,14 @@ func (i Instant) Before(j Instant) bool { return i.sinceOrigin < j.sinceOrigin }
 // After reports whether i is later than j.
 func (i Instant) After(j Instant) bool { return i.sinceOrigin > j.sinceOrigin }
 
+// systemOrigin is the one origin every system clock reads from. A guard with no clock
+// injected asks for the system's at every use, and a deadline anchored on one reading is
+// compared with a later one: with an origin each, both read near zero and nothing is ever
+// late.
+var systemOrigin = time.Now()
+
 // SystemClock is the host's clock.
-func SystemClock() Clock { return systemClock{origin: time.Now()} }
+func SystemClock() Clock { return systemClock{origin: systemOrigin} }
 
 type systemClock struct{ origin time.Time }
 
