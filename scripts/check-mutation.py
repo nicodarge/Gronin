@@ -56,6 +56,44 @@ class Mutation:
     command: list[str]
 
 
+def parse_shard(value: str) -> tuple[int, int]:
+    """Parse "K/N" into (K, N), refusing anything that is not exactly that shape.
+
+    K is 1-based. Refused rather than clamped or defaulted: a malformed shard
+    argument on a CI matrix leg is a configuration mistake, and running the wrong
+    slice of mutants silently is worse than the job failing loudly.
+    """
+    parts = value.split("/")
+    if len(parts) != 2:
+        raise ConfigError(f"--shard {value!r}: expected K/N")
+    k_text, n_text = parts
+    if not k_text.isdigit() or not n_text.isdigit():
+        raise ConfigError(f"--shard {value!r}: K and N must be positive integers")
+    k, n = int(k_text), int(n_text)
+    if n < 1:
+        raise ConfigError(f"--shard {value!r}: N must be at least 1")
+    if not 1 <= k <= n:
+        raise ConfigError(f"--shard {value!r}: K must be between 1 and N")
+    return k, n
+
+
+def select_shard(mutations: list[Mutation], k: int, n: int) -> list[Mutation]:
+    """The mutants whose position in the declared list is k-1 modulo n.
+
+    Deterministic and disjoint by construction: every mutant lands in exactly one
+    shard, and the union of all N shards is the input list. Refused if empty rather
+    than returning nothing to check silently -- a shard with nothing in it would
+    otherwise print "0 survivors of 0" and exit 0, indistinguishable from a real
+    all-clear.
+    """
+    selected = [m for i, m in enumerate(mutations) if i % n == k - 1]
+    if not selected:
+        raise ConfigError(
+            f"--shard {k}/{n} selects no mutants out of {len(mutations)} declared"
+        )
+    return selected
+
+
 def load(config: Path) -> list[Mutation]:
     raw = json.loads(config.read_text())
     mutations = []
@@ -399,15 +437,62 @@ def self_test() -> int:
         else:
             failures.append("a mutation naming a tree that is not there was loaded")
 
+        # Sharding. The union of every shard must equal the unsharded selection, no
+        # mutant may appear in two shards, and a shard with nothing in it -- out of
+        # range, or N larger than the list -- must be refused rather than reported
+        # as a clean run over zero mutants.
+        universe = [
+            Mutation(
+                name=f"m{i}",
+                tree=killed.tree,
+                file="subject.sh",
+                find="42",
+                replace="41",
+                command=["./test.sh"],
+            )
+            for i in range(13)
+        ]
+        n = 6
+        shards = [select_shard(universe, k, n) for k in range(1, n + 1)]
+        if sorted(m.name for shard in shards for m in shard) != sorted(
+            m.name for m in universe
+        ):
+            failures.append("the union of every shard does not equal the full list")
+        seen: set[str] = set()
+        for shard in shards:
+            names = {m.name for m in shard}
+            if seen & names:
+                failures.append("two shards selected the same mutant")
+            seen |= names
+
+        if parse_shard("2/6") != (2, 6):
+            failures.append("a well-formed --shard value was not parsed as K, N")
+        for malformed in ("0/6", "7/6", "1/0", "x/6", "1/-1", "1", "1/6/2", "-1/6"):
+            try:
+                parse_shard(malformed)
+            except ConfigError:
+                continue
+            failures.append(f"--shard {malformed!r} was accepted rather than refused")
+
+        try:
+            select_shard(universe, len(universe) + 1, len(universe) + 1)
+        except ConfigError:
+            pass
+        else:
+            failures.append(
+                "a shard selecting no mutants was accepted rather than refused"
+            )
+
         for failure in failures:
             print(f"check-mutation: self-test: {failure}", file=sys.stderr)
         if failures:
             return 1
 
     print(
-        "check-mutation: self-test ok — counts zero and one, and refuses a broken "
+        "check-mutation: self-test ok — counts zero and one, refuses a broken "
         "baseline, an absent target, a mutant that does not compile, a tree below its "
-        "module root and a missing tree"
+        "module root and a missing tree, and shards partition the full list while a "
+        "malformed or empty shard is refused"
     )
     return 0
 
@@ -526,6 +611,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--shard", type=str, default=None, metavar="K/N")
     args = parser.parse_args()
 
     # A build cache of its own, thrown away when the run ends. Every mutant is a fresh
@@ -553,7 +639,11 @@ def main() -> int:
         try:
             if args.self_test:
                 return self_test()
-            return 1 if check(load(args.config)) else 0
+            mutations = load(args.config)
+            if args.shard is not None:
+                k, n = parse_shard(args.shard)
+                mutations = select_shard(mutations, k, n)
+            return 1 if check(mutations) else 0
         except ConfigError as err:
             print(f"check-mutation: {err}", file=sys.stderr)
             return 2
