@@ -21,6 +21,7 @@ type Clock struct {
 	mono    time.Duration
 	wall    time.Time
 	timers  []*timer
+	set     int
 	changed chan struct{}
 }
 
@@ -48,7 +49,8 @@ func (c *Clock) Wall() time.Time {
 func (c *Clock) NewTimer(d time.Duration) guard.Timer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	t := &timer{clock: c, at: c.mono + d, c: make(chan time.Time, 1)}
+	c.set++
+	t := &timer{clock: c, at: c.mono + d, seq: c.set, c: make(chan time.Time, 1)}
 	if d <= 0 {
 		t.fired = true
 		t.c <- c.wall
@@ -112,14 +114,31 @@ func (c *Clock) Timers() int {
 	return len(c.timers)
 }
 
-// WaitForTimers returns once at least n timers are pending, so a test advances the clock
-// only after the code under test is waiting on it. It gives up when ctx ends.
-func (c *Clock) WaitForTimers(ctx context.Context, n int) error {
+// Set is how many timers this clock has set so far, fired and stopped ones included. A
+// test reads it before whatever makes the code under test set its next timer, and hands
+// it to WaitForTimer.
+func (c *Clock) Set() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.set
+}
+
+// WaitForTimer returns once a timer set after the first `since` is pending and due at at,
+// so a test advances the clock only once the code under test is waiting on it. A count
+// of pending timers is not that: a bound's timer is stopped by a goroutine of its own
+// after the bounded call has returned, and while it lingers it passes for the next wait.
+// It gives up when ctx ends.
+func (c *Clock) WaitForTimer(ctx context.Context, at guard.Instant, since int) error {
 	for {
 		c.mu.Lock()
-		pending, changed := len(c.timers), c.changed
+		set, changed := false, c.changed
+		for _, t := range c.timers {
+			if t.seq > since && guard.InstantAt(t.at) == at {
+				set = true
+			}
+		}
 		c.mu.Unlock()
-		if pending >= n {
+		if set {
 			return nil
 		}
 		select {
@@ -138,6 +157,7 @@ func (c *Clock) notifyLocked() {
 type timer struct {
 	clock *Clock
 	at    time.Duration
+	seq   int
 	c     chan time.Time
 	fired bool
 }
