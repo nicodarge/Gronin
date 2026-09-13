@@ -194,9 +194,28 @@ func TestABusyThatNeverBeganIsNotRelabeledHeldInsideTheRetryPauseEither(t *testi
 // Held past the bound, the update is refused when its bound ends, not after a wait of the
 // index's own choosing. The watchdog is well past the bound and well short of a fixed
 // five-second wait inside SQLite.
+//
+// Both cases matter: an update resets its connection's busy_timeout when it commits, so
+// only an index no update has committed through yet still waits the way the connection
+// was opened, and a wait SQLite does itself is not interrupted when the bound ends.
 func TestAnIndexHeldPastTheRetrievalBoundRefusesAtTheBound(t *testing.T) {
-	ix, walk, _ := indexHeldWhileSourcesChange(t)
+	t.Run("after an update", func(t *testing.T) {
+		ix, walk, _ := indexHeldWhileSourcesChange(t)
+		refusesAtTheBound(t, ix, walk)
+	})
+	t.Run("before any update", func(t *testing.T) {
+		dir := t.TempDir()
+		sources := filepath.Join(dir, "sources")
+		indexDir := filepath.Join(dir, "index")
+		writeSources(t, sources, firstSources)
+		ix := openIndex(t, indexDir, sources)
+		holdWriteLock(t, indexDir)
+		refusesAtTheBound(t, ix, walked(t, sources))
+	})
+}
 
+func refusesAtTheBound(t *testing.T, ix *index.Index, walk index.Walk) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
 	done := make(chan error, 1)
