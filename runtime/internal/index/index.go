@@ -108,6 +108,7 @@ type seams struct {
 	inTransaction func()
 	busy          func()
 	read          func(source string)
+	duringSearch  func()
 }
 
 func (ix *Index) seam(at func()) {
@@ -135,6 +136,18 @@ func isBegin(err error) bool {
 	return errors.As(err, &begin)
 }
 
+// asBegin marks err a begin failure when it is a genuine BUSY not already marked as one —
+// the first statement of a deferred read-only transaction finding the index held — and
+// leaves anything else exactly as it is: an unrelated failure (disk I/O, corruption, a
+// permission error, schema drift) reaching here after an earlier genuine BUSY is not the
+// index held, and must not be relabeled that once the caller's bound ends.
+func asBegin(err error) error {
+	if err != nil && !isBegin(err) && isBusy(err) {
+		return &beginError{err}
+	}
+	return err
+}
+
 // commitBusyError is COMMIT giving up on a reader after waiting out commitWait: the
 // transaction, still open (SQLite does not roll back a failed COMMIT), is exactly as it
 // was when the reader appeared, and the deferred rollback returns it to the previous
@@ -155,9 +168,10 @@ func (e *commitBusyError) Error() string {
 func (e *commitBusyError) Unwrap() error { return e.err }
 
 // retryBusy runs operation until it does not find the index held, or until ctx ends. Both
-// points that can end the loop on ctx call heldAtBound unconditionally, so a BUSY that is
-// not a begin failure and outlives ctx is reported once, rather than fed back to operation
-// forever because neither point returned.
+// points that can end the loop on ctx call heldAtBound unconditionally — it is heldAtBound's
+// own isBegin gate that decides what gets relabeled ErrHeld — so a failure that outlives
+// ctx is reported once either way, rather than fed back to operation forever because
+// neither point returned.
 func retryBusy(ctx context.Context, busy func(), operation func() error) error {
 	held := false
 	for {
@@ -389,6 +403,10 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 	return generation, err
 }
 
+// readStoredSeam, when a test sets it, is called once readStored's read-only transaction
+// has begun, before it reads anything. Nil outside tests.
+var readStoredSeam func()
+
 // readStored reads the generation and its documents inside one read transaction, so the
 // two cannot come from different generations.
 //
@@ -396,22 +414,20 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 // file before it writes the schema into it, and a listing can land in between.
 //
 // A read-only BeginTx is deferred: SQLite takes no lock at BEGIN, only at the first
-// statement that actually reads. So any failure before this returns — not only BeginTx's
-// own — can be that first statement finding the index held, and every one of them is
-// reported that way: a read is retried whole regardless, there being nothing it already
-// wrote to redo, so wrapping the lot costs nothing a narrower rule would have saved.
+// statement that actually reads. So a genuine BUSY before this returns — not only
+// BeginTx's own — can be that first statement finding the index held, and is reported
+// that way; anything else stays exactly as it is, since it is not the index held.
 func readStored(ctx context.Context, db *sql.DB) (stored Stored, err error) {
-	defer func() {
-		if err != nil && !isBegin(err) {
-			err = &beginError{err}
-		}
-	}()
+	defer func() { err = asBegin(err) }()
 
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Stored{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if readStoredSeam != nil {
+		readStoredSeam()
+	}
 
 	var tables int
 	if err := tx.QueryRowContext(ctx,

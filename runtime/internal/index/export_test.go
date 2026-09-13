@@ -54,6 +54,14 @@ func RetryBusy(ctx context.Context, busy func(), operation func() error) error {
 	return retryBusy(ctx, busy, operation)
 }
 
+// AsBegin applies the rule readStored and search both use to decide whether an error is a
+// begin failure — a genuine BUSY not already marked one, and nothing else — so a test can
+// drive it with real errors directly rather than only through however a live database
+// happens to time a lock and a later, unrelated failure.
+func AsBegin(err error) error {
+	return asBegin(err)
+}
+
 // SetCommitWait replaces how long COMMIT may wait for a reader before giving up, for as
 // long as the test runs: a test can then make a reader's hold longer than the wait without
 // making the suite wait out a real bound, or a real unboundedCommitWait, to prove it.
@@ -73,6 +81,20 @@ func CommitWait(ctx context.Context) time.Duration {
 // index it.
 func SetReadSeam(ix *Index, read func(source string)) {
 	ix.seams.read = read
+}
+
+// SetReadStoredSeam installs what readStored calls once its read-only transaction has
+// begun, before it reads anything, for as long as the test runs.
+func SetReadStoredSeam(t interface{ Cleanup(func()) }, seam func()) {
+	previous := readStoredSeam
+	readStoredSeam = seam
+	t.Cleanup(func() { readStoredSeam = previous })
+}
+
+// SetDuringSearchSeam installs what a search calls once its read-only transaction has
+// begun, before it reads anything.
+func SetDuringSearchSeam(ix *Index, seam func()) {
+	ix.seams.duringSearch = seam
 }
 
 // Dump is everything an index holds, one line per row in a fixed order, so two indexes

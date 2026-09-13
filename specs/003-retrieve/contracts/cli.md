@@ -35,6 +35,12 @@ remaining time, or, for `rebuild`, unbounded. A reader outlasting that fails nam
 and the previous generation stays in place; it is not retried, since retrying would mean rereading
 and reindexing every document COMMIT was about to write.
 
+`rebuild`'s wait at COMMIT is therefore unbounded, and neither Ctrl-C nor SIGTERM can interrupt it:
+the driver commits under a background context of its own, not the process's, so once COMMIT is
+waiting on a reader, only ending the process reaches it — `rebuild` installs no signal handler of
+its own, so the ordinary effect of either signal (process exit) is what stops it. A `rebuild` ended
+there leaves the previous generation in place, the same as a kill at any other point (FR-219).
+
 All three have to run as the deployment's user. An index file is created readable and writable by
 its owner alone, a wider one is narrowed only by its owner, and one the command cannot write is
 refused naming both users.

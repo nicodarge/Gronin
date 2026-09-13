@@ -37,6 +37,31 @@ func holdWriteLock(t *testing.T, indexDir string) func() {
 	return release
 }
 
+// holdExclusiveLock takes the index's EXCLUSIVE lock, which BEGIN IMMEDIATE does not: a
+// deferred read-only BeginTx succeeds under RESERVED, taking its own SHARED lock only at
+// the first statement that reads, so blocking a reader there needs EXCLUSIVE specifically.
+func holdExclusiveLock(t *testing.T, indexDir string) func() {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(indexDir, "runbooks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(t.Context(), "BEGIN EXCLUSIVE"); err != nil {
+		t.Fatal(err)
+	}
+	release := sync.OnceFunc(func() {
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		_ = conn.Close()
+		_ = db.Close()
+	})
+	t.Cleanup(release)
+	return release
+}
+
 // indexHeldWhileSourcesChange is an index at a first generation, its sources changed, and
 // its write lock held by another connection.
 func indexHeldWhileSourcesChange(t *testing.T) (*index.Index, index.Walk, func()) {
