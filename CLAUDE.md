@@ -5,14 +5,11 @@
 Everything in this repository is written in English: code, comments,
 documentation, commit messages, pull request titles and bodies, branch names.
 
-## Part of this repository is already public
+## This repository is public
 
-It is private today, but GitHub Pages has served the playbook schema publicly
-since 2026-09-07, and the repository's own switch to fully public can come at
-any time, with no date attached. So the rule below is not a grace period
-waiting for a deadline — it holds now: anything committed here is committed to
-something that can be read by everyone, and rewriting history to remove it is
-expensive and unreliable.
+It has been public since 2026-09-13, and GitHub Pages has served the playbook
+schema since 2026-09-07. Anything committed here, history included, can be read
+by everyone, and rewriting history to remove it is expensive and unreliable.
 
 So the rule is absolute and has no exception for convenience:
 

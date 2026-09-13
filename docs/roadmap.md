@@ -5,10 +5,10 @@ Phases are ordered by dependency, and the riskiest is deliberately last.
 ## Phase 0 — Foundation
 
 This repository, its licence, its hygiene rules, and a secret-scanning hook that
-runs before every commit. The repository already serves a public surface — GitHub
-Pages has published the playbook schema since 2026-09-07 — and its own switch to
-fully public can come at any time, so the rule that nothing from a real fleet
-enters it is enforced from the first commit rather than from a date.
+runs before every commit. GitHub Pages has published the playbook schema since
+2026-09-07 and the repository itself has been public since 2026-09-13; the rule
+that nothing from a real fleet enters it was enforced from the first commit rather
+than from either date.
 
 ## Phase 1 — The deployment's MCP server catalogue
 

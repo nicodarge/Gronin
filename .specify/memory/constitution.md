@@ -1,25 +1,15 @@
 <!--
 Sync Impact Report
-Version change: 1.2.0 → 1.3.0
-Bump rationale: the Time constraint is materially expanded, not reworded — where it named one
-reading of the host's clock it now distinguishes two, and says which one each use of time takes —
-so MINOR per the versioning rule below. No principle is added, removed or redefined.
-Modified principles: none.
-Modified sections:
-  - Operational Constraints, Time — "wall-clock time on the host" becomes the runtime's own clock:
-    monotonic for durations and deadlines, wall clock for recorded timestamps, never a timestamp a
-    trigger carried. Decided by the owner on 2026-09-11, on a finding of the guard feature's Phase 0
-    (specs/002-guard/research.md): read literally, "wall clock" also covered the guard's stop
-    deadline, which a backward step of the wall clock lengthens. The constraint also says that an
-    instant the runtime computes from a schedule is its own and not a trigger's, since the guard
-    compares one (specs/002-guard/spec.md, FR-129).
+Version change: 1.3.0 → 1.3.1
+Bump rationale: Principle V's rationale said the repository's switch to public could come at any
+time; the owner made it public on 2026-09-13. The rule itself is unchanged, so PATCH per the
+versioning rule below.
+Modified principles:
+  - V. Nothing From a Real Fleet Enters This Repository — rationale only.
 Added sections: none
 Removed sections: none
 Documents brought in line with the new wording in the same change:
-  - README.md, docs/architecture.md
-  - specs/001-runtime-core/plan.md
-  - specs/002-guard/spec.md (FR-118), plan.md, research.md, data-model.md
-  - specs/004-webhook/spec.md (FR-320 and an edge case), plan.md
+  - CLAUDE.md, docs/roadmap.md, specs/001-runtime-core/tasks.md (T067)
 Templates requiring review:
   - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
     Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
@@ -107,10 +97,9 @@ a commit message. Examples MUST use documentation-reserved values.
 Automated secret scanning MUST run before every commit. It is a belt and not the rule: it
 catches shapes it already knows, and an infrastructure hostname is not one of them.
 
-Rationale: this repository already serves a public surface — GitHub Pages has published the
-playbook schema since 2026-09-07 — and its own switch to fully public can come at any time, with
-no date attached. The rule holds now, not from a future deadline: removing something from history
-later is expensive and unreliable.
+Rationale: this repository is public — since 2026-09-13, and GitHub Pages has published the
+playbook schema since 2026-09-07. Everything committed, history included, can be read by anyone,
+and removing something from history later is expensive and unreliable.
 
 ### VI. The Suite Is the Gate
 
@@ -199,4 +188,4 @@ the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.3.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-11
+**Version**: 1.3.1 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-13
