@@ -174,8 +174,9 @@ killed process would otherwise hold the slot until `serve` next started or someo
 `gronin refusals`. Whoever reconciles, a waiting row that a run's `waiting_trigger_id` already
 names is marked `ran`, never `dropped`: it became that run. A reconciliation looks at an
 instance by taking its lock, which cannot make a real contender fail — the only process that
-ever asks for an instance's lock is the one that takes it at start, before any row names it,
-and no instance identifier is used twice. Once an instance is proven dead its lock file is
+ever asks for an instance's lock is the one that takes it at start, before any row names it.
+An instance identifier is 32 random bits, so two processes drawing the same one is possible and
+not expected; the second fails to take the lock at start rather than sharing it. Once an instance is proven dead its lock file is
 removed.
 
 For `dropped`, `refused_at` is when the drop was observed — the reconciliation that found the
@@ -198,8 +199,20 @@ acceptance fails on it as an error rather than as a refusal an operator can read
 **When a waiting trigger becomes a run.** The run's identifier is minted when it starts, not when
 the trigger arrived, so that it sorts and reads as the time the run began. The run's row and the
 waiting row's `ran` are written in one transaction: a process that died between two writes would
-leave a run whose trigger reads as waiting. The trigger takes the claim under the name it
-collided with before it reads its file again, and a file that has changed gives the claim back.
+leave a run whose trigger reads as waiting.
+
+**Reading the playbook again.** A waiting trigger reads its file again before it asks for the
+claim, and a read that fails — the file gone, refused by the load gate, declaring another name,
+or a sibling the directory's load refuses — ends the wait having taken nothing: no other trigger
+is refused for a run that never starts. It reads only when the file or a sibling playbook file
+has changed since the last read, judged from their modification time, size and inode, so a
+waiter polling the file lock every 25 ms does not parse the directory each time; an edit that
+keeps all three within the filesystem's timestamp resolution goes unseen until another change.
+Because the file lock's waiter comes round on every poll, a change that makes the playbook
+unloadable ends its wait at once, while an etcd waiter sees it when the claim frees. Once the
+claim is held the directory is looked at again, and a change made while that one `Acquire`
+call was in flight gives the claim back for the next round to read. That call is the window
+that remains: a tick arriving in it is refused for a run that does not start.
 
 ### Refusal record (in the record store)
 
