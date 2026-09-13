@@ -53,7 +53,6 @@ func (ix *Index) search(ctx context.Context, query string, limit int) (found Fou
 		return Found{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	ix.seam(ix.seams.duringSearch)
 
 	generation, err := readGeneration(ctx, tx)
 	if err != nil {

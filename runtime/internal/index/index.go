@@ -108,7 +108,6 @@ type seams struct {
 	inTransaction func()
 	busy          func()
 	read          func(source string)
-	duringSearch  func()
 }
 
 func (ix *Index) seam(at func()) {
@@ -403,10 +402,6 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 	return generation, err
 }
 
-// readStoredSeam, when a test sets it, is called once readStored's read-only transaction
-// has begun, before it reads anything. Nil outside tests.
-var readStoredSeam func()
-
 // readStored reads the generation and its documents inside one read transaction, so the
 // two cannot come from different generations.
 //
@@ -425,9 +420,6 @@ func readStored(ctx context.Context, db *sql.DB) (stored Stored, err error) {
 		return Stored{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if readStoredSeam != nil {
-		readStoredSeam()
-	}
 
 	var tables int
 	if err := tx.QueryRowContext(ctx,

@@ -83,20 +83,6 @@ func SetReadSeam(ix *Index, read func(source string)) {
 	ix.seams.read = read
 }
 
-// SetReadStoredSeam installs what readStored calls once its read-only transaction has
-// begun, before it reads anything, for as long as the test runs.
-func SetReadStoredSeam(t interface{ Cleanup(func()) }, seam func()) {
-	previous := readStoredSeam
-	readStoredSeam = seam
-	t.Cleanup(func() { readStoredSeam = previous })
-}
-
-// SetDuringSearchSeam installs what a search calls once its read-only transaction has
-// begun, before it reads anything.
-func SetDuringSearchSeam(ix *Index, seam func()) {
-	ix.seams.duringSearch = seam
-}
-
 // Dump is everything an index holds, one line per row in a fixed order, so two indexes
 // can be compared whole rather than through what a search happens to return.
 func Dump(ctx context.Context, ix *Index) ([]string, error) {
