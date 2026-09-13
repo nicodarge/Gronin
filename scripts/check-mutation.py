@@ -543,6 +543,10 @@ def self_test() -> int:
             )
 
         # End to end: run the real CLI per shard -- the checks above never call main().
+        # One fixture mutant is inattentive rather than killed, so the exit code is
+        # checked against what each shard should report, not only against "did not
+        # crash" -- a main() that stopped propagating check()'s result as its exit
+        # code would otherwise go unnoticed as long as it happened not to crash.
         e2e_dir = root / "e2e"
         e2e_tree = e2e_dir / "tree"
         e2e_tree.mkdir(parents=True)
@@ -550,7 +554,15 @@ def self_test() -> int:
         (e2e_tree / "subject.sh").chmod(0o755)
         (e2e_tree / "test.sh").write_text(SELF_TEST_ATTENTIVE)
         (e2e_tree / "test.sh").chmod(0o755)
-        e2e_names = [f"e2e-{i}" for i in range(7)]
+        e2e_survivor_tree = e2e_dir / "survivor-tree"
+        e2e_survivor_tree.mkdir()
+        (e2e_survivor_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (e2e_survivor_tree / "subject.sh").chmod(0o755)
+        (e2e_survivor_tree / "test.sh").write_text(SELF_TEST_INATTENTIVE)
+        (e2e_survivor_tree / "test.sh").chmod(0o755)
+
+        e2e_survivor_name = "e2e-survivor"
+        e2e_names = [e2e_survivor_name] + [f"e2e-{i}" for i in range(6)]
         e2e_config = e2e_dir / "mutations.json"
         e2e_config.write_text(
             json.dumps(
@@ -558,7 +570,9 @@ def self_test() -> int:
                     "mutations": [
                         {
                             "name": name,
-                            "tree": "tree",
+                            "tree": "survivor-tree"
+                            if name == e2e_survivor_name
+                            else "tree",
                             "file": "subject.sh",
                             "find": "42",
                             "replace": "41",
@@ -570,6 +584,9 @@ def self_test() -> int:
             )
         )
         e2e_n = 6
+        # e2e_survivor_name is first in the declared list (position 0), so it lands
+        # in the shard where 0 % e2e_n == k - 1.
+        e2e_survivor_shard = 0 % e2e_n + 1
         e2e_shards: list[set[str]] = []
         for k in range(1, e2e_n + 1):
             proc = subprocess.run(
@@ -584,12 +601,21 @@ def self_test() -> int:
                 capture_output=True,
                 text=True,
             )
-            if proc.returncode != 0:
+            expected_rc = 1 if k == e2e_survivor_shard else 0
+            if proc.returncode != expected_rc:
                 failures.append(
                     f"the end-to-end shard {k}/{e2e_n} run exited "
-                    f"{proc.returncode}: {proc.stderr}"
+                    f"{proc.returncode}, expected {expected_rc}: {proc.stderr}"
                 )
                 continue
+            if (
+                k == e2e_survivor_shard
+                and f"SURVIVED  {e2e_survivor_name}" not in proc.stdout
+            ):
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run did not report "
+                    f"{e2e_survivor_name!r} as SURVIVED"
+                )
             if f"shard {k}/{e2e_n}:" not in proc.stdout:
                 failures.append(
                     f"the end-to-end shard {k}/{e2e_n} run's summary line did not "
