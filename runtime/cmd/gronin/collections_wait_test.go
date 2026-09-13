@@ -40,7 +40,7 @@ func TestAListingDoesNotWaitForeverBehindAnUpdate(t *testing.T) {
 		_ = db.Close()
 	})
 
-	const held = "the index is held by another update"
+	const held = "the index is held by another connection"
 
 	listing := bintest.Start(t, "collections", "list", "--state-dir", deployment.state)
 	code, err := listing.Wait(30 * time.Second)

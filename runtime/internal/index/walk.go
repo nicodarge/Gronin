@@ -147,9 +147,7 @@ var errNoRoot = errors.New("this walk was not made by WalkDirectory, so its docu
 // longer has the digest the walk took: indexed, it would sit under a generation naming
 // content the index does not hold.
 //
-// read, when not nil, is told of each document whose text has been read, by the read
-// itself: reported anywhere else, a read and its report could be moved apart, and a test
-// of where reading happens would follow the report.
+// read, when not nil, is called after each document's text is read.
 func (w Walk) contentOf(document Document, read func(source string)) ([]byte, error) {
 	if w.root == "" {
 		return nil, errNoRoot

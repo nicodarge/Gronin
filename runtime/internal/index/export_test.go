@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 )
 
 // SetSeams installs the two points an update can be held at: after it has read the
@@ -29,6 +30,15 @@ func SetOwner(t interface{ Cleanup(func()) }, owner func(info os.FileInfo) int) 
 	previous := ownerOf
 	ownerOf = owner
 	t.Cleanup(func() { ownerOf = previous })
+}
+
+// SetBusyPause replaces how long an operation that found the index held waits before trying
+// again, for as long as the test runs: stretched, the caller's bound ends inside the pause
+// rather than wherever the scheduler puts it.
+func SetBusyPause(t interface{ Cleanup(func()) }, pause time.Duration) {
+	previous := busyPause
+	busyPause = pause
+	t.Cleanup(func() { busyPause = previous })
 }
 
 // SetBusySeam installs what an operation calls each time it finds the index held by

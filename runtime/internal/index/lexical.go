@@ -44,7 +44,7 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 func (ix *Index) search(ctx context.Context, query string, limit int) (Found, error) {
 	tx, err := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return Found{}, err
+		return Found{}, &beginError{err}
 	}
 	defer func() { _ = tx.Rollback() }()
 

@@ -111,6 +111,9 @@ func TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled(t *testing.T) {
 	ix := openIndex(t, indexDir, sources)
 	walk := walked(t, sources)
 
+	// Stretched, the pause is where the bound ends, whatever the scheduler does: the refusal
+	// is then decided by how a wait for a held index ends, and by nothing else.
+	index.SetBusyPause(t, time.Hour)
 	calls := 0
 	index.SetSeams(ix, func() {
 		calls++

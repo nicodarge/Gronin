@@ -78,6 +78,55 @@ func TestAHeldIndexIsWaitedOutWithinTheRetrievalBound(t *testing.T) {
 	}
 }
 
+// Found held once, the index is not what every later failure is. Here the update takes the
+// lock once the other connection lets go, and its bound ends while it is inside its own
+// transaction: that is the update running out of time, not the index being held.
+func TestAFailureAfterTheLockIsTakenIsNotReportedAsHeld(t *testing.T) {
+	ix, walk, release := indexHeldWhileSourcesChange(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	index.SetBusySeam(ix, release)
+	index.SetSeams(ix, nil, func() { <-ctx.Done() })
+	t.Cleanup(func() { index.SetSeams(ix, nil, nil) })
+
+	_, err := ix.Update(ctx, walk)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the update ended with %v, want its bound's deadline", err)
+	}
+	if errors.Is(err, index.ErrHeld) {
+		t.Errorf("an update that held the lock when its bound ended is reported as held: %v", err)
+	}
+}
+
+// A cancel is the caller's own, whatever the update was waiting for: an operator's Ctrl-C
+// on a listing waiting behind a held index is not the index held past its bound.
+func TestACancelIsNotReportedAsHeld(t *testing.T) {
+	t.Run("while waiting for the lock", func(t *testing.T) {
+		ix, walk, _ := indexHeldWhileSourcesChange(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		index.SetBusySeam(ix, cancel)
+
+		_, err := ix.Update(ctx, walk)
+		if !errors.Is(err, context.Canceled) || errors.Is(err, index.ErrHeld) {
+			t.Errorf("a cancel while waiting for a held index ended with %v, want the cancel and not held", err)
+		}
+	})
+	t.Run("inside the transaction", func(t *testing.T) {
+		ix, walk, release := indexHeldWhileSourcesChange(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		index.SetBusySeam(ix, release)
+		index.SetSeams(ix, nil, cancel)
+		t.Cleanup(func() { index.SetSeams(ix, nil, nil) })
+
+		_, err := ix.Update(ctx, walk)
+		if !errors.Is(err, context.Canceled) || errors.Is(err, index.ErrHeld) {
+			t.Errorf("a cancel inside the transaction ended with %v, want the cancel and not held", err)
+		}
+	})
+}
+
 // Held past the bound, the update is refused when its bound ends, not after a wait of the
 // index's own choosing. The watchdog is well past the bound and well short of a fixed
 // five-second wait inside SQLite.

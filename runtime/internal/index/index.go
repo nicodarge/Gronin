@@ -116,26 +116,32 @@ func (ix *Index) seam(at func()) {
 	}
 }
 
-// ErrHeld is an index another update held for as long as the caller was willing to wait.
-var ErrHeld = errors.New("the index is held by another update")
+// ErrHeld is an index another connection held for as long as the caller was willing to wait.
+var ErrHeld = errors.New("the index is held by another connection")
 
 // busyPause is how long an operation that found the index held waits before trying again.
-const busyPause = 20 * time.Millisecond
+var busyPause = 20 * time.Millisecond
 
-// retryBusy runs operation until it does not find the database held by another
-// connection, or until ctx ends. The wait is the caller's bound — a retrieval's own
-// remaining time — and not a figure of this package's.
-//
-// SQLite's own busy_timeout is zero, so that every wait is here. A busy handler sleeping
-// inside SQLite is interrupted when the context ends, and what comes back then is the
-// context's error or SQLite's "interrupted", not the index being held. Once an operation
-// has found the index held, an error at the end of the bound is reported as that.
+// beginError is a transaction that could not begin: the one failure that means an operation
+// never took the lock it waited for.
+type beginError struct{ err error }
+
+func (e *beginError) Error() string { return e.err.Error() }
+
+func (e *beginError) Unwrap() error { return e.err }
+
+func isBegin(err error) bool {
+	var begin *beginError
+	return errors.As(err, &begin)
+}
+
+// retryBusy runs operation until it does not find the index held, or until ctx ends.
 func retryBusy(ctx context.Context, busy func(), operation func() error) error {
 	held := false
 	for {
 		err := operation()
-		if err != nil && held && ctx.Err() != nil {
-			return fmt.Errorf("%w: %w", ErrHeld, errors.Join(ctx.Err(), err))
+		if held && ctx.Err() != nil && isBegin(err) {
+			return heldAtBound(ctx, err)
 		}
 		if !isBusy(err) {
 			return err
@@ -146,10 +152,21 @@ func retryBusy(ctx context.Context, busy func(), operation func() error) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%w: %w", ErrHeld, errors.Join(ctx.Err(), err))
 		case <-time.After(busyPause):
 		}
+		if ctx.Err() != nil {
+			return heldAtBound(ctx, err)
+		}
 	}
+}
+
+// heldAtBound is how a wait for a held index ends when the caller's context does: a bound
+// that ran out is the index held, and a cancel is the caller's own.
+func heldAtBound(ctx context.Context, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("%w: %w", ErrHeld, errors.Join(ctx.Err(), err))
+	}
+	return errors.Join(ctx.Err(), err)
 }
 
 func isBusy(err error) bool {
@@ -159,6 +176,19 @@ func isBusy(err error) bool {
 
 func (ix *Index) whileBusy(ctx context.Context, operation func() error) error {
 	return retryBusy(ctx, ix.seams.busy, operation)
+}
+
+// maxCommitWait is how long COMMIT waits for readers when the caller sets no bound.
+const maxCommitWait = 30 * time.Second
+
+// commitWait is how long COMMIT may wait for readers: the caller's remaining bound, or
+// maxCommitWait when there is none.
+func commitWait(ctx context.Context) time.Duration {
+	wait := maxCommitWait
+	if deadline, bounded := ctx.Deadline(); bounded {
+		wait = min(wait, time.Until(deadline))
+	}
+	return max(wait, time.Millisecond)
 }
 
 // name is what a collection may be called, checked again here because it becomes a path.
@@ -231,7 +261,8 @@ var ownerOf = func(info os.FileInfo) int {
 // Writes take the database's write lock when they begin, not when they first write: two
 // processes updating one collection then wait for each other at the start, rather than
 // one finding at its first write that the other got there first. How long they wait is
-// the context's.
+// the context's, not SQLite's own busy_timeout — zero everywhere but COMMIT, since a busy
+// handler inside SQLite ignores the context ending.
 func Open(ctx context.Context, dir, collection string, cfg Configuration) (*Index, error) {
 	file, err := path(dir, collection)
 	if err != nil {
@@ -337,7 +368,7 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 func readStored(ctx context.Context, db *sql.DB) (Stored, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return Stored{}, err
+		return Stored{}, &beginError{err}
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -598,12 +629,23 @@ func (c change) apply(ctx context.Context, tx *sql.Tx, read func(source string))
 
 // commit applies diff and the new generation's row in one write transaction. settled is
 // called once every document it adds has been read unchanged.
+//
+// It runs on a connection of its own, so the wait it gives COMMIT is set on that
+// connection alone and taken off again before the connection goes back to the pool.
 func (ix *Index) commit(
 	ctx context.Context, readID string, diff change, target string, settled func(),
 ) (Generation, error) {
-	tx, err := ix.db.BeginTx(ctx, nil)
+	conn, err := ix.db.Conn(ctx)
 	if err != nil {
-		return Generation{}, err
+		return Generation{}, &beginError{err}
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "PRAGMA busy_timeout = 0")
+		_ = conn.Close()
+	}()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Generation{}, &beginError{err}
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -626,6 +668,13 @@ func (ix *Index) commit(
 		ON CONFLICT (id) DO UPDATE SET generation = excluded.generation,
 		    identity = excluded.identity, built_at = excluded.built_at`,
 		next.ID, next.Identity, next.BuiltAt.Format(time.RFC3339Nano)); err != nil {
+		return Generation{}, err
+	}
+	// Under a rollback journal a reader open at COMMIT keeps it from taking the database
+	// exclusively. SQLite waits for the reader here, within the caller's bound, rather than
+	// the transaction failing and being redone with every document read again; the driver
+	// commits under a background context, so this wait is not interrupted.
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", commitWait(ctx).Milliseconds())); err != nil {
 		return Generation{}, err
 	}
 	if err := tx.Commit(); err != nil {

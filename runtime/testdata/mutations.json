@@ -3667,21 +3667,6 @@
       ]
     },
     {
-      "name": "the documents are read before the write lock",
-      "tree": "..",
-      "file": "internal/index/index.go",
-      "find": "\ttx, err := ix.db.BeginTx(ctx, nil)\n",
-      "replace": "\tfor _, document := range diff.add {\n\t\t_, _ = diff.walk.contentOf(document, ix.seams.read)\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/index",
-        "-count=1",
-        "-run",
-        "TestADocumentIsReadInsideTheWriteTransaction"
-      ]
-    },
-    {
       "name": "an index file another user owns is used at a wider mode",
       "tree": "..",
       "file": "internal/index/index.go",
@@ -3730,8 +3715,8 @@
       "name": "the documents are read into memory before the write lock and indexed from it",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "\t\tcontent, err := c.walk.contentOf(document, read)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
-      "replace": "\t\tcontent := preread[document.Source]\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\nvar preread = map[string][]byte{}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tpreread = map[string][]byte{}\n\tfor _, document := range diff.add {\n\t\tcontent, err := diff.walk.contentOf(document, ix.seams.read)\n\t\tif err != nil {\n\t\t\treturn Generation{}, err\n\t\t}\n\t\tpreread[document.Source] = content\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "find": "\t\tcontent, err := c.walk.contentOf(document, read)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\n//\n// It runs on a connection of its own, so the wait it gives COMMIT is set on that\n// connection alone and taken off again before the connection goes back to the pool.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tconn, err := ix.db.Conn(ctx)\n\tif err != nil {\n\t\treturn Generation{}, &beginError{err}\n\t}\n\tdefer func() {\n\t\t_, _ = conn.ExecContext(context.Background(), \"PRAGMA busy_timeout = 0\")\n\t\t_ = conn.Close()\n\t}()\n\ttx, err := conn.BeginTx(ctx, nil)\n",
+      "replace": "\t\tcontent := preread[document.Source]\n\t\tif _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,\n\t\t\tdocument.Source, document.Digest, document.Bytes); err != nil {\n\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t}\n\t\tfor _, passage := range TextPassages(document.Source, content) {\n\t\t\tif _, err := tx.ExecContext(ctx,\n\t\t\t\t`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,\n\t\t\t\tpassage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {\n\t\t\t\treturn fmt.Errorf(\"indexing %s: %w\", document.Source, err)\n\t\t\t}\n\t\t}\n\t}\n\treturn nil\n}\n\nvar preread = map[string][]byte{}\n\n// commit applies diff and the new generation's row in one write transaction. settled is\n// called once every document it adds has been read unchanged.\n//\n// It runs on a connection of its own, so the wait it gives COMMIT is set on that\n// connection alone and taken off again before the connection goes back to the pool.\nfunc (ix *Index) commit(\n\tctx context.Context, readID string, diff change, target string, settled func(),\n) (Generation, error) {\n\tconn, err := ix.db.Conn(ctx)\n\tif err != nil {\n\t\treturn Generation{}, &beginError{err}\n\t}\n\tdefer func() {\n\t\t_, _ = conn.ExecContext(context.Background(), \"PRAGMA busy_timeout = 0\")\n\t\t_ = conn.Close()\n\t}()\n\tpreread = map[string][]byte{}\n\tfor _, document := range diff.add {\n\t\tcontent, err := diff.walk.contentOf(document, ix.seams.read)\n\t\tif err != nil {\n\t\t\treturn Generation{}, err\n\t\t}\n\t\tpreread[document.Source] = content\n\t}\n\ttx, err := conn.BeginTx(ctx, nil)\n",
       "command": [
         "go",
         "test",
@@ -3739,6 +3724,66 @@
         "-count=1",
         "-run",
         "TestADocumentIsReadInsideTheWriteTransaction"
+      ]
+    },
+    {
+      "name": "a bound that ran out on a held index is not reported as held",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\treturn fmt.Errorf(\"%w: %w\", ErrHeld, errors.Join(ctx.Err(), err))\n",
+      "replace": "\t\treturn errors.Join(ctx.Err(), err)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "any failure once the index was found held is reported as held",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tif held && ctx.Err() != nil && isBegin(err) {\n",
+      "replace": "\t\tif held && ctx.Err() != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFailureAfterTheLockIsTakenIsNotReportedAsHeld"
+      ]
+    },
+    {
+      "name": "a cancel is reported as a held index",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif errors.Is(ctx.Err(), context.DeadlineExceeded) {\n",
+      "replace": "\tif ctx.Err() != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestACancelIsNotReportedAsHeld"
+      ]
+    },
+    {
+      "name": "a reader open at commit makes the transaction be redone",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "fmt.Sprintf(\"PRAGMA busy_timeout = %d\", commitWait(ctx).Milliseconds())",
+      "replace": "\"PRAGMA busy_timeout = 0\"",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAReaderOpenAtCommitIsWaitedOutWithoutReadingAgain"
       ]
     }
   ]

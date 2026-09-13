@@ -155,7 +155,10 @@ retrieval bound, and is refused naming the file only when the bound ends with th
 changing. A rebuild, which has no bound, is refused naming the file once it has changed on each of
 ten walks. A refusal names a changed file only while the file is still changing: once an attempt
 has read every document it adds unchanged, a later refusal is for its own cause. Waiting for a
-write lock another process holds is inside the same bound. A search reads inside one transaction, so it
+write lock another process holds is inside the same bound. A search open at COMMIT holds the
+database as well, and under the rollback journal COMMIT cannot take it exclusively until the
+search ends: the update waits for it there, within the same bound, and neither redoes its
+transaction nor reads any document again for it. A search reads inside one transaction, so it
 sees the generation before or the one after, never part of either. A seam between reading the
 generation and opening the transaction is what lets a test hold one update there while another
 commits (SC-211).
