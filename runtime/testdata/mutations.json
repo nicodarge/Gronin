@@ -3026,7 +3026,7 @@
       "tree": "..",
       "file": "cmd/gronin/deployment.go",
       "find": "\treturn filepath.Join(stateDir, \"index\")\n",
-      "replace": "\treturn filepath.Join(os.TempDir(), \"gronin-mutant-index\")\n",
+      "replace": "\treturn filepath.Join(filepath.Dir(stateDir), filepath.Base(stateDir)+\"-index-outside\")\n",
       "command": [
         "go",
         "test",
@@ -3232,21 +3232,6 @@
       ]
     },
     {
-      "name": "an empty query is searched",
-      "tree": "..",
-      "file": "internal/stage/retrieve/query.go",
-      "find": "\tif query == \"\" {\n",
-      "replace": "\tif query == \"\" && truncated {\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/run",
-        "-count=1",
-        "-run",
-        "TestARetrievalThatCannotRunRefuses"
-      ]
-    },
-    {
       "name": "a refused retrieval lets the run continue",
       "tree": "..",
       "file": "internal/run/execute.go",
@@ -3289,6 +3274,171 @@
         "-count=1",
         "-run",
         "TestNothingFoundIsSaid"
+      ]
+    },
+    {
+      "name": "the listing opens the index read-only",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=rw&_pragma=busy_timeout(100)\")",
+      "replace": "sql.Open(\"sqlite\", \"file:\"+file+\"?mode=ro&_pragma=busy_timeout(100)\")",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAKilledRebuildLeavesThePreviousGeneration"
+      ]
+    },
+    {
+      "name": "an empty query is searched",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\t\treturn found, ErrNoWords\n",
+      "replace": "\t\treturn found, nil\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "a pipe is read as a document",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tcase !info.Mode().IsRegular():\n\t\t\tskip(ReasonNotRegular)\n\t\t\treturn nil\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheWalk"
+      ]
+    },
+    {
+      "name": "the query's line breaks reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))}}",
+      "replace": "redactor.Redact(head.query))}}",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a source's control characters reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "at+1, printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),",
+      "replace": "at+1, redactor.Redact(hit.Source), hit.Ordinal, hit.Score),",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a result heading is written without its passage",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tbreak\n\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a retrieval that handed the agent nothing is recorded found",
+      "tree": "..",
+      "file": "internal/stage/retrieve/retrieve.go",
+      "find": "\tif len(items) == 0 {\n",
+      "replace": "\tif len(hits) == 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "text changed during an update is indexed under the walk's digest",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\tif hex.EncodeToString(sum[:]) != document.Digest {\n",
+      "replace": "\tif hex.EncodeToString(sum[:]) != document.Digest && document.Bytes < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnUpdateNeverIndexesTextUnderAnotherDigest"
+      ]
+    },
+    {
+      "name": "a held index is not waited out",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\tif !isBusy(err) {\n",
+      "replace": "\t\tif !isBusy(err) || err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexIsWaitedOutWithinTheRetrievalBound"
+      ]
+    },
+    {
+      "name": "a held index is waited out for a fixed time",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\"file:\"+file+\"?_pragma=busy_timeout(100)&_txlock=immediate\"",
+      "replace": "\"file:\"+file+\"?_pragma=busy_timeout(5000)&_txlock=immediate\"",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexHeldPastTheRetrievalBoundRefusesAtTheBound"
+      ]
+    },
+    {
+      "name": "the index is created with SQLite's default mode",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif err := private(file); err != nil {\n",
+      "replace": "\tif err := error(nil); err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestTheIndexIsReadableOnlyByItsOwner"
       ]
     }
   ]
