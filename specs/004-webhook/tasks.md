@@ -108,23 +108,23 @@ mutant against the new text.
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] `runtime/internal/ingress/doc.go` and `runtime/internal/sources/doc.go`: the two
+- [x] T001 [P] `runtime/internal/ingress/doc.go` and `runtime/internal/sources/doc.go`: the two
       packages, each saying what it holds and, for `ingress`, that it serves deliveries and nothing
       else and shares only the record store with `api`
-- [ ] T002 [P] `runtime/internal/ingress/ingresstest/ingresstest.go`: `Sign(secret, prefix, body)`,
+- [x] T002 [P] `runtime/internal/ingress/ingresstest/ingresstest.go`: `Sign(secret, prefix, body)`,
       the header value a correct sender would send; a raw-TCP sender that sends headers or a body a
       byte at a time and can stop partway; a `CountingListener` wrapping a `net.Listener` so a test
       reads how many bytes the server consumed from each connection; and `HoldWrites(t, recordDir)`,
       which takes the record store's write lock from a connection of its own and returns the release.
       Imported only by `_test.go` files
-- [ ] T003 `TestTheIngressAndTheAPIShareOnlyTheRecord` in `runtime/internal/ingress/imports_test.go`:
+- [x] T003 `TestTheIngressAndTheAPIShareOnlyTheRecord` in `runtime/internal/ingress/imports_test.go`:
       parses the imports of every non-test file in `internal/ingress` and `internal/api` with
       `go/parser` and asserts neither imports the other, and that no non-test file anywhere under
       `runtime/` imports `ingresstest`. It also asserts that at least one file was parsed in each
       package and that `api`'s import of `internal/record` was seen, because a check over nothing
       passes. Two packages serving the two route sets are what keep a future change from putting
       them back behind one listener without anyone deciding to (plan, *Project Structure*)
-- [ ] T004 Register T003's mutant, `the ingress imports the operator API`: a blank import of
+- [x] T004 Register T003's mutant, `the ingress imports the operator API`: a blank import of
       `internal/api` added to `internal/ingress/doc.go`; command
       `go test ./internal/ingress -count=1 -run TestTheIngressAndTheAPIShareOnlyTheRecord`
 
