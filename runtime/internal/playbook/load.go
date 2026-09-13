@@ -112,6 +112,20 @@ func Load(dir string, dep Deployment) (Loaded, error) {
 	return loaded, nil
 }
 
+// LoadFile reads one playbook through the same two layers Load puts each file through,
+// and returns the refusal when either refuses it. It is how a trigger that waited reads
+// its playbook again (FR-121); a name another file also declares is Load's to notice.
+func LoadFile(path string, dep Deployment) (*Playbook, error) {
+	book, err := ParseFile(path)
+	if err != nil {
+		return nil, Refusal{Path: path, Reason: err}
+	}
+	if problems := Validate(book, dep); len(problems) > 0 {
+		return nil, Refusal{Path: path, Problems: problems}
+	}
+	return book, nil
+}
+
 // Find returns the loaded playbook with a name.
 func (l Loaded) Find(name string) (*Playbook, bool) {
 	for _, book := range l.Playbooks {

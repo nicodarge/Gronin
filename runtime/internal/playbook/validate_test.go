@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
 )
@@ -351,7 +352,7 @@ func refusedAs(problems []playbook.Problem, field, says string) bool {
 func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
 	applied := map[string]bool{
 		"guard.rate": false,
-		"guard.wait": false,
+		"guard.wait": true,
 	}
 	declaring := map[string]*playbook.Guard{
 		"guard.rate": {Rate: &playbook.Rate{Runs: 2, Per: "1h"}},
@@ -393,6 +394,42 @@ func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
 	for _, problem := range problems {
 		if strings.HasPrefix(problem.Field, "guard") {
 			t.Fatalf("an empty guard block was refused: %v", problem)
+		}
+	}
+}
+
+// SC-109 for wait, through both layers a loaded playbook passes: the schema and the gate.
+// A key the runtime implements loads; one it does not is still refused beside it. Observing
+// a refusal alone would pass against the runtime core, which refused the whole block.
+func TestGuardBlockWaitLoadsAndAnUnknownKeyDoesNot(t *testing.T) {
+	document := func(guard string) []byte {
+		return []byte("name: drift-check\ntrigger: {type: manual}\n" + guard +
+			"agent: {model: m, prompt_file: p.md, output_schema: {type: object}}\n" +
+			"sinks: [{discord: {channel: \"#ops\"}}]\n")
+	}
+
+	book, err := playbook.Parse("wait.yaml", document("guard: {wait: 5m}\n"))
+	if err != nil {
+		t.Fatalf("a guard block declaring wait was refused by the schema: %v", err)
+	}
+	for _, problem := range playbook.Validate(book, deployment()) {
+		if strings.HasPrefix(problem.Field, "guard") {
+			t.Fatalf("a guard block declaring wait was refused by the gate: %v", problem)
+		}
+	}
+	if waited, err := book.WaitFor(); err != nil || waited != 5*time.Minute {
+		t.Fatalf("wait = %s, err = %v, want the 5m declared", waited, err)
+	}
+
+	if _, err := playbook.Parse("unknown.yaml", document("guard: {wait: 5m, queue: 3}\n")); err == nil ||
+		!strings.Contains(err.Error(), "additional properties 'queue' not allowed") {
+		t.Fatalf("an unknown guard key beside wait was not refused for itself: %v", err)
+	}
+
+	// No block, or a block that does not say, waits for research.md §3's default.
+	for name, guard := range map[string]*playbook.Guard{"no block": nil, "no wait": {}} {
+		if waited, err := (&playbook.Playbook{Guard: guard}).WaitFor(); err != nil || waited != 30*time.Minute {
+			t.Fatalf("%s: wait = %s, err = %v, want 30m", name, waited, err)
 		}
 	}
 }
