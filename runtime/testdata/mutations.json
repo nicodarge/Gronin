@@ -3910,7 +3910,22 @@
         "./internal/index",
         "-count=1",
         "-run",
-        "TestABeginTxFailureIsABeginFailureWhateverCausedIt|TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure"
+        "TestABeginTxFailureIsABeginFailureWhateverCausedIt|TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure|TestAFirstReadFailingInSearchBecauseCtxEndedRightAfterBeginTxIsABeginFailure"
+      ]
+    },
+    {
+      "name": "beginFailure marks every failure a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif true {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAGenuineUnrelatedFailureAtReadStoredsFirstReadIsNotABeginFailure|TestAGenuineUnrelatedFailureAtSearchsFirstReadIsNotABeginFailure"
       ]
     }
   ]

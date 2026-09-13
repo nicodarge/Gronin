@@ -4,12 +4,33 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/index"
 )
+
+// corruptSchemaPage overwrites the schema b-tree that page 1 holds past the 100-byte file
+// header, leaving the file a real SQLite database — sql.Open still succeeds — whose very
+// first read fails with a genuine, deterministic SQLITE_CORRUPT: not a busy hit, and not
+// ctx, whatever ctx is doing. A connection that already parsed the schema before the file
+// was corrupted holds it in its own page cache and would not notice, so the corrupted file
+// must be read through a connection of its own.
+func corruptSchemaPage(t *testing.T, file string) {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 100; i < len(data) && i < 4096; i++ {
+		data[i] = 0
+	}
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // A reader blocked at its first statement — a deferred read-only BeginTx takes no lock of
 // its own, so it is the first statement that reads that finds the index held — is still
@@ -178,5 +199,107 @@ func TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure(t *tes
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("the failure does not carry the context's own deadline: %v", err)
+	}
+}
+
+// The same, through search: a deferred read-only BeginTx succeeds without asking the driver
+// for a lock there either, so ctx can end between BeginTx returning and readGeneration, the
+// first statement search actually reads. Ended deterministically by SetAfterDeferredBegin,
+// the same seam readStored's equivalent test above uses.
+func TestAFirstReadFailingInSearchBecauseCtxEndedRightAfterBeginTxIsABeginFailure(t *testing.T) {
+	dir := t.TempDir()
+	indexDir := filepath.Join(dir, "index")
+	ix := openIndex(t, indexDir, filepath.Join(dir, "sources"))
+	if _, err := ix.Update(t.Context(), index.Walk{}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(indexDir, "runbooks.db")+"?mode=rw&_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(5*time.Millisecond))
+	defer cancel()
+	index.SetAfterDeferredBegin(t, func() { time.Sleep(20 * time.Millisecond) })
+
+	_, err = index.SearchRaw(ctx, db, "disk", 10)
+	if err == nil {
+		t.Fatal("search against a context that ended before its first read succeeded")
+	}
+	if !index.IsBegin(err) {
+		t.Errorf("a first read failing in search because ctx ended right after BeginTx "+
+			"is not marked a begin failure: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the failure does not carry the context's own deadline: %v", err)
+	}
+}
+
+// beginFailure must refuse what it is not told to hold: an unrelated failure at readStored's
+// first read — the sqlite_master check — is neither a genuine BUSY nor ctx's own error, and
+// must not be marked a begin failure or later relabeled the index held. Mutated to wrap
+// every non-nil error unconditionally, this is the one thing nothing else in this package
+// caught: every other test here drives a BUSY or a ctx failure, never an error that is
+// neither.
+func TestAGenuineUnrelatedFailureAtReadStoredsFirstReadIsNotABeginFailure(t *testing.T) {
+	dir := t.TempDir()
+	sources := filepath.Join(dir, "sources")
+	indexDir := filepath.Join(dir, "index")
+	writeSources(t, sources, firstSources)
+	ix := openIndex(t, indexDir, sources)
+	if _, err := ix.Update(t.Context(), walked(t, sources)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Close(); err != nil {
+		t.Fatal(err)
+	}
+	corruptSchemaPage(t, filepath.Join(indexDir, "runbooks.db"))
+
+	_, _, err := index.ReadStored(context.Background(), indexDir, "runbooks")
+	if err == nil {
+		t.Fatal("reading a corrupted index succeeded")
+	}
+	if index.IsBegin(err) {
+		t.Errorf("an unrelated failure at readStored's first read is marked a begin failure: %v", err)
+	}
+	if errors.Is(err, index.ErrHeld) {
+		t.Errorf("an unrelated failure at readStored's first read is reported as the index held: %v", err)
+	}
+}
+
+// The same, through search: readGeneration is search's first read after BeginTx, and an
+// unrelated failure there must be refused the same way.
+func TestAGenuineUnrelatedFailureAtSearchsFirstReadIsNotABeginFailure(t *testing.T) {
+	dir := t.TempDir()
+	sources := filepath.Join(dir, "sources")
+	indexDir := filepath.Join(dir, "index")
+	writeSources(t, sources, firstSources)
+	ix := openIndex(t, indexDir, sources)
+	if _, err := ix.Update(t.Context(), walked(t, sources)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Close(); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(indexDir, "runbooks.db")
+	corruptSchemaPage(t, file)
+
+	db, err := sql.Open("sqlite", "file:"+file+"?mode=rw&_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = index.SearchRaw(context.Background(), db, "disk", 10)
+	if err == nil {
+		t.Fatal("searching a corrupted index succeeded")
+	}
+	if index.IsBegin(err) {
+		t.Errorf("an unrelated failure at search's first read is marked a begin failure: %v", err)
+	}
+	if errors.Is(err, index.ErrHeld) {
+		t.Errorf("an unrelated failure at search's first read is reported as the index held: %v", err)
 	}
 }

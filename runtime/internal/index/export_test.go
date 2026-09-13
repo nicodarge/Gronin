@@ -86,6 +86,14 @@ func ReadStoredRaw(ctx context.Context, db *sql.DB) (Stored, error) {
 	return readStored(ctx, db)
 }
 
+// SearchRaw runs search directly against a connection of its own, the way ReadStoredRaw
+// drives readStored: a test can hand it a *sql.DB pointed at a file it has already set up
+// (a stale cache from an earlier connection would hide what the file now holds), rather
+// than going through Search's retry loop or an Index built by Open.
+func SearchRaw(ctx context.Context, db *sql.DB, query string, limit int) (Found, error) {
+	return (&Index{db: db}).search(ctx, query, limit)
+}
+
 // SetAfterDeferredBegin installs what readStored and search call once their deferred
 // read-only transaction has begun, before its first read, for as long as the test runs: a
 // test can then end ctx exactly there, deterministically, rather than by racing a live
