@@ -3640,8 +3640,8 @@
       "name": "an index file this user owns is left wider than its owner",
       "tree": "..",
       "file": "internal/index/index.go",
-      "find": "\tif owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 {\n",
-      "replace": "\tif owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 && owner < 0 {\n",
+      "find": "\tif wide {\n",
+      "replace": "\tif wide && owner < -1 {\n",
       "command": [
         "go",
         "test",
@@ -3649,6 +3649,81 @@
         "-count=1",
         "-run",
         "TestAnIndexFileWiderThanItsOwnerIsNarrowed"
+      ]
+    },
+    {
+      "name": "the search does not refuse a query with no word",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\tif !Searchable(query) {\n",
+      "replace": "\tif false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestASearchHoldingNoWordIsRefused"
+      ]
+    },
+    {
+      "name": "the documents are read before the write lock",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "replace": "\tfor _, document := range diff.add {\n\t\tif _, err := diff.walk.contentOf(document); err == nil && ix.seams.read != nil {\n\t\t\tix.seams.read(document.Source)\n\t\t}\n\t}\n\ttx, err := ix.db.BeginTx(ctx, nil)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestADocumentIsReadInsideTheWriteTransaction"
+      ]
+    },
+    {
+      "name": "an index file another user owns is used at a wider mode",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif wide && owner != os.Getuid() {\n",
+      "replace": "\tif wide && owner != os.Getuid() && owner < -1 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileAnotherUserOwnsAtAWiderModeIsRefused"
+      ]
+    },
+    {
+      "name": "a held index at the bound blames a file that settled",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "if changed != nil && ctx.Err() != nil && !errors.Is(err, ErrHeld) {",
+      "replace": "if changed != nil && ctx.Err() != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled"
+      ]
+    },
+    {
+      "name": "an update that read every document unchanged still blames an earlier file",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "func() { changed = nil })",
+      "replace": "func() {})",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnUpdateAtTheBoundDoesNotBlameAFileThatSettled"
       ]
     }
   ]
