@@ -20,9 +20,14 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	fakeagent.Cleanup()
-	os.Exit(code)
+	os.Exit(runAndCleanUp(m))
+}
+
+// runAndCleanUp: see bintest.Main's doc comment for why this defers Cleanup around
+// m.Run() in a helper rather than placing it after m.Run() in TestMain itself.
+func runAndCleanUp(m *testing.M) (code int) {
+	defer fakeagent.Cleanup()
+	return m.Run()
 }
 
 type harness struct {
