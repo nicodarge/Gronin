@@ -184,11 +184,30 @@ def enclosing_module(tree: Path) -> Path | None:
     return None
 
 
+# Directories a test inside the mutation tree is known to read by a path that reaches
+# outside it (runtime/internal/playbook's repoRoot-relative lookups of the schema
+# contract, the documentation and the shipped examples). Copied alongside the tree so
+# those lookups resolve under the harness instead of silently skipping: a test that
+# cannot run must not look like one that passed. Named explicitly rather than copying
+# every sibling of the tree, which would also drag in .git and whatever else sits next
+# to it in a real checkout.
+SIBLING_DIRS = ("specs", "docs", "examples")
+
+
+def copy_siblings(tree: Path, work: Path) -> None:
+    """Copy tree's SIBLING_DIRS, the ones present, next to its copy at work."""
+    for name in SIBLING_DIRS:
+        source = tree.parent / name
+        if source.is_dir():
+            shutil.copytree(source, work.parent / name, symlinks=True)
+
+
 def survives(mutation: Mutation) -> bool:
     """Apply the mutation to a copy and report whether the command still passed."""
     with tempfile.TemporaryDirectory(prefix="gronin-mutation-") as tmp:
         work = Path(tmp) / mutation.tree.name
         shutil.copytree(mutation.tree, work, symlinks=True)
+        copy_siblings(mutation.tree, work)
 
         baseline = run(mutation.command, work)
         if baseline.returncode != 0:
@@ -291,6 +310,10 @@ SELF_TEST_INATTENTIVE = """#!/bin/sh
 ./subject.sh > /dev/null
 """
 
+SELF_TEST_SIBLING_TEST = """#!/bin/sh
+grep -q ok ../specs/marker.txt
+"""
+
 SELF_TEST_BROKEN = """#!/bin/sh
 exit 1
 """
@@ -356,6 +379,59 @@ def self_test() -> int:
             failures.append("a mutation its test detects was counted as a survivor")
         if check([survived], quiet=True) != 1:
             failures.append("a mutation nothing detects was counted as killed")
+
+        # copy_siblings: what runtime/internal/playbook needs the harness to carry
+        # alongside the copied tree -- the schema contract in specs/, the
+        # documentation, and the shipped examples -- so those lookups resolve instead
+        # of silently skipping. Proven both ways: a named sibling is copied next to
+        # the tree's copy, and one that is not named is left behind.
+        siblings_source = root / "siblings"
+        (siblings_source / "specs").mkdir(parents=True)
+        (siblings_source / "specs" / "marker.txt").write_text("ok\n")
+        (siblings_source / "unlisted").mkdir()
+        (siblings_source / "unlisted" / "marker.txt").write_text("ok\n")
+        siblings_tree = siblings_source / "tree"
+        siblings_tree.mkdir()
+        siblings_work = root / "siblings-copy" / "tree"
+        copy_siblings(siblings_tree, siblings_work)
+        if not (siblings_work.parent / "specs" / "marker.txt").is_file():
+            failures.append(
+                "copy_siblings did not copy an existing named sibling directory"
+            )
+        if (siblings_work.parent / "unlisted").exists():
+            failures.append("copy_siblings copied a directory it was not told to")
+
+        # The same thing end to end, through survives(): a test inside the mutation
+        # tree that reads a fixture outside it must see that fixture, not fail the
+        # way it would have before copy_siblings existed.
+        siblingcheck = root / "siblingcheck"
+        (siblingcheck / "specs").mkdir(parents=True)
+        (siblingcheck / "specs" / "marker.txt").write_text("ok\n")
+        siblingcheck_tree = siblingcheck / "tree"
+        siblingcheck_tree.mkdir()
+        (siblingcheck_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (siblingcheck_tree / "subject.sh").chmod(0o755)
+        (siblingcheck_tree / "test.sh").write_text(SELF_TEST_SIBLING_TEST)
+        (siblingcheck_tree / "test.sh").chmod(0o755)
+        try:
+            check(
+                [
+                    Mutation(
+                        name="sibling directory reachable",
+                        tree=siblingcheck_tree,
+                        file="subject.sh",
+                        find="42",
+                        replace="41",
+                        command=["./test.sh"],
+                    )
+                ],
+                quiet=True,
+            )
+        except ConfigError as err:
+            failures.append(
+                f"a sibling directory a test reads outside the mutation tree was "
+                f"not copied into the harness: {err}"
+            )
 
         # The refusals matter as much as the counts. A harness that treats a broken
         # baseline or an unapplied mutation as a result reports a number for something

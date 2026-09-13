@@ -1769,6 +1769,21 @@
       ]
     },
     {
+      "name": "the embedded schema drifts from the published contract",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "\"description\": \"The shape of a playbook.",
+      "replace": "\"description\": \"MUTATED The shape of a playbook.",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheEmbeddedSchemaIsTheContract"
+      ]
+    },
+    {
       "name": "the catalogue accepts an unknown key",
       "tree": "..",
       "file": "internal/collections/collections.go",
