@@ -13,7 +13,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	bintest.Main(m)
+	bintest.Main(m, fakeagent.Cleanup)
 }
 
 func TestVersionPrintsSomething(t *testing.T) {

@@ -2855,6 +2855,19 @@
         "-run",
         "TestEtcdContract/C10"
       ]
+    },
+    {
+      "name": "cmd/gronin's TestMain stops cleaning up the fakeagent build directory",
+      "tree": "..",
+      "file": "cmd/gronin/binary_test.go",
+      "find": "\tbintest.Main(m, fakeagent.Cleanup)\n",
+      "replace": "\tbintest.Main(m)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
     }
   ]
 }
