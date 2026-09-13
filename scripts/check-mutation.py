@@ -7,10 +7,12 @@ this harness can report a failure is to watch it report zero when there is none.
 
 So it does three things a naive version skips. It runs the command on an unmutated copy
 first: a harness whose baseline is already broken can never print zero, and will report a
-comfortable number forever — and a `go test` baseline that matched no tests is refused the
-same way, since an empty run passes for the same reason a broken one does not, and a
-declaration whose `-run` no longer names anything would otherwise be reported killed
-without ever executing a test. It refuses a mutation whose target text is not found exactly
+comfortable number forever — and a `go test` baseline where every package's own summary
+line says it ran no tests is refused the same way, since a run that matched nothing passes
+for the same reason a broken one does not, and a declaration whose `-run` no longer names
+anything would otherwise be reported killed without ever executing a test. A command naming
+several packages is refused only when none of them ran a test; one that did is enough. It
+refuses a mutation whose target text is not found exactly
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
 the count is shown to move in both directions before any real count is read — and against
@@ -66,22 +68,42 @@ class Mutation:
     command: list[str]
 
 
-# go test prints this to stdout (inside a summary line's brackets) and, with
-# GOFLAGS unset, `testing: warning: no tests to run` to stderr, whenever -run (or a
-# package with no matching test) leaves nothing to execute. It still exits 0: a test
-# that has been renamed or removed out from under a mutant's -run is indistinguishable,
-# by exit code alone, from one that ran and passed.
-NO_TESTS_RAN_MARKER = "no tests to run"
+# go test's per-package summary line, one per package under test: "ok  <pkg>  <time>"
+# for a package that ran at least one test, with "[no tests to run]" appended when
+# -run (or the package) left nothing to execute. Anchored per line (MULTILINE) and
+# anchored to the whole line ($) rather than searched for as a bare substring: a test's
+# own stdout can legitimately print the words "no tests to run" in a log line, and that
+# must not be mistaken for the summary. A package with no test files at all prints
+# "?   <pkg>  [no test files]" instead of "ok" and is intentionally not matched here —
+# it never ran a test to begin with, which is a different, pre-existing shape than a
+# stale -run matching nothing in a package that does have tests.
+_GO_TEST_OK_LINE = re.compile(
+    r"^ok\s+\S+\s+\S+(?P<no_tests>\s+\[no tests to run\])?\s*$", re.MULTILINE
+)
 
 
 def _is_go_test_command(command: list[str]) -> bool:
-    """True for a `go test ...` invocation, where the "no tests to run" marker applies.
+    """True for a `go test ...` invocation, where the per-package "ok" lines apply.
 
     Checked on the command as declared, not on the tree: the self-test's shell
     fixtures must be unaffected, and a command is what actually printed the baseline
     output being inspected.
     """
     return len(command) >= 2 and Path(command[0]).name == "go" and command[1] == "test"
+
+
+def _go_test_matched_no_tests(stdout: str) -> bool:
+    """True when a go test baseline's own summary shows no package ran a test.
+
+    A command can name several packages (`go test ./pkga ./pkgb -run ...`), and only
+    some of them may match nothing -- the mutant declaration is still meaningful as
+    long as one package under test actually ran. So this is true only when there is at
+    least one "ok" summary line and every one of them carries "[no tests to run]"; a
+    baseline with no "ok" line at all (a shape this function does not recognise) is
+    left to the caller's own returncode check rather than guessed at here.
+    """
+    ok_lines = list(_GO_TEST_OK_LINE.finditer(stdout))
+    return bool(ok_lines) and all(m.group("no_tests") for m in ok_lines)
 
 
 # ASCII digits only, matched with a regex rather than str.isdigit(): isdigit() also
@@ -272,13 +294,13 @@ def survives(mutation: Mutation) -> bool:
                 f"nothing it reports afterwards means anything:\n{baseline.stdout}"
                 f"{baseline.stderr}"
             )
-        if _is_go_test_command(mutation.command) and NO_TESTS_RAN_MARKER in (
-            baseline.stdout + baseline.stderr
+        if _is_go_test_command(mutation.command) and _go_test_matched_no_tests(
+            baseline.stdout
         ):
             raise ConfigError(
                 f"{mutation.name}: the baseline run of {' '.join(mutation.command)} "
-                f"matched no tests, so nothing would check the mutant either:\n"
-                f"{baseline.stdout}{baseline.stderr}"
+                f"matched no tests in any package, so nothing would check the mutant "
+                f"either:\n{baseline.stdout}{baseline.stderr}"
             )
 
         target = work / mutation.file
@@ -624,6 +646,61 @@ def self_test() -> int:
                 "./...",
             ],
         )
+
+        # The inverse of the refusal above: a command naming several packages where
+        # only SOME of them matched no test must not be refused -- one package that
+        # ran a test is enough for the baseline to mean something. This is the shape
+        # the reviewer of the first version of this refusal reproduced it wrongly
+        # rejecting: `go test ./pkga ./pkgb -run X` where pkga matches and pkgb does
+        # not still prints an "ok ... [no tests to run]" line for pkgb alone.
+        multimod = root / "multimod"
+        (multimod / "pkga").mkdir(parents=True)
+        (multimod / "pkgb").mkdir(parents=True)
+        (multimod / "go.mod").write_text("module example.com/multimod\n\ngo 1.24\n")
+        (multimod / "pkga" / "subject.go").write_text(
+            'package pkga\n\nfunc Answer() string { return "42" }\n'
+        )
+        (multimod / "pkga" / "subject_test.go").write_text(
+            'package pkga\n\nimport "testing"\n\n'
+            "func TestFooRuns(t *testing.T) {\n"
+            '\tif Answer() != "42" {\n\t\tt.Fatal("wrong")\n\t}\n}\n'
+        )
+        (multimod / "pkgb" / "subject.go").write_text(
+            'package pkgb\n\nfunc Answer() string { return "42" }\n'
+        )
+        (multimod / "pkgb" / "subject_test.go").write_text(
+            'package pkgb\n\nimport "testing"\n\n'
+            "func TestBarRuns(t *testing.T) {\n"
+            '\tif Answer() != "42" {\n\t\tt.Fatal("wrong")\n\t}\n}\n'
+        )
+        mixed_packages_mutation = Mutation(
+            name="one of several packages matches no tests",
+            tree=multimod,
+            file="pkga/subject.go",
+            find='"42"',
+            replace='"41"',
+            command=[
+                "go",
+                "test",
+                "-count=1",
+                "-run=^TestFooRuns$",
+                "./pkga",
+                "./pkgb",
+            ],
+        )
+        try:
+            survivors = check([mixed_packages_mutation], quiet=True)
+        except ConfigError as err:
+            failures.append(
+                "a command naming several packages, only one of which matched no "
+                f"tests, was refused as if none had run one: {err}"
+            )
+        else:
+            if survivors != 0:
+                failures.append(
+                    "a mutation caught by the one package that did run its test was "
+                    "not reported killed"
+                )
 
         # A tree inside a module but below its root. The compile gate can only run
         # where `go test ./...` resolves, and skipping silently there is how the defect
