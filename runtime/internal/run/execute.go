@@ -92,6 +92,9 @@ type Trigger struct {
 	// alone and never read from this host's clock (FR-129).
 	DueAt  time.Time
 	Values map[string]string
+	// OnWait is told when a trigger that will not come again begins to wait for the run it
+	// collided with (FR-110).
+	OnWait func(guard.Waiting)
 }
 
 // Execute runs one playbook. It returns the recorded run, whatever the outcome: a
@@ -99,9 +102,13 @@ type Trigger struct {
 func (e *Executor) Execute(
 	ctx context.Context, book *playbook.Playbook, trigger Trigger,
 ) (record.Run, error) {
-	admitted, err := e.admit(ctx, book, trigger.Kind, trigger.DueAt)
+	admitted, err := e.admitTrigger(ctx, book, trigger)
 	if err != nil {
 		return record.Run{}, err
+	}
+	// A trigger that waited runs its playbook as the file declares it now (FR-121).
+	if admitted.Book != nil {
+		book = admitted.Book
 	}
 	// The run's own context, which the hold cancels if the claim can no longer be proven
 	// held. The record keeps being written under the caller's, which that cancellation
@@ -116,6 +123,10 @@ func (e *Executor) Execute(
 	if err != nil {
 		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
+	}
+	if err := e.guard().Started(ctx, admitted, started.ID); err != nil {
+		e.log().Error("the end of the wait this run started from could not be recorded",
+			"run", started.ID, "waiting_trigger", admitted.WaitingTriggerID, "err", err)
 	}
 
 	outcome := record.Run{Status: record.StatusFailed}
@@ -169,11 +180,22 @@ func (e *Executor) Execute(
 func (e *Executor) admit(
 	ctx context.Context, book *playbook.Playbook, kind record.TriggerKind, dueAt time.Time,
 ) (*guard.Admitted, error) {
+	return e.admitTrigger(ctx, book, Trigger{Kind: kind, DueAt: dueAt})
+}
+
+// admitTrigger is admit with everything a trigger carries: its values, kept with a waiting
+// trigger's acceptance, and who to tell when it begins to wait.
+func (e *Executor) admitTrigger(
+	ctx context.Context, book *playbook.Playbook, trigger Trigger,
+) (*guard.Admitted, error) {
 	id, err := NewRunID()
 	if err != nil {
 		return nil, err
 	}
-	return e.guard().Admit(ctx, book, guard.Request{RunID: id, Kind: kind, DueAt: dueAt})
+	return e.guard().Admit(ctx, book, guard.Request{
+		RunID: id, Kind: trigger.Kind, DueAt: trigger.DueAt,
+		Values: trigger.Values, OnWait: trigger.OnWait,
+	})
 }
 
 // guard is the stage this executor puts every trigger through. Nil is the single-host
@@ -196,6 +218,8 @@ func claimedOf(admitted *guard.Admitted, playbookName string) Claimed {
 	return Claimed{
 		Claim: admitted.Claim, RunID: admitted.RunID,
 		PlaybookName: playbookName, Reach: admitted.Reach,
+		WaitingTriggerID: admitted.WaitingTriggerID,
+		WaitedMS:         admitted.Waited.Milliseconds(),
 	}
 }
 

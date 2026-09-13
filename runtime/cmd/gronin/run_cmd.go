@@ -46,9 +46,16 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 			defer deployment.close()
+			if err := deployment.acceptWaiting(cfg, catalog, declared); err != nil {
+				return err
+			}
 
 			finished, err := deployment.executor.Execute(cmd.Context(), book, run.Trigger{
 				Kind: record.TriggerManual, Values: triggerValues(cmd),
+				// Said before the wait begins, so that a caller does not read it as a hang.
+				OnWait: func(waiting guard.Waiting) {
+					cmd.Printf("%s is running; waiting up to %s\n  %s\n", book.Name, waiting.UpTo, waiting.Held)
+				},
 			})
 			var refused *guard.Refused
 			if errors.As(err, &refused) {
@@ -61,7 +68,12 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 
-			cmd.Printf("%s %s\n", finished.ID, finished.Status)
+			waited := ""
+			if recorded, err := deployment.store.GetRun(cmd.Context(), finished.ID); err == nil &&
+				recorded.WaitingTriggerID != "" {
+				waited = " (waited " + waitedFor(recorded) + ")"
+			}
+			cmd.Printf("%s %s%s\n", finished.ID, finished.Status, waited)
 			if finished.Error != "" {
 				cmd.Printf("  %s\n", finished.Error)
 			}

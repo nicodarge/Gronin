@@ -42,6 +42,33 @@ func TestRefusalsAreReadableAfterwards(t *testing.T) {
 			Detail:    "etcd at unix:///run/gronin/etcd.sock: backend unavailable: deciding: context deadline exceeded",
 			RefusedAt: tick.Add(10 * time.Minute),
 		},
+		{
+			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
+			Mechanism: record.MechanismWaitingSlotFull,
+			Detail:    "a trigger accepted at 2026-09-10T06:14:02Z is already waiting",
+			RefusedAt: tick.Add(15 * time.Minute),
+		},
+		{
+			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
+			WaitingTriggerID: "0a1b2c3d4e5f6071",
+			Mechanism:        record.MechanismWaitExpired,
+			Detail:           "waited the 30m0s drift-check allows, and its claim was still held",
+			RefusedAt:        tick.Add(44 * time.Minute),
+		},
+		{
+			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
+			WaitingTriggerID: "1b2c3d4e5f607182",
+			Mechanism:        record.MechanismPlaybookChanged,
+			Detail:           `/srv/gronin/playbooks/book.yaml now declares "drift-renamed", not "drift-check"`,
+			RefusedAt:        tick.Add(50 * time.Minute),
+		},
+		{
+			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
+			WaitingTriggerID: "2c3d4e5f60718293",
+			Mechanism:        record.MechanismDropped,
+			Detail:           "trigger 2c3d4e5f60718293 accepted at 2026-09-10T06:52:40Z; process 8f2c ended before it ran",
+			RefusedAt:        tick.Add(55 * time.Minute),
+		},
 	}
 	for _, refusal := range seeded {
 		if err := store.RecordRefusal(t.Context(), refusal); err != nil {
@@ -62,7 +89,7 @@ func TestRefusalsAreReadableAfterwards(t *testing.T) {
 	}
 
 	// Most recent first.
-	if !strings.Contains(lines[0], string(record.MechanismBackendUnavailable)) {
+	if !strings.Contains(lines[0], string(seeded[len(seeded)-1].Mechanism)) {
 		t.Fatalf("the most recent refusal is not first:\n%s", got.Stdout)
 	}
 	if !strings.Contains(lines[len(lines)-1], string(record.MechanismClaimHeld)) {

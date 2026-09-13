@@ -47,6 +47,10 @@ type Claimed struct {
 	RunID        string
 	PlaybookName string
 	Reach        string
+	// WaitingTriggerID and WaitedMS say the run started from a trigger that waited, and
+	// for how long (FR-125).
+	WaitingTriggerID string
+	WaitedMS         int64
 }
 
 // Manager creates runs, keeps one playbook from running twice at once, and makes sure a
@@ -93,7 +97,8 @@ func (m *Manager) Begin(
 	recorded := record.Run{
 		ID: run.ID, PlaybookName: run.PlaybookName, TriggerKind: kind, ParentRunID: parentRunID,
 		Status: record.StatusRunning, StartedAt: run.StartedAt,
-		ClaimReach: record.Reach(claimed.Reach),
+		ClaimReach:       record.Reach(claimed.Reach),
+		WaitingTriggerID: claimed.WaitingTriggerID, WaitedMS: claimed.WaitedMS,
 	}
 	if claimed.Claim != nil {
 		recorded.ClaimToken = claimed.Claim.Token()
