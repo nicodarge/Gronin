@@ -375,47 +375,47 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
 
 ### Mutants for User Story 1
 
-- [ ] T040 [US1] SC-201: `the results file is written after the agent stage` — the stage's call
+- [x] T040 [US1] SC-201: `the results file is written after the agent stage` — the stage's call
       deferred until `Execute` returns, which is the implementation SC-201 names — in
       `internal/run/execute.go`, and `the results file is never written`, in
       `internal/stage/retrieve/retrieve.go`, both with command
       `go test ./cmd/gronin -count=1 -run TestTheAgentReadsWhatWasRetrieved`; `query_from is
       ignored for the trigger`, in `internal/stage/retrieve/query.go`, command
       `go test ./internal/stage/retrieve -count=1 -run TestTheQuery`
-- [ ] T041 [US1] SC-203: `the gate refuses every retrieve block` — T039's lift put back, a problem
+- [x] T041 [US1] SC-203: `the gate refuses every retrieve block` — T039's lift put back, a problem
       appended for any declared block — in `internal/playbook/validate.go`, command
       `go test ./internal/playbook -count=1 -run TestRetrieveBlock`. Only the valid case kills it;
       confirm T014's mutants are still killed now that the block is accepted
-- [ ] T042 [US1] SC-207: `the walk follows symbolic links`, `a file past the document bound is read`
+- [x] T042 [US1] SC-207: `the walk follows symbolic links`, `a file past the document bound is read`
       and `a file that is not text is indexed`, in `internal/index/walk.go`, each with command
       `go test ./internal/index -count=1 -run TestTheWalk`; the first declared a second time with
       command `go test ./cmd/gronin -count=1 -run TestAListingNamesEverySkippedFile`, so that the
       test driving the built binary is shown to fail on its own
-- [ ] T043 [US1] SC-209, all with command `go test ./cmd/gronin -count=1 -run
+- [x] T043 [US1] SC-209, all with command `go test ./cmd/gronin -count=1 -run
       TestAnUpdateMatchesARebuild`: `an update ignores removed documents` and `an update ignores
       changed digests`, in `internal/index/index.go`; `the listing never reports a change`, in
       `internal/index/index.go`; `the index is kept outside the state directory`, in
       `cmd/gronin/deployment.go`
-- [ ] T044 [US1] SC-211: `an update commits in two transactions`, in `internal/index/index.go`, command
+- [x] T044 [US1] SC-211: `an update commits in two transactions`, in `internal/index/index.go`, command
       `go test ./internal/index -count=1 -run TestAKilledRebuildLeavesThePreviousGeneration`; `an
       update writes without checking the generation it read`, same file, command
       `go test ./internal/index -count=1 -run TestConcurrentUpdatesLeaveOneWholeGeneration`
-- [ ] T045 [US1] SC-214, command `go test ./cmd/gronin -count=1 -run
+- [x] T045 [US1] SC-214, command `go test ./cmd/gronin -count=1 -run
       TestTheRecordHoldsWhatWasRetrieved`: `the results file is not recorded`, in
       `internal/run/execute.go`; `the retrieval row omits its generation`, in
       `internal/record/retrievals.go`
-- [ ] T046 [US1] SC-215: `a replay does not restore the retrieved files`, in `internal/run/replay.go`,
+- [x] T046 [US1] SC-215: `a replay does not restore the retrieved files`, in `internal/run/replay.go`,
       command `go test ./internal/run -count=1 -run TestAReplayDoesNotSearch`
-- [ ] T047 [US1] SC-216: `lexical ties are left in index order`, in `internal/index/lexical.go`, command
+- [x] T047 [US1] SC-216: `lexical ties are left in index order`, in `internal/index/lexical.go`, command
       `go test ./internal/index -count=1 -run TestTiesFollowTheKey`
-- [ ] T048 [US1] SC-217: `the query reaches MATCH unquoted`, in `internal/index/lexical.go`, command
+- [x] T048 [US1] SC-217: `the query reaches MATCH unquoted`, in `internal/index/lexical.go`, command
       `go test ./internal/index -count=1 -run TestAQueryIsPlainText`
-- [ ] T049 [US1] SC-218, command `go test ./internal/stage/retrieve -count=1 -run TestBounds`: `the
+- [x] T049 [US1] SC-218, command `go test ./internal/stage/retrieve -count=1 -run TestBounds`: `the
       query is not cut`, in `internal/stage/retrieve/query.go`; `the result count is not capped`,
       `the byte bound is not applied` and `a cut is not recorded as truncated`, in
       `internal/stage/retrieve/results.go`. And `a passage exceeds the cap`, in
       `internal/index/passage.go`, command `go test ./internal/index -count=1 -run TestPassages`
-- [ ] T050 [US1] SC-219, command `go test ./internal/run -count=1 -run
+- [x] T050 [US1] SC-219, command `go test ./internal/run -count=1 -run
       TestARetrievalThatCannotRunRefuses`: `a missing directory walks as empty`, in
       `internal/index/walk.go`; `an empty query is searched`, in `internal/stage/retrieve/query.go`;
       `a refused retrieval lets the run continue` and `a refused retrieval is recorded failed`, in
