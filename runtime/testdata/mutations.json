@@ -3897,6 +3897,21 @@
         "./internal/testcleanup",
         "-count=1"
       ]
+    },
+    {
+      "name": "beginFailure no longer marks a ctx-only failure a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif isBusy(err) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestABeginTxFailureIsABeginFailureWhateverCausedIt|TestAFirstReadFailingBecauseCtxEndedRightAfterBeginTxIsABeginFailure"
+      ]
     }
   ]
 }
