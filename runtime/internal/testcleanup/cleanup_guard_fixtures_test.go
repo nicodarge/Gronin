@@ -8,9 +8,11 @@ import (
 // TestGuardOnFixtures runs analyzeDir and verdict — the same logic
 // TestATestMainCleansUpEverythingItsPackageBuilds applies to every real package —
 // against fixtures under testdata/fixtures, each built to exercise one shape the guard
-// has to get right: an aliased import, a dot import, and a call sitting in a non-test
-// helper file, both refused (no cleanup arranged) and accepted (cleanup arranged, in
-// each recognised shape) versions of each.
+// has to get right: an aliased import, a dot import, a call sitting in a non-test
+// helper file, a same-named helper declared in an unrelated package sharing the
+// directory, and a local declaration shadowing the fakeagent import — refused (no
+// cleanup arranged, or resolved to the wrong declaration) and accepted (cleanup
+// arranged, in each recognised shape) versions of each.
 func TestGuardOnFixtures(t *testing.T) {
 	root := runtimeRoot(t)
 	fixtures := filepath.Join(root, "internal", "testcleanup", "testdata", "fixtures")
@@ -49,6 +51,16 @@ func TestGuardOnFixtures(t *testing.T) {
 			name:        "fakeagent.Cleanup deferred in a helper TestMain calls is accepted",
 			dir:         "helper_defers_cleanup",
 			wantRefused: false,
+		},
+		{
+			name:        "a same-named helper in an unrelated package sharing the directory is not followed",
+			dir:         "cross_package_helper_name_collision",
+			wantRefused: true,
+		},
+		{
+			name:        "a local variable shadowing the fakeagent import is not mistaken for it",
+			dir:         "local_var_shadows_fakeagent",
+			wantRefused: true,
 		},
 	}
 

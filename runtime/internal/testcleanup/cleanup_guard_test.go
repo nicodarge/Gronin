@@ -161,17 +161,22 @@ func isTestFile(fpath string) bool {
 }
 
 // pkgFacts is what one directory's .go files say about fakeagent/bintest usage: the
-// TestMain declaration (if any, only ever legal in a _test.go file) and, for resolving
-// every call reachable from it, every package-level function declared anywhere in the
-// directory together with the import names visible in the file that declares it — a
-// file's import aliases apply only within that file.
+// TestMain declaration (if any, only ever legal in a _test.go file) and which Go
+// package declares it, and, for resolving every call reachable from it, every
+// package-level function declared anywhere in the directory, keyed by name alone since
+// a name can be declared in more than one Go package sharing the directory (an
+// internal package and its "_test" external test package, most commonly) — which one a
+// given call actually reaches depends on which package the calling function itself
+// belongs to, so each function also records that, and the import names visible in the
+// file that declares it (a file's import aliases apply only within that file).
 type pkgFacts struct {
 	usesFakeagent       bool
 	usesBintest         bool
 	testMain            *ast.FuncDecl
 	dotImportViolations []string
-	funcs               map[string]*ast.FuncDecl
+	funcs               map[string][]*ast.FuncDecl
 	namesOf             map[*ast.FuncDecl]map[string]string
+	pkgOf               map[*ast.FuncDecl]string
 }
 
 // analyzeDir parses every .go file directly in dir — non-test files included, since a
@@ -185,8 +190,9 @@ func analyzeDir(t *testing.T, dir string) pkgFacts {
 	}
 
 	facts := pkgFacts{
-		funcs:   map[string]*ast.FuncDecl{},
+		funcs:   map[string][]*ast.FuncDecl{},
 		namesOf: map[*ast.FuncDecl]map[string]string{},
+		pkgOf:   map[*ast.FuncDecl]string{},
 	}
 	fset := token.NewFileSet()
 	for _, fpath := range entries {
@@ -194,6 +200,7 @@ func analyzeDir(t *testing.T, dir string) pkgFacts {
 		if err != nil {
 			t.Fatalf("parsing %s: %v", fpath, err)
 		}
+		pkgName := file.Name.Name
 
 		names, dotImports := importNames(t, fpath, file)
 		for _, importPath := range dotImports {
@@ -215,14 +222,43 @@ func analyzeDir(t *testing.T, dir string) pkgFacts {
 			if !ok || fn.Recv != nil {
 				continue
 			}
-			facts.funcs[fn.Name.Name] = fn
+			facts.funcs[fn.Name.Name] = append(facts.funcs[fn.Name.Name], fn)
 			facts.namesOf[fn] = names
+			facts.pkgOf[fn] = pkgName
 			if isTestFile(fpath) && fn.Name.Name == "TestMain" {
 				facts.testMain = fn
 			}
 		}
 	}
 	return facts
+}
+
+// lookupLocalFunc returns the function named name that TestMain (or a helper it
+// reaches) can actually call unqualified from within callerPkg — the one declared in
+// that same Go package, never one merely sharing the directory under an unrelated
+// package (the common package/package_test split, where a name can legitimately be
+// declared on both sides without either one calling the other).
+func lookupLocalFunc(pkg pkgFacts, callerPkg, name string) *ast.FuncDecl {
+	for _, candidate := range pkg.funcs[name] {
+		if pkg.pkgOf[candidate] == callerPkg {
+			return candidate
+		}
+	}
+	return nil
+}
+
+// resolvedImport reports the import path ident resolves to under names, the file's own
+// import table — or "" if ident refers to a local declaration instead (a variable,
+// parameter, or anything else go/parser's scope resolution found a declaration for:
+// Ident.Obj is non-nil exactly then). Without this, a local variable that happens to
+// share an imported package's name — legal Go, since the shadowing only matters within
+// the scope that declares it — would be mistaken for that package everywhere its name
+// is written, import or not.
+func resolvedImport(names map[string]string, ident *ast.Ident) string {
+	if ident.Obj != nil {
+		return ""
+	}
+	return names[ident.Name]
 }
 
 // importNames maps each file-local import name to the import path it resolves to — the
@@ -258,41 +294,32 @@ func importNames(t *testing.T, fpath string, file *ast.File) (names map[string]s
 }
 
 // callsAny reports whether file calls importPath.name(...) for some name in funcNames,
-// under whatever local identifier names resolves that import to.
+// under whatever local identifier names resolves that import to — provided that
+// identifier is not itself a local declaration shadowing the import (resolvedImport).
 func callsAny(file *ast.File, names map[string]string, importPath string, funcNames map[string]bool) bool {
 	found := false
 	ast.Inspect(file, func(n ast.Node) bool {
 		if found {
 			return false
 		}
-		sel, ok := selectorCall(n)
+		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-		if names[sel.pkg] == importPath && funcNames[sel.name] {
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		pkgIdent, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if resolvedImport(names, pkgIdent) == importPath && funcNames[sel.Sel.Name] {
 			found = true
 		}
 		return true
 	})
 	return found
-}
-
-// selectorCall reports the package identifier and method name of n, if n is a call of
-// the shape pkg.Name(...).
-func selectorCall(n ast.Node) (sel struct{ pkg, name string }, ok bool) {
-	call, ok := n.(*ast.CallExpr)
-	if !ok {
-		return sel, false
-	}
-	selExpr, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return sel, false
-	}
-	pkgIdent, ok := selExpr.X.(*ast.Ident)
-	if !ok {
-		return sel, false
-	}
-	return struct{ pkg, name string }{pkgIdent.Name, selExpr.Sel.Name}, true
 }
 
 // testMainFacts is what TestMain, and every local helper function it reaches (however
@@ -302,17 +329,19 @@ type testMainFacts struct {
 	cleansUpFakeagent bool
 }
 
-// inspectTestMain walks pkg.testMain's body, and the body of every package-level
-// function it calls unqualified (transitively, tracking what has already been visited
-// so a cycle cannot loop forever), resolving each call through the import names of
-// whichever file declared the function being inspected. It looks for the calls that
-// remove a built executable: a direct fakeagent.Cleanup() call, or a bintest.Main(...)
-// call — noting whether fakeagent.Cleanup was itself passed to it as one of its
-// cleanups. Following local calls is what lets the required shape pass: TestMain
-// calling os.Exit(runTests(m)), with runTests deferring the cleanup around m.Run() —
-// os.Exit never returns, so a defer in TestMain's own body would never run at all, and
-// every real TestMain in this repository defers the cleanup in a helper for exactly
-// that reason.
+// inspectTestMain walks pkg.testMain's body, and the body of every function in
+// TestMain's own Go package that it calls unqualified (transitively, tracking what has
+// already been visited so a cycle cannot loop forever), resolving each call through the
+// import names of whichever file declared the function being inspected. It looks for
+// the calls that remove a built executable: a direct fakeagent.Cleanup() call, or a
+// bintest.Main(...) call — noting whether fakeagent.Cleanup was itself passed to it as
+// one of its cleanups. Following local calls is what lets the required shape pass:
+// TestMain calling os.Exit(runTests(m)), with runTests deferring the cleanup around
+// m.Run() — os.Exit never returns, so a defer in TestMain's own body would never run at
+// all, and every real TestMain in this repository defers the cleanup in a helper for
+// exactly that reason. Following them only within TestMain's own package (via
+// lookupLocalFunc) is what keeps that from reaching into an unrelated package that
+// merely shares the directory and happens to declare a same-named function of its own.
 func inspectTestMain(pkg pkgFacts) testMainFacts {
 	var facts testMainFacts
 	visited := map[*ast.FuncDecl]bool{}
@@ -327,6 +356,7 @@ func inspectTestMain(pkg pkgFacts) testMainFacts {
 		}
 		visited[fn] = true
 		names := pkg.namesOf[fn]
+		callerPkg := pkg.pkgOf[fn]
 
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -340,9 +370,9 @@ func inspectTestMain(pkg pkgFacts) testMainFacts {
 					return true
 				}
 				switch {
-				case names[pkgIdent.Name] == fakeagentImportPath && fun.Sel.Name == "Cleanup":
+				case resolvedImport(names, pkgIdent) == fakeagentImportPath && fun.Sel.Name == "Cleanup":
 					facts.cleansUpFakeagent = true
-				case names[pkgIdent.Name] == bintestImportPath && fun.Sel.Name == "Main":
+				case resolvedImport(names, pkgIdent) == bintestImportPath && fun.Sel.Name == "Main":
 					facts.callsBintestMain = true
 					for _, arg := range call.Args {
 						argSel, ok := arg.(*ast.SelectorExpr)
@@ -350,16 +380,17 @@ func inspectTestMain(pkg pkgFacts) testMainFacts {
 							continue
 						}
 						argPkgIdent, ok := argSel.X.(*ast.Ident)
-						if ok && names[argPkgIdent.Name] == fakeagentImportPath && argSel.Sel.Name == "Cleanup" {
+						if ok && resolvedImport(names, argPkgIdent) == fakeagentImportPath && argSel.Sel.Name == "Cleanup" {
 							facts.cleansUpFakeagent = true
 						}
 					}
 				}
 			case *ast.Ident:
-				// An unqualified call: if it names a function declared elsewhere in
-				// this same directory, follow it too — a deferred cleanup commonly
-				// lives in a small helper TestMain calls, not in TestMain itself.
-				if callee, ok := pkg.funcs[fun.Name]; ok {
+				// An unqualified call: if it names a function declared in this same
+				// package (not merely this same directory), follow it too — a deferred
+				// cleanup commonly lives in a small helper TestMain calls, not in
+				// TestMain itself.
+				if callee := lookupLocalFunc(pkg, callerPkg, fun.Name); callee != nil {
 					queue = append(queue, callee)
 				}
 			}
