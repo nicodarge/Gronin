@@ -46,13 +46,13 @@ type watchedHost struct {
 	*guardtest.FakeHost
 	clock     *guardtest.Clock
 	answersIn time.Duration
-	attempted chan struct{}
+	attempted chan int
 }
 
 func watching(fake *guardtest.Fake, clock *guardtest.Clock, answersIn time.Duration) *watchedHost {
 	return &watchedHost{
 		FakeHost: fake.Host(nil), clock: clock, answersIn: answersIn,
-		attempted: make(chan struct{}, 16),
+		attempted: make(chan int, 16),
 	}
 }
 
@@ -74,18 +74,21 @@ func (c *watchedClaim) Renew(ctx context.Context) error {
 	if err == nil && c.host.answersIn > 0 {
 		c.host.clock.Advance(c.host.answersIn)
 	}
-	c.host.attempted <- struct{}{}
+	c.host.attempted <- c.host.clock.Set()
 	return err
 }
 
-// waitForAttempt returns once the renewal loop has finished its next attempt, so the
-// test moves the clock only between attempts and never inside one.
-func (c *watchedHost) waitForAttempt(t *testing.T) {
+// waitForAttempt returns once the renewal loop has finished its next attempt, with how
+// many timers the runtime's clock had set by then. The loop has not yet set the wait for
+// its next attempt, and an advance waits for a timer set after that count.
+func (c *watchedHost) waitForAttempt(t *testing.T) int {
 	t.Helper()
 	select {
-	case <-c.attempted:
+	case since := <-c.attempted:
+		return since
 	case <-time.After(10 * time.Second):
 		t.Fatal("the renewal loop made no further attempt")
+		return 0
 	}
 }
 
@@ -117,14 +120,15 @@ func TestHolderStopsAtTheDeadlineItComputed(t *testing.T) {
 	}
 
 	stoppedAt := make(chan guard.Instant, 1)
+	since := runtime.Set()
 	hold := held.Hold(admitted, func() { stoppedAt <- runtime.Monotonic() })
 	t.Cleanup(hold.Done)
 
 	// The advance that carries the whole arithmetic: the renewal at 5s succeeds and is
 	// answered at 6s, so a deadline anchored on the answer would fall a second later
 	// than the one anchored on the send.
-	advance(t, runtime, backend, 5*time.Second)
-	holderHost.waitForAttempt(t)
+	advanceTo(t, runtime, backend, since, 5*time.Second)
+	since = holderHost.waitForAttempt(t)
 
 	holderHost.Sever()
 
@@ -133,10 +137,11 @@ func TestHolderStopsAtTheDeadlineItComputed(t *testing.T) {
 	runtime.StepWall(-time.Hour)
 
 	for _, at := range []time.Duration{10, 15, 20} {
-		advanceTo(t, runtime, backend, at*time.Second)
-		holderHost.waitForAttempt(t)
+		advanceTo(t, runtime, backend, since, at*time.Second)
+		since = holderHost.waitForAttempt(t)
 	}
-	advanceTo(t, runtime, backend, 22900*time.Millisecond)
+	waitForTimer(t, runtime, since, 23*time.Second)
+	moveTo(t, runtime, backend, 22900*time.Millisecond)
 	if hold.Stopped() {
 		t.Fatalf("the run was stopped at %s, before the deadline at 23s", runtime.Monotonic().Sub(guard.InstantAt(0)))
 	}
@@ -147,7 +152,7 @@ func TestHolderStopsAtTheDeadlineItComputed(t *testing.T) {
 		t.Fatalf("a contender was not refused while the claim was held: %v", err)
 	}
 
-	advanceTo(t, runtime, backend, 23*time.Second)
+	advanceTo(t, runtime, backend, since, 23*time.Second)
 	select {
 	case at := <-stoppedAt:
 		if got := at.Sub(guard.InstantAt(0)); got < 23*time.Second || got > 24*time.Second {
@@ -193,13 +198,14 @@ func TestHolderStopsAtOnceOnALostClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopped := make(chan struct{}, 1)
+	since := runtime.Set()
 	hold := subject.Hold(admitted, func() { stopped <- struct{}{} })
 	t.Cleanup(hold.Done)
 
 	// Expired out of band, as its lease lapsing would do. The next renewal says so, and
 	// the deadline is still 13 seconds away.
 	fake.Expire(admitted.Claim)
-	advance(t, runtime, backend, 5*time.Second)
+	advanceTo(t, runtime, backend, since, 5*time.Second)
 
 	select {
 	case <-stopped:
@@ -211,19 +217,24 @@ func TestHolderStopsAtOnceOnALostClaim(t *testing.T) {
 	}
 }
 
-// advance moves both clocks forward by d.
-func advance(t *testing.T, runtime, backend *guardtest.Clock, d time.Duration) {
+// advanceTo moves both clocks to d after their origin, once the runtime's clock has a
+// timer due at d that was set after the first since. It returns how many timers had been
+// set when the clock moved, which is where the next advance counts from.
+//
+// Moving the clock before the code under test has set its timer is not merely early: the
+// loop reads the clock, then sets a timer for a duration measured from that reading, so a
+// move in between pushes the timer past the instant the test is about to wait at.
+func advanceTo(t *testing.T, runtime, backend *guardtest.Clock, since int, d time.Duration) int {
 	t.Helper()
-	waitForTimer(t, runtime)
-	runtime.Advance(d)
-	backend.Advance(d)
+	waitForTimer(t, runtime, since, d)
+	moved := runtime.Set()
+	moveTo(t, runtime, backend, d)
+	return moved
 }
 
-// advanceTo moves both clocks to d after their origin. The renewal loop's timers are set
-// at absolute instants, so a test that arrives late still fires them where they were.
-func advanceTo(t *testing.T, runtime, backend *guardtest.Clock, d time.Duration) {
+// moveTo moves both clocks to d after their origin without waiting for anything.
+func moveTo(t *testing.T, runtime, backend *guardtest.Clock, d time.Duration) {
 	t.Helper()
-	waitForTimer(t, runtime)
 	elapsed := runtime.Monotonic().Sub(guard.InstantAt(0))
 	if d <= elapsed {
 		t.Fatalf("the clock is already at %s, past %s", elapsed, d)
@@ -232,12 +243,12 @@ func advanceTo(t *testing.T, runtime, backend *guardtest.Clock, d time.Duration)
 	backend.Advance(d - elapsed)
 }
 
-func waitForTimer(t *testing.T, clock *guardtest.Clock) {
+func waitForTimer(t *testing.T, clock *guardtest.Clock, since int, at time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	if err := clock.WaitForTimers(ctx, 1); err != nil {
-		t.Fatalf("nothing was waiting on the clock: %v", err)
+	if err := clock.WaitForTimer(ctx, guard.InstantAt(at), since); err != nil {
+		t.Fatalf("nothing was set to fire at %s: %v", at, err)
 	}
 }
 

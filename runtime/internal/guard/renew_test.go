@@ -31,6 +31,7 @@ func TestRenewalsThatHangEndTheRunBeforeItsClaimCanLapse(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopped := make(chan guard.Instant, 1)
+	since := runtime.Set()
 	hold := subject.Hold(admitted, func() { stopped <- runtime.Monotonic() })
 	t.Cleanup(hold.Done)
 
@@ -38,9 +39,9 @@ func TestRenewalsThatHangEndTheRunBeforeItsClaimCanLapse(t *testing.T) {
 	// Three attempts, each abandoned at its bound: sent at 5, 10 and 15, ending at 9, 14
 	// and 19. Nothing ever succeeds, so the deadline at 18 stands where the grant put it.
 	for _, attempt := range []time.Duration{5, 10, 15} {
-		advanceTo(t, runtime, backend, attempt*time.Second)
-		advanceTo(t, runtime, backend, attempt*time.Second+cfg.RenewBound)
-		host.waitForAttempt(t)
+		since = advanceTo(t, runtime, backend, since, attempt*time.Second)
+		advanceTo(t, runtime, backend, since, attempt*time.Second+cfg.RenewBound)
+		since = host.waitForAttempt(t)
 	}
 
 	select {
@@ -81,20 +82,21 @@ func TestRenewalsResumeAfterOneIsAbandonedAtItsBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopped := make(chan guard.Instant, 1)
+	since := runtime.Set()
 	hold := subject.Hold(admitted, func() { stopped <- runtime.Monotonic() })
 	t.Cleanup(hold.Done)
 
 	host.Hold()
-	advanceTo(t, runtime, backend, 5*time.Second)
-	advanceTo(t, runtime, backend, 5*time.Second+cfg.RenewBound)
-	host.waitForAttempt(t)
+	since = advanceTo(t, runtime, backend, since, 5*time.Second)
+	advanceTo(t, runtime, backend, since, 5*time.Second+cfg.RenewBound)
+	since = host.waitForAttempt(t)
 	host.Resume()
 
 	// Every later attempt succeeds, so the deadline keeps moving and the run outlives
 	// the one the first grant gave it.
 	for _, attempt := range []time.Duration{10, 15, 20, 25} {
-		advanceTo(t, runtime, backend, attempt*time.Second)
-		host.waitForAttempt(t)
+		advanceTo(t, runtime, backend, since, attempt*time.Second)
+		since = host.waitForAttempt(t)
 	}
 	select {
 	case at := <-stopped:
