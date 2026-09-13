@@ -51,6 +51,8 @@ func TestFileLockContract(t *testing.T) {
 			return manager(t, filepath.Join(t.TempDir(), "record"), blocked).FileLock()
 		},
 		Expiry: 30 * time.Second,
+		ReleasedPolls: "a flock cannot be seen to be free without being taken, so Released returns " +
+			"after one poll and the waiter's own Acquire is the check",
 		NotApplicable: map[string]string{
 			"C2":  "a lock ends with the process holding it, which TestALockHeldByAKilledProcessIsAcquirable proves",
 			"C3":  "no clock takes part in holding a lock",

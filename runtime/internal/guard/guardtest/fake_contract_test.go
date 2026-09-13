@@ -25,6 +25,11 @@ func TestFakeContract(t *testing.T) {
 			return guardtest.Node{Coordinator: h, Hold: h.Hold}
 		},
 		Seams: true,
+		NewWatching: func(_ *testing.T, watching func(name string)) guardtest.Node {
+			h := host(nil)
+			h.OnWatch(watching)
+			return guardtest.Node{Coordinator: h, Hold: h.Hold}
+		},
 		Unreachable: func(*testing.T) guard.Coordinator {
 			h := host(nil)
 			h.Sever()

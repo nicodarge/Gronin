@@ -31,14 +31,18 @@ type Options struct {
 	// Seam, when set, is called between reading a name's last tick and sending the
 	// transaction that takes the claim (C13). Only the contract suite sets one.
 	Seam guard.Seam
+	// Watching, when set, is called once Released has begun to watch a held claim. Only the
+	// contract suite sets one, to know Released is waiting without sleeping (C10).
+	Watching func(name string)
 }
 
 // Coordinator holds claims in etcd.
 type Coordinator struct {
-	client *clientv3.Client
-	prefix string
-	clock  guard.Clock
-	seam   guard.Seam
+	client   *clientv3.Client
+	prefix   string
+	clock    guard.Clock
+	seam     guard.Seam
+	watching func(name string)
 }
 
 var _ guard.Coordinator = (*Coordinator)(nil)
@@ -50,10 +54,11 @@ func New(client *clientv3.Client, opts Options) *Coordinator {
 		clock = guard.SystemClock()
 	}
 	return &Coordinator{
-		client: client,
-		prefix: strings.TrimSuffix(opts.Prefix, "/") + "/",
-		clock:  clock,
-		seam:   opts.Seam,
+		client:   client,
+		prefix:   strings.TrimSuffix(opts.Prefix, "/") + "/",
+		clock:    clock,
+		seam:     opts.Seam,
+		watching: opts.Watching,
 	}
 }
 
@@ -307,6 +312,9 @@ func (c *Coordinator) Released(ctx context.Context, name string) error {
 		return nil
 	}
 	watching := c.client.Watch(ctx, key, clientv3.WithRev(current.Header.Revision+1))
+	if c.watching != nil {
+		c.watching(name)
+	}
 	for change := range watching {
 		if err := change.Err(); err != nil {
 			return unavailable("watching the claim", err)
