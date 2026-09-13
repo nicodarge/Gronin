@@ -169,6 +169,38 @@ having been written on the way out. Two processes on one state directory — a `
 `gronin run` by hand — each hold their own instance lock, so neither drops the other's live
 triggers.
 
+A trigger about to wait reconciles too, before it takes the slot: a row left `waiting` by a
+killed process would otherwise hold the slot until `serve` next started or someone ran
+`gronin refusals`. Whoever reconciles, a waiting row that a run's `waiting_trigger_id` already
+names is marked `ran`, never `dropped`: it became that run. A reconciliation looks at an
+instance by taking its lock, which cannot make a real contender fail — the only process that
+ever asks for an instance's lock is the one that takes it at start, before any row names it,
+and no instance identifier is used twice. Once an instance is proven dead its lock file is
+removed.
+
+For `dropped`, `refused_at` is when the drop was observed — the reconciliation that found the
+process gone, which after a graceful stop with nobody reading can be days after the process
+ended — not when the process ended, which nothing records.
+
+**Which processes accept a waiting trigger.** Only `gronin run` takes a waiting slot and holds an
+instance lock today. `serve`'s API reads runs and cannot invoke one, and its schedule fires
+triggers that never wait; replay and resume are refused rather than made to wait. A later
+trigger kind that will not come again — the webhook delivery — goes through this same path:
+the slot, the instance lock, the durable acceptance and the reconciliation, in whichever process
+accepts it.
+
+**The slot's two layers.** FR-111 rests on the acceptance statement itself, which inserts the row
+only where no live `waiting` row exists for the playbook, and on the partial unique index
+`waiting_triggers_one_live` behind it. The statement is what reports a full slot as
+`waiting_slot_full`; the index is the backstop, and without the statement's check a second
+acceptance fails on it as an error rather than as a refusal an operator can read.
+
+**When a waiting trigger becomes a run.** The run's identifier is minted when it starts, not when
+the trigger arrived, so that it sorts and reads as the time the run began. The run's row and the
+waiting row's `ran` are written in one transaction: a process that died between two writes would
+leave a run whose trigger reads as waiting. The trigger takes the claim under the name it
+collided with before it reads its file again, and a file that has changed gives the claim back.
+
 ### Refusal record (in the record store)
 
 A trigger that did not become a run, terminally (FR-117). Not a run, never counted as one, and never
