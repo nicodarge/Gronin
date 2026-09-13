@@ -3322,36 +3322,6 @@
       ]
     },
     {
-      "name": "the query's line breaks reach the results file",
-      "tree": "..",
-      "file": "internal/stage/retrieve/results.go",
-      "find": "strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))}}",
-      "replace": "redactor.Redact(head.query))}}",
-      "command": [
-        "go",
-        "test",
-        "./internal/stage/retrieve",
-        "-count=1",
-        "-run",
-        "TestTheResultsFile"
-      ]
-    },
-    {
-      "name": "a source's control characters reach the results file",
-      "tree": "..",
-      "file": "internal/stage/retrieve/results.go",
-      "find": "at+1, printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),",
-      "replace": "at+1, redactor.Redact(hit.Source), hit.Ordinal, hit.Score),",
-      "command": [
-        "go",
-        "test",
-        "./internal/stage/retrieve",
-        "-count=1",
-        "-run",
-        "TestTheResultsFile"
-      ]
-    },
-    {
       "name": "a result heading is written without its passage",
       "tree": "..",
       "file": "internal/stage/retrieve/results.go",
@@ -3439,6 +3409,246 @@
         "-count=1",
         "-run",
         "TestTheIndexIsReadableOnlyByItsOwner"
+      ]
+    },
+    {
+      "name": "Searchable accepts an empty query",
+      "tree": "..",
+      "file": "internal/index/lexical.go",
+      "find": "\treturn plainQuery(query) != \"\"\n",
+      "replace": "\treturn true\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestARetrievalThatCannotRunRefuses"
+      ]
+    },
+    {
+      "name": "the query's line breaks reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "Printable(strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))",
+      "replace": "redactor.Redact(head.query)",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a source's control characters reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "at+1, Printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),",
+      "replace": "at+1, redactor.Redact(hit.Source), hit.Ordinal, hit.Score),",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a result heading is written without its passage, caught via ./internal/stage/retrieve",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tbreak\n\t\t}\n",
+      "replace": "\t\tif one.hit != nil && keep <= len(one.head) {\n\t\t\tout = append(out, full[:keep]...)\n\t\t\tbreak\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "text changed during an update is indexed under the walk's digest, caught via ./internal/index",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\tif hex.EncodeToString(sum[:]) != document.Digest {\n",
+      "replace": "\tif hex.EncodeToString(sum[:]) != document.Digest && document.Bytes < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileChangedDuringAnUpdateIsIndexedAsItNowStands"
+      ]
+    },
+    {
+      "name": "a listing waits for a held index without a bound",
+      "tree": "..",
+      "file": "cmd/gronin/collections_cmd.go",
+      "find": "bounded, cancel := context.WithTimeout(ctx, listingWait)",
+      "replace": "bounded, cancel := context.WithCancel(ctx)",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAListingDoesNotWaitForeverBehindAnUpdate"
+      ]
+    },
+    {
+      "name": "a file changed during an update refuses it rather than being walked again",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\t\tchanged = err\n",
+      "replace": "\t\t\treturn Generation{}, err\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileChangedDuringAnUpdateIsIndexedAsItNowStands"
+      ]
+    },
+    {
+      "name": "a file that keeps changing is not named when the bound ends",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\t\t\terr = errors.Join(err, changed)\n",
+      "replace": "\t\t\t_ = changed\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAFileThatKeepsChangingIsRefusedAtTheBound"
+      ]
+    },
+    {
+      "name": "a rebuild walks a file that keeps changing without end",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {",
+      "replace": "if _, bounded := ctx.Deadline(); !bounded && rewalks < 0 {",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestARebuildOverAFileThatKeepsChangingFailsNamingIt"
+      ]
+    },
+    {
+      "name": "a blank query walks the collection before it is refused",
+      "tree": "..",
+      "file": "internal/stage/retrieve/retrieve.go",
+      "find": "\tif !index.Searchable(query) {\n",
+      "replace": "\tif !index.Searchable(query) && len(query) < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheQueryHoldingNoWord"
+      ]
+    },
+    {
+      "name": "a query left empty by the cut is refused as if declared empty",
+      "tree": "..",
+      "file": "internal/stage/retrieve/query.go",
+      "find": "\tif truncated {\n",
+      "replace": "\tif truncated && len(\"\") > 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheQueryHoldingNoWord"
+      ]
+    },
+    {
+      "name": "a query's control characters reach the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "Printable(strings.Join(strings.Fields(redactor.Redact(head.query)), \" \"))",
+      "replace": "strings.Join(strings.Fields(redactor.Redact(head.query)), \" \")",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "a line separator reaches the results file",
+      "tree": "..",
+      "file": "internal/stage/retrieve/results.go",
+      "find": "if unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp) {",
+      "replace": "if unicode.IsControl(r) {",
+      "command": [
+        "go",
+        "test",
+        "./internal/stage/retrieve",
+        "-count=1",
+        "-run",
+        "TestTheResultsFile"
+      ]
+    },
+    {
+      "name": "an index file holding no table cannot be listed",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif tables == 0 {\n",
+      "replace": "\tif tables < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileHoldingNoGenerationIsNotIndexedYet"
+      ]
+    },
+    {
+      "name": "an index file the runtime cannot write is opened anyway",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif err := writable(file); err != nil {\n",
+      "replace": "\tif err := writable(file); err != nil && owner < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileTheRuntimeCannotWriteIsRefusedSayingWhy"
+      ]
+    },
+    {
+      "name": "an index file this user owns is left wider than its owner",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 {\n",
+      "replace": "\tif owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 && owner < 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAnIndexFileWiderThanItsOwnerIsNarrowed"
       ]
     }
   ]
