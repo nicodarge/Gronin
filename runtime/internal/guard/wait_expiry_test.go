@@ -22,7 +22,7 @@ func TestTheWaitExpiresOnItsMonotonicReading(t *testing.T) {
 			stateDir := t.TempDir()
 			fake := guardtest.NewFake(guardtest.NewClock(start), guardtest.NewClock(start))
 			runtime := guardtest.NewClock(start)
-			drift := waitable("drift-check", "10m")
+			drift := waitable(t, "drift-check", "10m")
 
 			holder, store := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-holder", drift)
 			if _, err := holder.Admit(t.Context(), drift, guard.Request{
@@ -56,7 +56,7 @@ func TestTheWaitExpiresAtOnceWhenItIsZero(t *testing.T) {
 	stateDir := t.TempDir()
 	fake := guardtest.NewFake(guardtest.NewClock(start), guardtest.NewClock(start))
 	runtime := guardtest.NewClock(start)
-	drift := waitable("drift-check", "0s")
+	drift := waitable(t, "drift-check", "0s")
 
 	holder, store := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-holder", drift)
 	if _, err := holder.Admit(t.Context(), drift, guard.Request{

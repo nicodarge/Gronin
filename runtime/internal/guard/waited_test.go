@@ -16,7 +16,7 @@ func TestAWaitedRunLeavesNoRefusalAndSaysHowLongItWaited(t *testing.T) {
 	stateDir := t.TempDir()
 	fake := guardtest.NewFake(guardtest.NewClock(start), guardtest.NewClock(start))
 	runtime := guardtest.NewClock(start)
-	drift := waitable("drift-check", "")
+	drift := waitable(t, "drift-check", "")
 
 	holder, store := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-holder", drift)
 	held, err := holder.Admit(t.Context(), drift, guard.Request{RunID: "run-held", Kind: record.TriggerManual})

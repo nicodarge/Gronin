@@ -49,6 +49,9 @@ type waitingTrigger struct {
 	expiry   time.Duration
 	accepted Instant
 	row      record.WaitingTrigger
+	// edited is the playbook as it was last read, and stamp its directory as it stood then.
+	edited *playbook.Playbook
+	stamp  directoryStamp
 }
 
 // errStillHeld is a wait that has not ended: the claim is still held, or was taken first by
@@ -96,7 +99,7 @@ func (g *Guard) accept(ctx context.Context, w *waitingTrigger) error {
 		detail := "a trigger is already waiting"
 		if !row.AcceptedAt.IsZero() {
 			detail = fmt.Sprintf("a trigger accepted at %s is already waiting",
-				row.AcceptedAt.UTC().Format(TimeOfDay))
+				row.AcceptedAt.UTC().Format(time.RFC3339))
 		}
 		return g.recordRefusal(ctx, record.Refusal{
 			PlaybookName: w.book.Name, TriggerKind: w.req.Kind,
@@ -138,7 +141,7 @@ func (g *Guard) await(ctx context.Context, w *waitingTrigger, held error) (*Admi
 }
 
 // try is one round of the wait: until the claim may have freed or the wait expires, then
-// the claim asked for again, and once held the file read again.
+// the file read again if it changed, and only then the claim asked for.
 func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 	left := g.remaining(w)
 	if left <= 0 {
@@ -165,13 +168,10 @@ func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 			return nil, err
 		}
 	}
-	// The claim is asked for under the name the trigger collided with, and asking is the only
-	// check: a coordinator that cannot see a free claim without taking it returns from
-	// Released early, and the attempt is what tells.
 	decide, cancelDecide := bound(ctx, g.clock(), g.Config.DecisionBound)
 	defer cancelDecide()
 	sent := g.clock().Monotonic()
-	claim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))
+	claim, edited, err := g.readThenClaim(decide, w, req)
 	if errors.Is(err, ErrHeld) {
 		return nil, errStillHeld
 	}
@@ -179,11 +179,11 @@ func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 		return nil, err
 	}
 	waited := g.clock().Monotonic().Sub(w.accepted)
-
-	edited, err := g.reload(w)
-	if err != nil {
+	// The one window left between the read and the claim is the Acquire call itself. A file
+	// that changed inside it gives the claim back, and the next round reads it.
+	if w.changed() {
 		g.giveBack(ctx, claim)
-		return nil, err
+		return nil, errStillHeld
 	}
 	return &Admitted{
 		Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,
@@ -191,9 +191,35 @@ func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 	}, nil
 }
 
-// reload reads the trigger's playbook again, through the load gate, from the file it was
-// accepted from (FR-121).
-func (g *Guard) reload(w *waitingTrigger) (*playbook.Playbook, error) {
+// readThenClaim reads the trigger's playbook again and only then asks for the claim: a read
+// that fails ends the wait having taken nothing, so no other trigger — a scheduled tick,
+// which does not wait — is refused for a run that never starts.
+func (g *Guard) readThenClaim(
+	decide context.Context, w *waitingTrigger, req Request,
+) (Claim, *playbook.Playbook, error) {
+	edited, err := g.reread(w)
+	if err != nil {
+		return nil, nil, err
+	}
+	claim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))
+	if err != nil {
+		return nil, nil, err
+	}
+	return claim, edited, nil
+}
+
+// reread returns the playbook as its file declares it now, through the load gate (FR-121).
+// It reads only when the file or a sibling has changed since the last read: a file lock's
+// waiter comes round every poll, and the gate parses every playbook in the directory.
+func (g *Guard) reread(w *waitingTrigger) (*playbook.Playbook, error) {
+	stamp, err := stampOf(w.book.Path)
+	if err != nil {
+		return nil, &waitEnded{record.MechanismPlaybookChanged,
+			fmt.Sprintf("%s cannot be loaded now: %s", w.book.Path, oneLine(err))}
+	}
+	if w.edited != nil && stamp.equal(w.stamp) {
+		return w.edited, nil
+	}
 	edited, err := g.Slot.Reload(w.book.Path)
 	if err != nil {
 		return nil, &waitEnded{record.MechanismPlaybookChanged,
@@ -205,16 +231,24 @@ func (g *Guard) reload(w *waitingTrigger) (*playbook.Playbook, error) {
 		return nil, &waitEnded{record.MechanismPlaybookChanged,
 			fmt.Sprintf("%s now declares %q, not %q", w.book.Path, edited.Name, w.book.Name)}
 	}
+	w.edited, w.stamp = edited, stamp
 	return edited, nil
 }
 
-// giveBack releases a claim taken for a trigger that will not run after all, so that the
+// changed reports whether the playbook's file or a sibling has changed since the last read.
+// A directory that cannot be read counts as changed.
+func (w *waitingTrigger) changed() bool {
+	stamp, err := stampOf(w.book.Path)
+	return err != nil || !stamp.equal(w.stamp)
+}
+
+// giveBack releases a claim taken for a trigger that will not run on it, so that the
 // playbook is not blocked until the claim expires.
 func (g *Guard) giveBack(ctx context.Context, claim Claim) {
 	release, cancel := bound(ctx, g.clock(), g.Config.DecisionBound)
 	defer cancel()
 	if err := claim.Release(release); err != nil {
-		g.log().Warn("a claim taken for a trigger that did not run could not be released",
+		g.log().Warn("a claim taken for a trigger that did not run on it could not be released",
 			"err", err)
 	}
 }

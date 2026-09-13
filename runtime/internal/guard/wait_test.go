@@ -2,6 +2,7 @@ package guard_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,10 +13,16 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
 
-// waitable is a playbook read from a file, as a waiting trigger's has to be: it is read
-// again from there when the trigger runs (FR-121). wait is its guard.wait, or empty.
-func waitable(name, wait string) *playbook.Playbook {
-	book := &playbook.Playbook{Name: name, Path: "/srv/gronin/playbooks/" + name + ".yaml"}
+// waitable is a playbook read from a file of its own, as a waiting trigger's has to be: it is
+// read again from there when the trigger runs (FR-121), once the file or its directory has
+// changed. wait is its guard.wait, or empty.
+func waitable(t *testing.T, name, wait string) *playbook.Playbook {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name+".yaml")
+	if err := os.WriteFile(path, []byte("name: "+name+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book := &playbook.Playbook{Name: name, Path: path}
 	if wait != "" {
 		book.Guard = &playbook.Guard{Wait: wait}
 	}
@@ -106,7 +113,7 @@ func TestOneDeep(t *testing.T) {
 	stateDir := t.TempDir()
 	fake := guardtest.NewFake(guardtest.NewClock(start), guardtest.NewClock(start))
 	runtime := guardtest.NewClock(start)
-	drift := waitable("drift-check", "")
+	drift := waitable(t, "drift-check", "")
 
 	holder, store := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-holder", drift)
 	held, err := holder.Admit(t.Context(), drift, guard.Request{RunID: "run-held", Kind: record.TriggerManual})
