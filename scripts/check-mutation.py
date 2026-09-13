@@ -11,7 +11,9 @@ comfortable number forever. It refuses a mutation whose target text is not found
 once, rather than counting an unapplied mutation as killed. And `--self-test` runs it
 against two fixtures, one whose test detects the change and one whose test ignores it, so
 the count is shown to move in both directions before any real count is read — and against
-two it must refuse outright, a broken baseline and a target text that is not there.
+two it must refuse outright, a broken baseline and a target text that is not there. It also
+proves `--shard K/N` partitions the declared mutants into disjoint shards whose union is
+the full list, and refuses a shard that is malformed or selects none.
 
 Mutations are declared in JSON: a tree to copy, a file inside it, the text to replace,
 what to replace it with, and the command that is expected to fail once it has been.
@@ -24,6 +26,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -56,6 +59,12 @@ class Mutation:
     command: list[str]
 
 
+# ASCII digits only. str.isdigit() accepts Unicode digits Python still parses with
+# int() (e.g. superscripts, fullwidth forms), which would let a shard argument that
+# looks nothing like "2/6" through; a regex anchored to [0-9] cannot.
+_SHARD_RE = re.compile(r"([0-9]+)/([0-9]+)")
+
+
 def parse_shard(value: str) -> tuple[int, int]:
     """Parse "K/N" into (K, N), refusing anything that is not exactly that shape.
 
@@ -63,13 +72,10 @@ def parse_shard(value: str) -> tuple[int, int]:
     argument on a CI matrix leg is a configuration mistake, and running the wrong
     slice of mutants silently is worse than the job failing loudly.
     """
-    parts = value.split("/")
-    if len(parts) != 2:
-        raise ConfigError(f"--shard {value!r}: expected K/N")
-    k_text, n_text = parts
-    if not k_text.isdigit() or not n_text.isdigit():
-        raise ConfigError(f"--shard {value!r}: K and N must be positive integers")
-    k, n = int(k_text), int(n_text)
+    match = _SHARD_RE.fullmatch(value)
+    if match is None:
+        raise ConfigError(f"--shard {value!r}: expected K/N of ASCII digits")
+    k, n = int(match.group(1)), int(match.group(2))
     if n < 1:
         raise ConfigError(f"--shard {value!r}: N must be at least 1")
     if not 1 <= k <= n:
@@ -92,6 +98,19 @@ def select_shard(mutations: list[Mutation], k: int, n: int) -> list[Mutation]:
             f"--shard {k}/{n} selects no mutants out of {len(mutations)} declared"
         )
     return selected
+
+
+def apply_shard(mutations: list[Mutation], shard: str | None) -> list[Mutation]:
+    """Apply a raw --shard value to a loaded list, or return it unchanged if unset.
+
+    This is the one seam both main() and the self-test go through, so a self-test
+    built on it also exercises how main() wires --shard in -- a dropped assignment
+    or a hard-coded shard in main() shows up here as well as there.
+    """
+    if shard is None:
+        return mutations
+    k, n = parse_shard(shard)
+    return select_shard(mutations, k, n)
 
 
 def load(config: Path) -> list[Mutation]:
@@ -223,8 +242,19 @@ def survives(mutation: Mutation) -> bool:
         return run(mutation.command, work).returncode == 0
 
 
-def check(mutations: list[Mutation], *, quiet: bool = False) -> int:
-    """Return the number of mutations nothing noticed."""
+def check(
+    mutations: list[Mutation],
+    *,
+    quiet: bool = False,
+    shard: tuple[int, int] | None = None,
+    declared: int | None = None,
+) -> int:
+    """Return the number of mutations nothing noticed.
+
+    `shard` and `declared` only change the summary line's wording, for a run over a
+    shard rather than the whole list -- so it reads as a count of that shard, not a
+    silently partial report of the total.
+    """
     survivors = 0
     for mutation in mutations:
         survived = survives(mutation)
@@ -234,7 +264,14 @@ def check(mutations: list[Mutation], *, quiet: bool = False) -> int:
                 f"check-mutation: {'SURVIVED ' if survived else 'killed   '} {mutation.name}"
             )
     if not quiet:
-        print(f"check-mutation: {survivors} survivors of {len(mutations)} mutants")
+        if shard is not None:
+            k, n = shard
+            print(
+                f"check-mutation: shard {k}/{n}: {survivors} survivors of "
+                f"{len(mutations)} mutants ({declared} declared)"
+            )
+        else:
+            print(f"check-mutation: {survivors} survivors of {len(mutations)} mutants")
     return survivors
 
 
@@ -453,21 +490,41 @@ def self_test() -> int:
             for i in range(13)
         ]
         n = 6
-        shards = [select_shard(universe, k, n) for k in range(1, n + 1)]
-        if sorted(m.name for shard in shards for m in shard) != sorted(
-            m.name for m in universe
-        ):
-            failures.append("the union of every shard does not equal the full list")
-        seen: set[str] = set()
-        for shard in shards:
-            names = {m.name for m in shard}
-            if seen & names:
-                failures.append("two shards selected the same mutant")
-            seen |= names
+        # Goes through apply_shard(), the same seam main() uses, rather than calling
+        # select_shard() directly -- a self-test built on a lower-level function would
+        # keep passing if main() stopped wiring --shard through to it correctly.
+        try:
+            shards = [apply_shard(universe, f"{k}/{n}") for k in range(1, n + 1)]
+        except ConfigError as err:
+            failures.append(f"sharding the self-test universe was refused: {err}")
+            shards = []
+
+        if shards:
+            if sorted(m.name for shard in shards for m in shard) != sorted(
+                m.name for m in universe
+            ):
+                failures.append("the union of every shard does not equal the full list")
+            seen: set[str] = set()
+            for shard in shards:
+                names = {m.name for m in shard}
+                if seen & names:
+                    failures.append("two shards selected the same mutant")
+                seen |= names
 
         if parse_shard("2/6") != (2, 6):
             failures.append("a well-formed --shard value was not parsed as K, N")
-        for malformed in ("0/6", "7/6", "1/0", "x/6", "1/-1", "1", "1/6/2", "-1/6"):
+        for malformed in (
+            "0/6",
+            "7/6",
+            "1/0",
+            "x/6",
+            "1/-1",
+            "1",
+            "1/6/2",
+            "-1/6",
+            "²/6",  # a Unicode digit str.isdigit() accepts but int() cannot use as ASCII
+            "１/6",  # a fullwidth digit -- same trap, the other direction
+        ):
             try:
                 parse_shard(malformed)
             except ConfigError:
@@ -610,9 +667,27 @@ def _prune_stale_caches(root: Path, min_age_s: int = 900) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--shard", type=str, default=None, metavar="K/N")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--self-test", action="store_true", help="prove the harness before trusting it"
+    )
+    mode.add_argument(
+        "--shard",
+        metavar="K/N",
+        help="check only the mutants at position k-1 modulo n (1-based K); shards "
+        "for a fixed N are disjoint and their union is the full declared list",
+    )
     args = parser.parse_args()
+
+    # Validated as soon as it is known, before the cache directory or anything else
+    # this run touches is set up: a malformed --shard is a configuration mistake, not
+    # something that should run partway through a run before it is caught.
+    if args.shard is not None:
+        try:
+            parse_shard(args.shard)
+        except ConfigError as err:
+            print(f"check-mutation: {err}", file=sys.stderr)
+            return 2
 
     # A build cache of its own, thrown away when the run ends. Every mutant is a fresh
     # copy of the tree at a fresh path, so the compiler treats it as a distinct source
@@ -639,11 +714,10 @@ def main() -> int:
         try:
             if args.self_test:
                 return self_test()
-            mutations = load(args.config)
-            if args.shard is not None:
-                k, n = parse_shard(args.shard)
-                mutations = select_shard(mutations, k, n)
-            return 1 if check(mutations) else 0
+            declared = load(args.config)
+            mutations = apply_shard(declared, args.shard)
+            shard = parse_shard(args.shard) if args.shard is not None else None
+            return 1 if check(mutations, shard=shard, declared=len(declared)) else 0
         except ConfigError as err:
             print(f"check-mutation: {err}", file=sys.stderr)
             return 2
