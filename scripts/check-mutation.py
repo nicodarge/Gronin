@@ -59,9 +59,12 @@ class Mutation:
     command: list[str]
 
 
-# ASCII digits only. str.isdigit() accepts Unicode digits Python still parses with
-# int() (e.g. superscripts, fullwidth forms), which would let a shard argument that
-# looks nothing like "2/6" through; a regex anchored to [0-9] cannot.
+# ASCII digits only, matched with a regex rather than str.isdigit(): isdigit() also
+# accepts Unicode digits whose behaviour under int() is not uniform. A superscript
+# ('²') is a digit by isdigit() but raises ValueError from int() -- a crash, not an
+# acceptance. A fullwidth or Arabic-Indic digit ('１', '٣') is instead silently
+# accepted by int() and converted to its ASCII value. A regex anchored to [0-9]
+# takes neither path.
 _SHARD_RE = re.compile(r"([0-9]+)/([0-9]+)")
 
 
@@ -100,16 +103,17 @@ def select_shard(mutations: list[Mutation], k: int, n: int) -> list[Mutation]:
     return selected
 
 
-def apply_shard(mutations: list[Mutation], shard: str | None) -> list[Mutation]:
-    """Apply a raw --shard value to a loaded list, or return it unchanged if unset.
+def apply_shard(
+    mutations: list[Mutation], shard: tuple[int, int] | None
+) -> list[Mutation]:
+    """Apply an already-parsed (K, N) shard to a loaded list, or return it unchanged.
 
-    This is the one seam both main() and the self-test go through, so a self-test
-    built on it also exercises how main() wires --shard in -- a dropped assignment
-    or a hard-coded shard in main() shows up here as well as there.
+    main()'s only use of --shard; the self-test's end-to-end check runs the CLI
+    itself to prove that wiring, not just this function.
     """
     if shard is None:
         return mutations
-    k, n = parse_shard(shard)
+    k, n = shard
     return select_shard(mutations, k, n)
 
 
@@ -293,8 +297,8 @@ exit 1
 
 # A Go module, because the compile refusal only applies where there is something to
 # compile, and the shell subjects above have nothing. One package, one test, and a
-# mutation that leaves an import unused — which is the shape every one of the thirteen
-# mutants this refusal was written for had.
+# mutation that leaves an import unused — which is the shape the mutants this
+# refusal was written for had.
 SELF_TEST_GO_MOD = """module example.com/selftest
 
 go 1.24
@@ -393,7 +397,7 @@ def self_test() -> int:
             name="uncompilable mutant",
             tree=gomod,
             file="subject.go",
-            # Orphans the strings import, exactly as the thirteen did.
+            # Orphans the strings import, exactly as this refusal's mutants do.
             find='return strings.TrimSpace(" 42 ")',
             replace='return "41"',
             command=["go", "test", "./...", "-count=1"],
@@ -490,11 +494,8 @@ def self_test() -> int:
             for i in range(13)
         ]
         n = 6
-        # Goes through apply_shard(), the same seam main() uses, rather than calling
-        # select_shard() directly -- a self-test built on a lower-level function would
-        # keep passing if main() stopped wiring --shard through to it correctly.
         try:
-            shards = [apply_shard(universe, f"{k}/{n}") for k in range(1, n + 1)]
+            shards = [apply_shard(universe, (k, n)) for k in range(1, n + 1)]
         except ConfigError as err:
             failures.append(f"sharding the self-test universe was refused: {err}")
             shards = []
@@ -522,8 +523,9 @@ def self_test() -> int:
             "1",
             "1/6/2",
             "-1/6",
-            "²/6",  # a Unicode digit str.isdigit() accepts but int() cannot use as ASCII
-            "１/6",  # a fullwidth digit -- same trap, the other direction
+            "²/6",  # crashed the old path with ValueError
+            "１/6",  # accepted outright by the old isdigit()+int() path
+            "٣/6",  # accepted outright by the old isdigit()+int() path
         ):
             try:
                 parse_shard(malformed)
@@ -539,6 +541,83 @@ def self_test() -> int:
             failures.append(
                 "a shard selecting no mutants was accepted rather than refused"
             )
+
+        # End to end: run the real CLI per shard -- the checks above never call main().
+        e2e_dir = root / "e2e"
+        e2e_tree = e2e_dir / "tree"
+        e2e_tree.mkdir(parents=True)
+        (e2e_tree / "subject.sh").write_text(SELF_TEST_SUBJECT)
+        (e2e_tree / "subject.sh").chmod(0o755)
+        (e2e_tree / "test.sh").write_text(SELF_TEST_ATTENTIVE)
+        (e2e_tree / "test.sh").chmod(0o755)
+        e2e_names = [f"e2e-{i}" for i in range(7)]
+        e2e_config = e2e_dir / "mutations.json"
+        e2e_config.write_text(
+            json.dumps(
+                {
+                    "mutations": [
+                        {
+                            "name": name,
+                            "tree": "tree",
+                            "file": "subject.sh",
+                            "find": "42",
+                            "replace": "41",
+                            "command": ["./test.sh"],
+                        }
+                        for name in e2e_names
+                    ]
+                }
+            )
+        )
+        e2e_n = 6
+        e2e_shards: list[set[str]] = []
+        for k in range(1, e2e_n + 1):
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    __file__,
+                    "--config",
+                    str(e2e_config),
+                    "--shard",
+                    f"{k}/{e2e_n}",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run exited "
+                    f"{proc.returncode}: {proc.stderr}"
+                )
+                continue
+            if f"shard {k}/{e2e_n}:" not in proc.stdout:
+                failures.append(
+                    f"the end-to-end shard {k}/{e2e_n} run's summary line did not "
+                    "name its shard"
+                )
+            e2e_shards.append(
+                {
+                    line.rsplit(" ", 1)[-1]
+                    for line in proc.stdout.splitlines()
+                    if line.startswith("check-mutation: killed")
+                    or line.startswith("check-mutation: SURVIVED")
+                }
+            )
+
+        if e2e_shards:
+            if set().union(*e2e_shards) != set(e2e_names):
+                failures.append(
+                    "the union of the shards run end to end through main() does "
+                    "not equal the full fixture list"
+                )
+            seen_e2e: set[str] = set()
+            for names in e2e_shards:
+                if seen_e2e & names:
+                    failures.append(
+                        "two shards run end to end through main() selected the "
+                        "same mutant"
+                    )
+                seen_e2e |= names
 
         for failure in failures:
             print(f"check-mutation: self-test: {failure}", file=sys.stderr)
@@ -666,7 +745,12 @@ def _prune_stale_caches(root: Path, min_age_s: int = 900) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="the mutations.json to check (default: the repository's own)",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--self-test", action="store_true", help="prove the harness before trusting it"
@@ -674,17 +758,18 @@ def main() -> int:
     mode.add_argument(
         "--shard",
         metavar="K/N",
-        help="check only the mutants at position k-1 modulo n (1-based K); shards "
+        help="check only the mutants at position K-1 modulo N (1-based K); shards "
         "for a fixed N are disjoint and their union is the full declared list",
     )
     args = parser.parse_args()
 
-    # Validated as soon as it is known, before the cache directory or anything else
-    # this run touches is set up: a malformed --shard is a configuration mistake, not
-    # something that should run partway through a run before it is caught.
+    # Parsed once, here, rather than again wherever the result is needed: a
+    # malformed --shard is a configuration mistake, caught before the cache
+    # directory or anything else this run touches is set up.
+    shard: tuple[int, int] | None = None
     if args.shard is not None:
         try:
-            parse_shard(args.shard)
+            shard = parse_shard(args.shard)
         except ConfigError as err:
             print(f"check-mutation: {err}", file=sys.stderr)
             return 2
@@ -715,8 +800,7 @@ def main() -> int:
             if args.self_test:
                 return self_test()
             declared = load(args.config)
-            mutations = apply_shard(declared, args.shard)
-            shard = parse_shard(args.shard) if args.shard is not None else None
+            mutations = apply_shard(declared, shard)
             return 1 if check(mutations, shard=shard, declared=len(declared)) else 0
         except ConfigError as err:
             print(f"check-mutation: {err}", file=sys.stderr)

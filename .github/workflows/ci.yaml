@@ -40,9 +40,6 @@ jobs:
         working-directory: runtime
       - run: scripts/run-suite.sh
 
-  # The self-test on its own, once: a count from a harness that has not shown it can
-  # report zero is not a count, and every matrix leg below would otherwise pay for it
-  # again for no more assurance.
   mutation-self-test:
     runs-on: ubuntu-latest
     steps:
@@ -54,21 +51,15 @@ jobs:
         working-directory: runtime
       - run: scripts/check-mutation.py --self-test
 
-  # The real run, split across the matrix legs so no single runner carries the whole
-  # list sequentially; --shard partitions by position, so the legs together cover
-  # exactly the mutants a single unsharded run would. The matrix list below sets the
-  # leg count and nothing else -- the shard number and total are read back from
-  # GitHub's own strategy context rather than written out a second time, so the two
-  # cannot drift apart (job-index is documented as zero-based; job-total is the
-  # product of the matrix dimensions, one here since the matrix has a single key).
-  # needs: mutation-self-test, so a harness that has not just shown it can report
-  # zero on this runner image never gets to produce a count on it.
+  # job-index is zero-based; job-total is the number of jobs in the matrix.
   mutation:
     needs: mutation-self-test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        # Only this list's length matters; its values are unused except to label
+        # each job "mutation (N)".
         leg: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
@@ -148,22 +139,16 @@ jobs:
               exit 1
             fi
           done
-      # needs.*.result rolls a matrix job up into one result, but GitHub's own docs
-      # never say what a failed or cancelled leg does to that roll-up, and a report
-      # from the field claims it can read success regardless. Not trusted blindly:
-      # this asks the Actions API directly for every job this run/attempt actually
-      # ran, including every matrix leg by its own name, and fails unless each one
-      # (other than gate itself) concluded success -- which also covers the build
-      # matrix, resting on the same unconfirmed assumption.
+      # needs.*.result is not documented for a failed matrix leg; check each job's
+      # own conclusion instead.
       - name: Every job in this run actually succeeded
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           jobs=$(gh api --paginate \
-            "repos/${REPO}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" \
+            "repos/${REPO}/actions/runs/${RUN_ID}/jobs?filter=latest" \
             --jq '.jobs[] | [.name, .conclusion] | @tsv')
           echo "$jobs"
           found_mutation_leg=0
