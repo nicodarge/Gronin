@@ -54,7 +54,7 @@ func TestRenewalsThatHangEndTheRunBeforeItsClaimCanLapse(t *testing.T) {
 		if got := at.Sub(guard.InstantAt(0)); got < 18*time.Second {
 			t.Fatalf("the run was stopped at %s, before the 18s deadline", got)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("renewals that hang never stopped the run, so its claim would have lapsed under it")
 	}
 }

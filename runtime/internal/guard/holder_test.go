@@ -86,7 +86,7 @@ func (c *watchedHost) waitForAttempt(t *testing.T) int {
 	select {
 	case since := <-c.attempted:
 		return since
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("the renewal loop made no further attempt")
 		return 0
 	}
@@ -158,7 +158,7 @@ func TestHolderStopsAtTheDeadlineItComputed(t *testing.T) {
 		if got := at.Sub(guard.InstantAt(0)); got < 23*time.Second || got > 24*time.Second {
 			t.Fatalf("the run was stopped at %s, not at the 23s deadline", got)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("the run was never stopped, so its claim would have lapsed under it")
 	}
 	if !hold.Stopped() {
@@ -209,7 +209,7 @@ func TestHolderStopsAtOnceOnALostClaim(t *testing.T) {
 
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-time.After(patience):
 		t.Fatal("a claim reported lost did not stop the run")
 	}
 	if at := runtime.Monotonic().Sub(guard.InstantAt(0)); at > 10*time.Second {
@@ -243,9 +243,13 @@ func moveTo(t *testing.T, runtime, backend *guardtest.Clock, d time.Duration) {
 	backend.Advance(d - elapsed)
 }
 
+// patience is how long a test waits for the code under test to do what the fake clock has
+// already made due; reaching it means the code never did, not that the machine was slow.
+const patience = 10 * time.Second
+
 func waitForTimer(t *testing.T, clock *guardtest.Clock, since int, at time.Duration) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), patience)
 	defer cancel()
 	if err := clock.WaitForTimer(ctx, guard.InstantAt(at), since); err != nil {
 		t.Fatalf("nothing was set to fire at %s: %v", at, err)
