@@ -55,20 +55,12 @@ func RetryBusy(ctx context.Context, busy func(), operation func() error) error {
 	return retryBusy(ctx, busy, operation)
 }
 
-// AsBegin applies the rule readStored and search both use to decide whether an error is a
-// begin failure — a genuine BUSY not already marked one, and nothing else — so a test can
-// drive it with real errors directly rather than only through however a live database
-// happens to time a lock and a later, unrelated failure.
-func AsBegin(err error) error {
-	return asBegin(err)
-}
-
-// BeginFailure marks err the way BeginTx's own failure is marked, whatever err is — the
-// same unconditional wrap readStored and commit apply at their BeginTx call, so a test can
-// drive retryBusy's classification of it directly rather than only through however a live
-// database happens to time a BeginTx against an already-ended context.
-func BeginFailure(err error) error {
-	return &beginError{err}
+// BeginFailure applies the rule readStored and commit both use to decide whether an error
+// is a begin failure — a genuine BUSY, or exactly ctx's own error, and nothing else — so a
+// test can drive it with real errors directly rather than only through however a live
+// database happens to time a lock, a context ending, and a later, unrelated failure.
+func BeginFailure(ctx context.Context, err error) error {
+	return beginFailure(ctx, err)
 }
 
 // IsBegin reports whether err is marked a begin failure, so a test can check readStored's

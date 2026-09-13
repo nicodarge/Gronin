@@ -75,13 +75,13 @@ func TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughSearch(t *te
 // Once a genuine BUSY has set retryBusy's own "found it held" flag, a later, unrelated
 // failure — disk I/O, corruption, a permission error, schema drift — is not the index
 // held: it is not another connection wanting the write lock, and relabeling it that hides
-// its real cause behind a lock that was never the problem. Driven through AsBegin, the
+// its real cause behind a lock that was never the problem. Driven through BeginFailure, the
 // exact rule readStored and search both apply to decide that, and RetryBusy, their shared
 // retry loop — real errors throughout (a write actually blocked by an exclusive lock held
 // elsewhere, and a query against a table that genuinely does not exist), timed
 // deterministically via a synthetic operation rather than by racing a live query against
 // an already-expired context, which database/sql refuses to even start.
-func TestANonBusyErrorAfterAPriorBusyHitIsNotRelabeledHeldByAsBegin(t *testing.T) {
+func TestANonBusyErrorAfterAPriorBusyHitIsNotRelabeledHeldByBeginFailure(t *testing.T) {
 	dir := t.TempDir()
 	indexDir := filepath.Join(dir, "index")
 	ix := openIndex(t, indexDir, filepath.Join(dir, "sources"))
@@ -112,10 +112,10 @@ func TestANonBusyErrorAfterAPriorBusyHitIsNotRelabeledHeldByAsBegin(t *testing.T
 	err = index.RetryBusy(ctx, nil, func() error {
 		calls++
 		if calls == 1 {
-			return index.AsBegin(busyErr)
+			return index.BeginFailure(ctx, busyErr)
 		}
 		<-ctx.Done()
-		return index.AsBegin(otherErr)
+		return index.BeginFailure(ctx, otherErr)
 	})
 	if err == nil {
 		t.Fatal("a retry over a table that does not exist succeeded")

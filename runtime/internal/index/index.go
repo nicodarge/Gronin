@@ -135,18 +135,6 @@ func isBegin(err error) bool {
 	return errors.As(err, &begin)
 }
 
-// asBegin marks err a begin failure when it is a genuine BUSY not already marked as one —
-// the first statement of a deferred read-only transaction finding the index held — and
-// leaves anything else exactly as it is: an unrelated failure (disk I/O, corruption, a
-// permission error, schema drift) reaching here after an earlier genuine BUSY is not the
-// index held, and must not be relabeled that once the caller's bound ends.
-func asBegin(err error) error {
-	if err != nil && !isBegin(err) && isBusy(err) {
-		return &beginError{err}
-	}
-	return err
-}
-
 // beginFailure marks err a begin failure when it is either a genuine BUSY or exactly ctx's
 // own error — the two ways BeginTx, or the first statement of a deferred read-only
 // transaction, never takes the lock it waited for: a real BUSY, or database/sql refusing to

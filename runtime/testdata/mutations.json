@@ -3802,36 +3802,6 @@
       ]
     },
     {
-      "name": "asBegin wraps every error, not only a genuine busy one",
-      "tree": "..",
-      "file": "internal/index/index.go",
-      "find": "\tif err != nil && !isBegin(err) && isBusy(err) {\n",
-      "replace": "\tif err != nil && !isBegin(err) {\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/index",
-        "-count=1",
-        "-run",
-        "TestANonBusyErrorAfterAPriorBusyHitIsNotRelabeledHeldByAsBegin"
-      ]
-    },
-    {
-      "name": "asBegin never marks a genuine busy hit a begin failure",
-      "tree": "..",
-      "file": "internal/index/index.go",
-      "find": "func asBegin(err error) error {\n\tif err != nil && !isBegin(err) && isBusy(err) {\n\t\treturn &beginError{err}\n\t}\n\treturn err\n}\n",
-      "replace": "func asBegin(err error) error {\n\treturn err\n}\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/index",
-        "-count=1",
-        "-run",
-        "TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughReadStored"
-      ]
-    },
-    {
       "name": "a COMMIT busy re-enters operation instead of being reported once",
       "tree": "..",
       "file": "internal/index/index.go",
@@ -3926,6 +3896,21 @@
         "-count=1",
         "-run",
         "TestAGenuineUnrelatedFailureAtReadStoredsFirstReadIsNotABeginFailure|TestAGenuineUnrelatedFailureAtSearchsFirstReadIsNotABeginFailure"
+      ]
+    },
+    {
+      "name": "beginFailure never marks a genuine busy hit a begin failure",
+      "tree": "..",
+      "file": "internal/index/index.go",
+      "find": "\tif isBusy(err) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {\n",
+      "replace": "\tif ctx.Err() != nil && errors.Is(err, ctx.Err()) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughReadStored|TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughSearch"
       ]
     }
   ]
