@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nicodarge/Gronin/runtime/internal/guard"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
 
@@ -151,6 +152,83 @@ func TestAWaitEndsOnceWithItsRefusal(t *testing.T) {
 	}
 	if got.Outcome != record.WaitDropped || !got.OutcomeAt.Equal(accepted.Add(time.Minute)) {
 		t.Fatalf("read back as %+v", got)
+	}
+}
+
+// SC-114 and FR-117. The run a waiting trigger becomes and the end of that wait are one
+// step: a process that dies between two separate writes leaves a run whose trigger still
+// reads as waiting, which a reconciliation would then drop and record as refused.
+func TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep(t *testing.T) {
+	store := openStoreAt(t, t.TempDir())
+	accepted := time.Date(2026, 9, 10, 6, 1, 2, 0, time.UTC)
+	trigger, err := store.AcceptWaiting(t.Context(), waitingAt(accepted, "instance-a"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runFrom := func(id string) error {
+		return store.CreateRun(t.Context(), record.Run{
+			ID: id, PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
+			Status: record.StatusRunning, WaitingTriggerID: trigger.ID, WaitedMS: 12000,
+		})
+	}
+	if err := runFrom("20260910T061214Z-000000000001"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetWaitingTrigger(t.Context(), trigger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != record.WaitRan || got.RunID != "20260910T061214Z-000000000001" {
+		t.Fatalf("the run was recorded and its wait reads %+v", got)
+	}
+	if refusals, err := store.ListRefusals(t.Context(), 10); err != nil || len(refusals) != 0 {
+		t.Fatalf("refusals = %+v, err = %v, want none for a trigger that ran", refusals, err)
+	}
+
+	// A wait that has already ended does not become a second run.
+	if err := runFrom("20260910T061215Z-000000000002"); err == nil {
+		t.Fatal("a second run was recorded from a wait that had already ended")
+	}
+	if _, err := store.GetRun(t.Context(), "20260910T061215Z-000000000002"); !errors.Is(err, record.ErrNotFound) {
+		t.Fatalf("the refused run was written anyway: %v", err)
+	}
+}
+
+// A row still reading waiting that a run already names ran. Whatever left it that way, a
+// reconciliation marks it ran rather than dropping it and recording a refusal for a trigger
+// that became a run (FR-117).
+func TestReconcileDoesNotDropATriggerThatRan(t *testing.T) {
+	dir := t.TempDir()
+	store := openStoreAt(t, dir)
+	accepted := time.Date(2026, 9, 10, 6, 1, 2, 0, time.UTC)
+	trigger, err := store.AcceptWaiting(t.Context(), waitingAt(accepted, "gone"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rawDB(t, filepath.Join(dir, "record")).ExecContext(t.Context(), `
+		INSERT INTO runs (id, playbook_name, trigger_kind, status, started_at, waiting_trigger_id)
+		VALUES ('20260910T061214Z-000000000001', 'drift-check', 'manual', 'running',
+		        '2026-09-10T06:12:14Z', ?)`, trigger.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	dropped, err := guard.Reconcile(t.Context(), dir, store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped != 0 {
+		t.Fatalf("%d waiting trigger(s) dropped, want none: the one here ran", dropped)
+	}
+	got, err := store.GetWaitingTrigger(t.Context(), trigger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != record.WaitRan || got.RunID != "20260910T061214Z-000000000001" {
+		t.Fatalf("the waiting trigger reads %+v, want ran as the run that names it", got)
+	}
+	if refusals, err := store.ListRefusals(t.Context(), 10); err != nil || len(refusals) != 0 {
+		t.Fatalf("refusals = %+v, err = %v, want none", refusals, err)
 	}
 }
 

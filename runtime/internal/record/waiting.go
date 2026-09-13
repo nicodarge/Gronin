@@ -152,13 +152,18 @@ func (s *Store) EndWait(ctx context.Context, id string, end WaitEnd) (bool, erro
 	return true, tx.Commit()
 }
 
+// waitingColumns reads a waiting trigger's run from the run that names it when the row
+// itself does not, so that a row left waiting beside the run it became reads as having one.
 const waitingColumns = `
 		SELECT id, playbook_name, playbook_path, trigger_kind, trigger_ref, accepted_at,
-		       expires_at, instance, outcome, outcome_at, run_id
+		       expires_at, instance, outcome, outcome_at,
+		       coalesce(run_id, (SELECT runs.id FROM runs
+		                          WHERE runs.waiting_trigger_id = waiting_triggers.id))
 		  FROM waiting_triggers`
 
 // StillWaiting lists every trigger whose row says it is waiting, whether or not the
-// process holding it is still alive: telling the two apart is the caller's.
+// process holding it is still alive: telling the two apart is the caller's. A row a run
+// already names carries that run's identifier.
 func (s *Store) StillWaiting(ctx context.Context) ([]WaitingTrigger, error) {
 	rows, err := s.db.QueryContext(ctx, waitingColumns+` WHERE outcome = 'waiting' ORDER BY accepted_at`)
 	if err != nil {

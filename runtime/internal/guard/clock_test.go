@@ -7,12 +7,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/guard"
 )
 
-// A guard with no clock injected reads the system's, and it does so afresh at every use:
-// the stop deadline is anchored on one reading and compared with a later one, and a wait's
-// length is the difference between two. Every system clock therefore has to read on one
-// axis. With an origin of its own each, both readings are near zero, so no deadline is ever
-// reached and nothing ever waits any time at all — which every test injecting a clock
-// passes.
+// A guard with no clock injected builds one per reading, and a deadline compares two of them.
 func TestSystemClocksReadOnOneAxis(t *testing.T) {
 	before := guard.SystemClock().Monotonic()
 	time.Sleep(50 * time.Millisecond)

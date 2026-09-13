@@ -41,15 +41,12 @@ func TestAWaitedRunLeavesNoRefusalAndSaysHowLongItWaited(t *testing.T) {
 		t.Fatalf("waited %s, want the 7m that passed on the monotonic reading", admitted.Waited)
 	}
 
-	// The run the executor would begin, then the guard told it started.
+	// The run the executor would begin, which ends the wait it started from.
 	if err := store.CreateRun(t.Context(), record.Run{
 		ID: admitted.RunID, PlaybookName: drift.Name, TriggerKind: record.TriggerManual,
 		Status: record.StatusRunning, WaitingTriggerID: admitted.WaitingTriggerID,
 		WaitedMS: admitted.Waited.Milliseconds(),
 	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := waiter.Started(t.Context(), admitted, admitted.RunID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -54,7 +54,12 @@ func newRunCommand() *cobra.Command {
 				Kind: record.TriggerManual, Values: triggerValues(cmd),
 				// Said before the wait begins, so that a caller does not read it as a hang.
 				OnWait: func(waiting guard.Waiting) {
-					cmd.Printf("%s is running; waiting up to %s\n  %s\n", book.Name, waiting.UpTo, waiting.Held)
+					held := waiting.Held
+					if waiting.Holder != nil {
+						held = waiting.Holder.String()
+					}
+					cmd.Printf("%s is running (%s); waiting up to %s\n",
+						book.Name, held, guard.HumanDuration(waiting.UpTo))
 				},
 			})
 			var refused *guard.Refused
@@ -69,8 +74,12 @@ func newRunCommand() *cobra.Command {
 			}
 
 			waited := ""
-			if recorded, err := deployment.store.GetRun(cmd.Context(), finished.ID); err == nil &&
-				recorded.WaitingTriggerID != "" {
+			recorded, err := deployment.store.GetRun(cmd.Context(), finished.ID)
+			switch {
+			case err != nil:
+				deployment.log.Warn("the run could not be read back to say whether it waited",
+					"run", finished.ID, "err", err)
+			case recorded.WaitingTriggerID != "":
 				waited = " (waited " + waitedFor(recorded) + ")"
 			}
 			cmd.Printf("%s %s%s\n", finished.ID, finished.Status, waited)

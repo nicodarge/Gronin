@@ -83,10 +83,17 @@ var (
 	ErrTickRan     = errors.New("tick already ran") // wrapped with the recorded tick and its holder
 )
 
+// HeldError is ErrHeld naming the holder, as a value rather than only as text: a trigger
+// that waits tells its invoker who it waits for without parsing a message.
+type HeldError struct{ Holder Holder }
+
+func (e *HeldError) Error() string { return ErrHeld.Error() + " by " + e.Holder.String() }
+
+// Unwrap makes a HeldError ErrHeld.
+func (e *HeldError) Unwrap() error { return ErrHeld }
+
 // HeldBy is ErrHeld naming the holder.
-func HeldBy(holder Holder) error {
-	return fmt.Errorf("%w by %s", ErrHeld, holder)
-}
+func HeldBy(holder Holder) error { return &HeldError{Holder: holder} }
 
 // TickRanAs is ErrTickRan naming the recorded tick and the holder that took it.
 func TickRanAs(tick time.Time, holder Holder) error {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,8 +14,10 @@ import (
 
 // SC-110, FR-121, and SC-114's surface, FR-125, single-host. The playbook is edited while a
 // trigger waits, and the edit is looked for in what the run gathered — two versions that
-// differ in what they produce, not in a field nothing reads. A rename is the other half: the
-// name is the claim's identity, so a trigger does not follow one.
+// differ in what they produce, not in a field nothing reads. The other cases change the file
+// in a way that must stop the trigger: a rename, since the name is the claim's identity; a
+// declaration the load gate refuses, since the re-read is a load like any other (Principle
+// I); a file that is gone; and a second file taking the name.
 func TestAWaitingTriggerRunsTheEditedPlaybook(t *testing.T) {
 	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
 
@@ -26,7 +30,6 @@ func TestAWaitingTriggerRunsTheEditedPlaybook(t *testing.T) {
 		second.Expect(t, "waiting up to", time.Minute)
 
 		h.write(t, "drift-check", "edited")
-		// Long enough that the time waited is plainly not nothing.
 		time.Sleep(1500 * time.Millisecond)
 		h.release(t)
 		if code, err := first.Wait(2 * time.Minute); err != nil || code != 0 {
@@ -65,31 +68,63 @@ func TestAWaitingTriggerRunsTheEditedPlaybook(t *testing.T) {
 		}
 	})
 
-	t.Run("renamed", func(t *testing.T) {
-		h := newGatedHost(t)
-		h.hold(t)
-		first := h.run(t)
-		h.waitForRuns(t, 1)
-		second := h.run(t)
-		second.Expect(t, "waiting up to", time.Minute)
+	for name, change := range map[string]struct {
+		change func(t *testing.T, h *gatedHost)
+		// names is what the playbook_changed refusal has to say about why.
+		names string
+	}{
+		"renamed": {
+			change: func(t *testing.T, h *gatedHost) { h.write(t, "drift-renamed", "renamed") },
+			names:  "drift-renamed",
+		},
+		"refused": {
+			change: func(t *testing.T, h *gatedHost) {
+				h.writeDocument(t, h.book, strings.Replace(
+					h.document("drift-check", "refused", ""), "tools: [Read]", "tools: [Bash]", 1))
+			},
+			names: `"Bash" is an unrestricted shell`,
+		},
+		"deleted": {
+			change: func(t *testing.T, h *gatedHost) {
+				if err := os.Remove(h.book); err != nil {
+					t.Fatal(err)
+				}
+			},
+			names: "cannot be loaded now",
+		},
+		"duplicated": {
+			change: func(t *testing.T, h *gatedHost) {
+				h.writeDocument(t, filepath.Join(h.books, "copy.yaml"), h.document("drift-check", "copy", ""))
+			},
+			names: "copy.yaml",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newGatedHost(t)
+			h.hold(t)
+			first := h.run(t)
+			h.waitForRuns(t, 1)
+			second := h.run(t)
+			second.Expect(t, "waiting up to", time.Minute)
 
-		h.write(t, "drift-renamed", "renamed")
-		h.release(t)
-		if code, err := first.Wait(2 * time.Minute); err != nil || code != 0 {
-			t.Fatalf("the first run exited %d, err %v: %s", code, err, first.Stderr())
-		}
-		second.Expect(t, string(record.MechanismPlaybookChanged), 2*time.Minute)
-		if code, err := second.Wait(time.Minute); err != nil || code == 0 {
-			t.Fatalf("the invocation whose playbook was renamed exited %d, err %v", code, err)
-		}
+			change.change(t, h)
+			h.release(t)
+			if code, err := first.Wait(2 * time.Minute); err != nil || code != 0 {
+				t.Fatalf("the first run exited %d, err %v: %s", code, err, first.Stderr())
+			}
+			second.Expect(t, string(record.MechanismPlaybookChanged), 2*time.Minute)
+			if code, err := second.Wait(time.Minute); err != nil || code == 0 {
+				t.Fatalf("the invocation whose playbook changed exited %d, err %v", code, err)
+			}
 
-		refused := h.refusals(t)
-		if !strings.Contains(refused, string(record.MechanismPlaybookChanged)) ||
-			!strings.Contains(refused, "drift-renamed") {
-			t.Fatalf("no playbook_changed refusal naming what the file now declares:\n%s", refused)
-		}
-		if ran := h.ran(t); ran != 1 {
-			t.Fatalf("%d runs, want only the first: the waiting trigger followed the rename", ran)
-		}
-	})
+			refused := h.refusals(t)
+			if !strings.Contains(refused, string(record.MechanismPlaybookChanged)) ||
+				!strings.Contains(refused, change.names) {
+				t.Fatalf("no playbook_changed refusal saying %q:\n%s", change.names, refused)
+			}
+			if ran := h.ran(t); ran != 1 {
+				t.Fatalf("%d runs, want only the first: the waiting trigger ran its changed playbook", ran)
+			}
+		})
+	}
 }

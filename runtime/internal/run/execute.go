@@ -124,10 +124,6 @@ func (e *Executor) Execute(
 		_ = claimed.Claim.Release(ctx)
 		return record.Run{}, err
 	}
-	if err := e.guard().Started(ctx, admitted, started.ID); err != nil {
-		e.log().Error("the end of the wait this run started from could not be recorded",
-			"run", started.ID, "waiting_trigger", admitted.WaitingTriggerID, "err", err)
-	}
 
 	outcome := record.Run{Status: record.StatusFailed}
 	incomplete := &problems{}

@@ -112,9 +112,11 @@ func Load(dir string, dep Deployment) (Loaded, error) {
 	return loaded, nil
 }
 
-// LoadFile reads one playbook through the same two layers Load puts each file through,
-// and returns the refusal when either refuses it. It is how a trigger that waited reads
-// its playbook again (FR-121); a name another file also declares is Load's to notice.
+// LoadFile reads one playbook through the same layers Load puts each file through, and
+// returns the refusal when any refuses it. It is how a trigger that waited reads its
+// playbook again (FR-121). Another file in the directory declaring the same name refuses it
+// whichever sorts first: Load refuses the directory for it, so accepting the one file here
+// would run what a start would refuse (FR-042).
 func LoadFile(path string, dep Deployment) (*Playbook, error) {
 	book, err := ParseFile(path)
 	if err != nil {
@@ -122,6 +124,25 @@ func LoadFile(path string, dep Deployment) (*Playbook, error) {
 	}
 	if problems := Validate(book, dep); len(problems) > 0 {
 		return nil, Refusal{Path: path, Problems: problems}
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		return nil, Refusal{Path: path, Reason: fmt.Errorf("reading the playbook directory: %w", err)}
+	}
+	for _, entry := range entries {
+		sibling := filepath.Join(filepath.Dir(path), entry.Name())
+		if ext := filepath.Ext(entry.Name()); entry.IsDir() || (ext != ".yaml" && ext != ".yml") ||
+			filepath.Clean(sibling) == filepath.Clean(path) {
+			continue
+		}
+		other, err := ParseFile(sibling)
+		if err != nil {
+			continue
+		}
+		if other.Name == book.Name {
+			return nil, Refusal{Path: path, Reason: fmt.Errorf(
+				"name: %q is also declared by %s", book.Name, entry.Name())}
+		}
 	}
 	return book, nil
 }

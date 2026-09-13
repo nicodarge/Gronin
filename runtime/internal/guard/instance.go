@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
@@ -73,10 +72,22 @@ func instancePath(stateDir, id string) string {
 	return filepath.Join(stateDir, InstancesDir, id+".lock")
 }
 
+// probed is called while alive holds a dead instance's lock; nil outside the test that acts
+// at that instant.
+var probed func(id string)
+
 // alive reports whether the process that accepted a waiting trigger still holds its
-// instance lock. A lock file that is there and cannot be examined reads as alive: dropping
-// a trigger that is still waiting loses it, while a row left waiting is looked at again by
-// the next reconciliation.
+// instance lock.
+//
+// Unlike the file lock's poll, this looks by taking the lock, and that cannot make a real
+// contender fail: the only process that ever asks for an instance's lock is the one that
+// takes it at start, before any row names that instance, and no identifier is used twice.
+// Another reconciliation looking at the same instance at the same instant reads it as alive
+// and leaves the row to this one.
+//
+// A lock file that is there and cannot be examined reads as alive: dropping a trigger that
+// is still waiting loses it, while a row left waiting is looked at again by the next
+// reconciliation.
 func alive(stateDir, id string) bool {
 	if !instancePattern.MatchString(id) {
 		return false
@@ -92,13 +103,20 @@ func alive(stateDir, id string) bool {
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return true
 	}
+	if probed != nil {
+		probed(id)
+	}
+	// Proven dead while the lock is held, and nothing takes an instance twice: a killed
+	// process's lock file would otherwise stay for good.
+	_ = os.Remove(instancePath(stateDir, id))
 	return false
 }
 
 // Reconcile marks dropped every waiting trigger whose process is gone, and writes the
 // refusal that says so (FR-113). It is what makes a drop readable after a kill: `serve` runs
 // it at startup, `gronin refusals` before it reads, and a trigger about to wait before it
-// takes the slot, which a dead process's row would otherwise hold for ever.
+// takes the slot, which a dead process's row would otherwise hold for ever. A row a run
+// already names ran, and is recorded as such rather than as refused (FR-117).
 func Reconcile(ctx context.Context, stateDir string, store Store, clock Clock) (int, error) {
 	if clock == nil {
 		clock = SystemClock()
@@ -109,6 +127,14 @@ func Reconcile(ctx context.Context, stateDir string, store Store, clock Clock) (
 	}
 	dropped := 0
 	for _, trigger := range waiting {
+		if trigger.RunID != "" {
+			if _, err := store.EndWait(ctx, trigger.ID, record.WaitEnd{
+				Outcome: record.WaitRan, At: clock.Wall(), RunID: trigger.RunID,
+			}); err != nil {
+				return dropped, err
+			}
+			continue
+		}
 		if alive(stateDir, trigger.Instance) {
 			continue
 		}
@@ -118,8 +144,8 @@ func Reconcile(ctx context.Context, stateDir string, store Store, clock Clock) (
 			Refusal: &record.Refusal{
 				PlaybookName: trigger.PlaybookName, TriggerKind: trigger.TriggerKind,
 				WaitingTriggerID: trigger.ID, Mechanism: record.MechanismDropped,
-				Detail: fmt.Sprintf("trigger %s accepted at %s; process %s ended before it ran",
-					trigger.ID, trigger.AcceptedAt.UTC().Format(time.RFC3339), trigger.Instance),
+				Detail: fmt.Sprintf("accepted at %s; process %s ended before it ran",
+					trigger.AcceptedAt.UTC().Format(TimeOfDay), trigger.Instance),
 				RefusedAt: at,
 			},
 		})

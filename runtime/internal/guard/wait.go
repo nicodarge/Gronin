@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/playbook"
@@ -26,9 +27,11 @@ type WaitSlot struct {
 // Waiting is what a trigger is told as it begins to wait (contracts/cli.md).
 type Waiting struct {
 	TriggerID string
-	// Held is what holds the claim it waits for.
-	Held string
-	UpTo time.Duration
+	// Holder is who holds the claim it waits for, when the coordinator named one; Held is
+	// the refusal it met, for when it did not.
+	Holder *Holder
+	Held   string
+	UpTo   time.Duration
 }
 
 // waits reports whether a refused trigger waits instead: one that will not come again,
@@ -93,7 +96,7 @@ func (g *Guard) accept(ctx context.Context, w *waitingTrigger) error {
 		detail := "a trigger is already waiting"
 		if !row.AcceptedAt.IsZero() {
 			detail = fmt.Sprintf("a trigger accepted at %s is already waiting",
-				row.AcceptedAt.UTC().Format(time.RFC3339))
+				row.AcceptedAt.UTC().Format(TimeOfDay))
 		}
 		return g.recordRefusal(ctx, record.Refusal{
 			PlaybookName: w.book.Name, TriggerKind: w.req.Kind,
@@ -110,7 +113,12 @@ func (g *Guard) accept(ctx context.Context, w *waitingTrigger) error {
 // await waits until the trigger runs or its wait ends, and records how it ended.
 func (g *Guard) await(ctx context.Context, w *waitingTrigger, held error) (*Admitted, error) {
 	if w.req.OnWait != nil {
-		w.req.OnWait(Waiting{TriggerID: w.row.ID, Held: held.Error(), UpTo: w.expiry})
+		waiting := Waiting{TriggerID: w.row.ID, Held: held.Error(), UpTo: w.expiry}
+		var named *HeldError
+		if errors.As(held, &named) {
+			waiting.Holder = &named.Holder
+		}
+		w.req.OnWait(waiting)
 	}
 	for {
 		admitted, err := g.try(ctx, w)
@@ -129,13 +137,14 @@ func (g *Guard) await(ctx context.Context, w *waitingTrigger, held error) (*Admi
 	}
 }
 
-// try is one round of the wait: until the claim frees or the wait expires, then the file
-// read again and the claim asked for again.
+// try is one round of the wait: until the claim may have freed or the wait expires, then
+// the claim asked for again, and once held the file read again.
 func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 	left := g.remaining(w)
 	if left <= 0 {
 		return nil, &waitEnded{record.MechanismWaitExpired,
-			fmt.Sprintf("waited the %s %s allows, and its claim was still held", w.expiry, w.book.Name)}
+			fmt.Sprintf("waited the %s %s allows, and its claim was still held",
+				HumanDuration(w.expiry), w.book.Name)}
 	}
 	watch, cancel := bound(ctx, g.clock(), left)
 	err := g.Coordinator.Released(watch, w.book.Name)
@@ -150,10 +159,45 @@ func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 		return nil, err
 	}
 
+	req := w.req
+	if g.Slot.RunID != nil {
+		if req.RunID, err = g.Slot.RunID(); err != nil {
+			return nil, err
+		}
+	}
+	// The claim is asked for under the name the trigger collided with, and asking is the only
+	// check: a coordinator that cannot see a free claim without taking it returns from
+	// Released early, and the attempt is what tells.
+	decide, cancelDecide := bound(ctx, g.clock(), g.Config.DecisionBound)
+	defer cancelDecide()
+	sent := g.clock().Monotonic()
+	claim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))
+	if errors.Is(err, ErrHeld) {
+		return nil, errStillHeld
+	}
+	if err != nil {
+		return nil, err
+	}
+	waited := g.clock().Monotonic().Sub(w.accepted)
+
+	edited, err := g.reload(w)
+	if err != nil {
+		g.giveBack(ctx, claim)
+		return nil, err
+	}
+	return &Admitted{
+		Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,
+		WaitingTriggerID: w.row.ID, Waited: waited, sent: sent,
+	}, nil
+}
+
+// reload reads the trigger's playbook again, through the load gate, from the file it was
+// accepted from (FR-121).
+func (g *Guard) reload(w *waitingTrigger) (*playbook.Playbook, error) {
 	edited, err := g.Slot.Reload(w.book.Path)
 	if err != nil {
 		return nil, &waitEnded{record.MechanismPlaybookChanged,
-			fmt.Sprintf("%s cannot be loaded now: %v", w.book.Path, err)}
+			fmt.Sprintf("%s cannot be loaded now: %s", w.book.Path, oneLine(err))}
 	}
 	// The name is the claim's identity. A trigger that followed a rename would run under a
 	// claim and a window it never collided with (research.md §4).
@@ -161,27 +205,30 @@ func (g *Guard) try(ctx context.Context, w *waitingTrigger) (*Admitted, error) {
 		return nil, &waitEnded{record.MechanismPlaybookChanged,
 			fmt.Sprintf("%s now declares %q, not %q", w.book.Path, edited.Name, w.book.Name)}
 	}
+	return edited, nil
+}
 
-	req := w.req
-	if g.Slot.RunID != nil {
-		if req.RunID, err = g.Slot.RunID(); err != nil {
-			return nil, err
+// giveBack releases a claim taken for a trigger that will not run after all, so that the
+// playbook is not blocked until the claim expires.
+func (g *Guard) giveBack(ctx context.Context, claim Claim) {
+	release, cancel := bound(ctx, g.clock(), g.Config.DecisionBound)
+	defer cancel()
+	if err := claim.Release(release); err != nil {
+		g.log().Warn("a claim taken for a trigger that did not run could not be released",
+			"err", err)
+	}
+}
+
+// oneLine is a refusal written on one line of `gronin refusals`: the gate reports one
+// problem per line, indented under the file.
+func oneLine(err error) string {
+	var lines []string
+	for _, line := range strings.Split(err.Error(), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
 		}
 	}
-	decide, cancelDecide := bound(ctx, g.clock(), g.Config.DecisionBound)
-	defer cancelDecide()
-	sent := g.clock().Monotonic()
-	claim, err := g.Coordinator.Acquire(decide, g.ask(edited.Name, req))
-	if errors.Is(err, ErrHeld) {
-		return nil, errStillHeld
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &Admitted{
-		Claim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,
-		WaitingTriggerID: w.row.ID, Waited: g.clock().Monotonic().Sub(w.accepted), sent: sent,
-	}, nil
+	return strings.Join(lines, "; ")
 }
 
 // remaining is how much longer the trigger may wait, on the monotonic reading: a wall
@@ -207,16 +254,4 @@ func (g *Guard) endWait(ctx context.Context, w *waitingTrigger, err error) error
 			"playbook", w.book.Name, "waiting_trigger", w.row.ID, "err", writeErr)
 	}
 	return &Refused{Mechanism: refusal.Mechanism, Detail: refusal.Detail}
-}
-
-// Started ends the wait of a trigger that became the run runID. It writes no refusal: the
-// trigger was deferred, not refused (FR-117). A run that did not wait has nothing to end.
-func (g *Guard) Started(ctx context.Context, admitted *Admitted, runID string) error {
-	if admitted == nil || admitted.WaitingTriggerID == "" {
-		return nil
-	}
-	_, err := g.Store.EndWait(ctx, admitted.WaitingTriggerID, record.WaitEnd{
-		Outcome: record.WaitRan, At: g.clock().Wall(), RunID: runID,
-	})
-	return err
 }

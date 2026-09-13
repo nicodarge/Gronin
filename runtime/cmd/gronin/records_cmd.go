@@ -264,7 +264,7 @@ func duration(one record.Run) string {
 // waitedFor is how long a run waited for the one it collided with, as the waiting process
 // measured it.
 func waitedFor(one record.Run) string {
-	return (time.Duration(one.WaitedMS) * time.Millisecond).String()
+	return guard.HumanDuration(time.Duration(one.WaitedMS) * time.Millisecond)
 }
 
 func cost(one record.Run) string {
