@@ -26,6 +26,10 @@ type Refusal struct {
 	Detail string
 	// RefusedAt is the host clock's wall reading.
 	RefusedAt time.Time
+
+	// DeliveryID is set for every refusal of a webhook trigger (FR-328), so the delivery
+	// that a drop or a decision names is readable from the refusal alone.
+	DeliveryID string
 }
 
 // sortableTime is fixed-width so that the text sorts as the instant does. RFC3339Nano
@@ -62,11 +66,12 @@ func (s *Store) insertRefusal(ctx context.Context, db execer, refusal Refusal) e
 	}
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO refusals (id, playbook_name, trigger_kind, due_at, waiting_trigger_id,
-		                      mechanism, detail, refused_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		                      mechanism, detail, refused_at, delivery_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		refusal.ID, s.redactor.Redact(refusal.PlaybookName), string(refusal.TriggerKind), due,
 		nullable(refusal.WaitingTriggerID), string(refusal.Mechanism),
-		s.redactor.Redact(refusal.Detail), refusal.RefusedAt.UTC().Format(sortableTime))
+		s.redactor.Redact(refusal.Detail), refusal.RefusedAt.UTC().Format(sortableTime),
+		nullable(refusal.DeliveryID))
 	if err != nil {
 		return fmt.Errorf("recording refusal %s: %w", refusal.ID, err)
 	}
@@ -80,7 +85,7 @@ func (s *Store) ListRefusals(ctx context.Context, limit int) ([]Refusal, error) 
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, playbook_name, trigger_kind, due_at, waiting_trigger_id, mechanism, detail,
-		       refused_at
+		       refused_at, delivery_id
 		  FROM refusals ORDER BY refused_at DESC, rowid DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -93,15 +98,17 @@ func (s *Store) ListRefusals(ctx context.Context, limit int) ([]Refusal, error) 
 			refusal                  Refusal
 			kind, mechanism, refused string
 			due, waitingTrigger      sql.NullString
+			delivery                 sql.NullString
 		)
 		if err := rows.Scan(&refusal.ID, &refusal.PlaybookName, &kind, &due, &waitingTrigger,
-			&mechanism, &refusal.Detail, &refused); err != nil {
+			&mechanism, &refusal.Detail, &refused, &delivery); err != nil {
 			return nil, err
 		}
 		refusal.TriggerKind, refusal.Mechanism = TriggerKind(kind), Mechanism(mechanism)
 		refusal.DueAt = parseTime(due)
 		refusal.WaitingTriggerID = waitingTrigger.String
 		refusal.RefusedAt = parseTime(sql.NullString{String: refused, Valid: true})
+		refusal.DeliveryID = delivery.String
 		refusals = append(refusals, refusal)
 	}
 	return refusals, rows.Err()

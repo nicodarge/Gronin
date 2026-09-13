@@ -19,6 +19,7 @@ import (
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 	"github.com/nicodarge/Gronin/runtime/internal/run"
 	"github.com/nicodarge/Gronin/runtime/internal/sink"
+	"github.com/nicodarge/Gronin/runtime/internal/sources"
 	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
@@ -57,6 +58,7 @@ func (d *deployment) close() {
 // through (FR-121).
 func (d *deployment) acceptWaiting(
 	cfg *config.Config, catalog *mcpcatalog.Catalog, declared *collections.Catalog,
+	srcs *sources.Catalog,
 ) error {
 	held, err := guard.HoldInstance(d.stateDir, d.executor.Guard.Instance)
 	if err != nil {
@@ -66,7 +68,7 @@ func (d *deployment) acceptWaiting(
 	d.executor.Guard.Slot = &guard.WaitSlot{
 		Instance: held,
 		Reload: func(path string) (*playbook.Playbook, error) {
-			return playbook.LoadFile(path, capabilities(cfg, catalog, declared))
+			return playbook.LoadFile(path, capabilities(cfg, catalog, declared, srcs))
 		},
 		RunID: run.NewRunID,
 	}
@@ -173,6 +175,7 @@ func inheritedEnv(names []string) []string {
 // full agent run has been paid for.
 func capabilities(
 	cfg *config.Config, catalog *mcpcatalog.Catalog, declared *collections.Catalog,
+	srcs *sources.Catalog,
 ) playbook.Deployment {
 	var keys []string
 	if cfg != nil {
@@ -185,6 +188,10 @@ func capabilities(
 	var declaredCollections []string
 	if declared != nil {
 		declaredCollections = declared.Names()
+	}
+	var configuredSources []string
+	if srcs != nil {
+		configuredSources = srcs.Names()
 	}
 	return playbook.Deployment{
 		// What the deployment can resolve. spec.md asks for a reference that resolves to
@@ -199,6 +206,9 @@ func capabilities(
 		Collections:   declaredCollections,
 		SinkTypes:     sink.Types(),
 		CreatingSinks: sink.CreatingTypes(),
+		// The sources this deployment configures. A webhook trigger naming anything else
+		// is refused at load (FR-310), once validateWebhook (T025) reads this.
+		Sources: configuredSources,
 	}
 }
 
@@ -215,10 +225,10 @@ func playbooksDir(cmd *cobra.Command) string {
 // the failure the design exists to prevent, so the output says nothing was armed.
 func loadPlaybooks(
 	cmd *cobra.Command, cfg *config.Config, catalog *mcpcatalog.Catalog,
-	declared *collections.Catalog,
+	declared *collections.Catalog, srcs *sources.Catalog,
 ) (playbook.Loaded, error) {
 	dir := playbooksDir(cmd)
-	loaded, err := playbook.Load(dir, capabilities(cfg, catalog, declared))
+	loaded, err := playbook.Load(dir, capabilities(cfg, catalog, declared, srcs))
 	if err != nil {
 		return loaded, err
 	}
@@ -265,6 +275,13 @@ func openConfig(cmd *cobra.Command) (*config.Config, error) {
 // reads config.json.
 func openCatalog(cmd *cobra.Command) (*mcpcatalog.Catalog, error) {
 	return mcpcatalog.Load(stateDirOf(cmd))
+}
+
+// openSources reads the source catalogue once per invocation, beside the MCP one. It
+// takes the configuration already read rather than reading it again, the way
+// openResolvableCatalog does: a source's secret reference is checked against it at load.
+func openSources(cmd *cobra.Command, cfg *config.Config) (*sources.Catalog, error) {
+	return sources.Load(stateDirOf(cmd), cfg)
 }
 
 // indexDir is where every collection's index lives: in the state directory, as derived

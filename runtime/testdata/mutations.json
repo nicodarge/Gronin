@@ -3912,6 +3912,118 @@
         "-run",
         "TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughReadStored|TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughSearch"
       ]
+    },
+    {
+      "name": "a literal source secret is accepted",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "case match == nil:\n\t\trefuse(\"secret\", fmt.Sprintf(\"%q is not a single ${config.x} reference\", e.Secret),\n\t\t\t\"${config.x} naming a value marked secret, never a literal\")\n",
+      "replace": "case match == nil:\n\t\t_ = match\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sources",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a source secret may name a value not marked secret",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "case !value.Secret:\n\t\t\trefuse(\"secret\", fmt.Sprintf(\"names %q, which is not marked secret\", key),\n\t\t\t\t\"a value set with `gronin config set --secret`, so `gronin config list` never prints it\")\n",
+      "replace": "case !value.Secret:\n\t\t\t_ = key\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sources",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "sources.json accepts an unknown key",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "decoder.DisallowUnknownFields()\n",
+      "replace": "// decoder.DisallowUnknownFields()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sources",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "a replay window of zero is accepted",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "case window <= 0:\n\t\t\trefuse(\"replay_window\", fmt.Sprintf(\"%q is not positive\", e.ReplayWindow),\n\t\t\t\t\"a duration above zero; a window of nothing repeats detection cannot use\")\n",
+      "replace": "case window <= 0:\n\t\t\t_ = window\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sources",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the source summary resolves the secret",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "return fmt.Sprintf(\"header %s   identity %s   window %s\",\n\t\tsource.SignatureHeader, identity, source.ReplayWindow)",
+      "replace": "secret, _ := c.Secret(sourceName)\n\treturn fmt.Sprintf(\"header %s   identity %s   window %s   secret %s\",\n\t\tsource.SignatureHeader, identity, source.ReplayWindow, secret)",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestSourcesAreListedWithoutTheirSecret"
+      ]
+    },
+    {
+      "name": "an unauthenticated refusal inserts a row per request",
+      "tree": "..",
+      "file": "internal/record/delivery_refusals.go",
+      "find": "\t\tON CONFLICT(interval_start, reason, source_bucket)\n\t\tDO UPDATE SET count = count + 1, last_peer = excluded.last_peer, last_at = excluded.last_at`,",
+      "replace": "`,",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestWebhookRecord"
+      ]
+    },
+    {
+      "name": "the trigger schema lets a cron trigger carry a source",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "\"anyOf\": [\n                {\n                  \"required\": [\n                    \"source\"\n                  ]\n                },\n                {\n                  \"required\": [\n                    \"values\"\n                  ]\n                }\n              ]",
+      "replace": "\"anyOf\": [\n                {\n                  \"required\": [\n                    \"values\"\n                  ]\n                }\n              ]",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheSchemaAcceptsAndRefusesTheProbeCorpus"
+      ]
+    },
+    {
+      "name": "the gate lets a webhook trigger through before its rules exist",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" {\n\t\treturn nil\n\t}",
+      "replace": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" || true {\n\t\treturn nil\n\t}",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestAWebhookTriggerIsHeld"
+      ]
     }
   ]
 }

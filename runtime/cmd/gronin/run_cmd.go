@@ -32,7 +32,11 @@ func newRunCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			loaded, err := loadPlaybooks(cmd, cfg, catalog, declared)
+			srcs, err := openSources(cmd, cfg)
+			if err != nil {
+				return err
+			}
+			loaded, err := loadPlaybooks(cmd, cfg, catalog, declared, srcs)
 			if err != nil {
 				return err
 			}
@@ -46,7 +50,7 @@ func newRunCommand() *cobra.Command {
 				return err
 			}
 			defer deployment.close()
-			if err := deployment.acceptWaiting(cfg, catalog, declared); err != nil {
+			if err := deployment.acceptWaiting(cfg, catalog, declared, srcs); err != nil {
 				return err
 			}
 			deployment.retrieving(declared)
