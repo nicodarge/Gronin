@@ -606,7 +606,18 @@ happens, and the extra invocation is recorded as refused.
       trigger that waited and ran is also recorded as refused` moves to `internal/record/runs.go`, where
       the run and the end of its wait are now one transaction, and `every system clock reads from an
       origin of its own` is declared against the binary as well, with
-      `TestAWaitingTriggerRunsTheEditedPlaybook/edited` and `TestAWaitExpiresOnTheSystemClock`
+      `TestAWaitingTriggerRunsTheEditedPlaybook/edited` and `TestAWaitExpiresOnTheSystemClock`.
+      *After the second review*: the second declaration of `the guard decides after the gather stage`
+      against `TestAKilledWaitIsDropped` is withdrawn — its early gather blocks the first invocation, so
+      the test failed before reaching T065's FR-102 line — and replaced by `a trigger the guard refuses
+      runs its gather step` (`internal/run/execute.go`, `TestAKilledWaitIsDropped/killed`), which fails
+      on that line. Added: `a waiting trigger takes the claim before it reads its file`
+      (`internal/guard/wait.go`, `TestATickDuringTheRereadIsNotRefusedByTheWaiter`); `a duration is not
+      rounded to the second` (`internal/guard/duration.go`, `TestHumanDuration`); `etcd's released
+      returns while the claim is held` (`internal/guard/etcd/etcd.go`, `TestEtcdContract/C10`, the
+      half of C10 a watching backend owes). `a file read alone accepts a name another file declares`
+      becomes `a file read alone accepts what its directory refuses`, and `a trigger that waited and ran
+      is also recorded as refused` follows CreateRun's reworded error
 
 **Checkpoint**: a manual invocation that collides is deferred rather than lost, one deep, and every
 way a wait ends — ran, expired, changed, unreachable, dropped — is readable.
