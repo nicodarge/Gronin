@@ -3860,6 +3860,58 @@
         "-run",
         "TestACommitThatExhaustsItsWaitFailsWithoutRedoingTheTransaction"
       ]
+    },
+    {
+      "name": "cmd/gronin's TestMain stops cleaning up the fakeagent build directory",
+      "tree": "..",
+      "file": "cmd/gronin/binary_test.go",
+      "find": "\tbintest.Main(m, fakeagent.Cleanup)\n",
+      "replace": "\tbintest.Main(m)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cleanup guard resolves a call by its raw identifier again, not its import path",
+      "tree": "..",
+      "file": "internal/testcleanup/cleanup_guard_test.go",
+      "find": "\t\tif resolvedImport(names, pkgIdent) == importPath && funcNames[sel.Sel.Name] {\n",
+      "replace": "\t\tif pkgIdent.Name == path.Base(importPath) && funcNames[sel.Sel.Name] {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cleanup guard follows a local helper call across package boundaries again",
+      "tree": "..",
+      "file": "internal/testcleanup/cleanup_guard_test.go",
+      "find": "\tfor _, candidate := range pkg.funcs[name] {\n\t\tif pkg.pkgOf[candidate] == callerPkg {\n\t\t\treturn candidate\n\t\t}\n\t}\n\treturn nil\n",
+      "replace": "\tvar found *ast.FuncDecl\n\tfor _, candidate := range pkg.funcs[name] {\n\t\tfound = candidate\n\t}\n\treturn found\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
+    },
+    {
+      "name": "the cleanup guard stops checking whether an identifier is a local declaration",
+      "tree": "..",
+      "file": "internal/testcleanup/cleanup_guard_test.go",
+      "find": "\tif ident.Obj != nil {\n\t\treturn \"\"\n\t}\n\treturn names[ident.Name]\n",
+      "replace": "\treturn names[ident.Name]\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/testcleanup",
+        "-count=1"
+      ]
     }
   ]
 }
