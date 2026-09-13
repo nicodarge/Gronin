@@ -589,6 +589,24 @@ happens, and the extra invocation is recorded as refused.
       trigger that meets an unavailable backend keeps waiting`, in `internal/guard/wait.go`, command
       `go test ./internal/guard -count=1 -run TestAWaitMeetsAnUnavailableBackend`; and T063's
       `gronin refusals drops the mechanism`, confirmed still killed now that T073 has widened its table
+      *After review*: T065's FR-102 clause is asserted where a gather step exists, in
+      `TestAKilledWaitIsDropped`, whose third invocation is refused `waiting_slot_full` and leaves the
+      trace where it was; `the guard decides after the gather stage` is declared a second time against
+      it. `a second waiting row is accepted beside a live one` is renamed `a full slot is reported as an
+      error, not a refusal`, which is what it shows (data-model.md, *The slot's two layers*). Added:
+      `the file lock's waiter takes the lock to look` (`internal/run/filelock.go`,
+      `TestTheWaitersPollCannotRefuseATick`); `a waiting trigger's playbook is read again without the
+      load gate` (`cmd/gronin/deployment.go`, `TestAWaitingTriggerRunsTheEditedPlaybook/refused`); `a
+      file read alone accepts a name another file declares` (`internal/playbook/load.go`,
+      `TestLoadFileRefusesANameAnotherFileDeclares`); `a changed playbook keeps the claim the wait took`
+      (`internal/guard/wait.go`, `TestAChangedPlaybookGivesTheClaimBack`); `a run that starts from a
+      waiting trigger leaves its wait open` (`internal/record/runs.go`,
+      `TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep`); `a waiting trigger that ran is read as
+      dropped` (`internal/guard/instance.go`, `TestReconcileDoesNotDropATriggerThatRan`). T084's `a
+      trigger that waited and ran is also recorded as refused` moves to `internal/record/runs.go`, where
+      the run and the end of its wait are now one transaction, and `every system clock reads from an
+      origin of its own` is declared against the binary as well, with
+      `TestAWaitingTriggerRunsTheEditedPlaybook/edited` and `TestAWaitExpiresOnTheSystemClock`
 
 **Checkpoint**: a manual invocation that collides is deferred rather than lost, one deep, and every
 way a wait ends — ran, expired, changed, unreachable, dropped — is readable.

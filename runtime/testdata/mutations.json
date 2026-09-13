@@ -1637,8 +1637,8 @@
       "name": "the file lock's released returns only at its deadline",
       "tree": "..",
       "file": "internal/run/filelock.go",
-      "find": "\t\tif l.free(name) {\n\t\t\treturn nil\n\t\t}",
-      "replace": "\t\tif l.free(name) && false {\n\t\t\treturn nil\n\t\t}",
+      "find": "\tcase <-time.After(releasedPoll):\n\t\treturn nil\n",
+      "replace": "\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n",
       "command": [
         "go",
         "test",
@@ -1833,7 +1833,7 @@
       "tree": "..",
       "file": "internal/run/execute.go",
       "find": "\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
-      "replace": "\tearly, _ := os.MkdirTemp(\"\", \"early-gather-\")\n\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: early}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
+      "replace": "\tearly, _ := os.MkdirTemp(\"\", \"early-gather-\")\n\tdefer func() { _ = os.RemoveAll(early) }()\n\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: early}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
       "command": [
         "go",
         "test",
@@ -2392,7 +2392,7 @@
       ]
     },
     {
-      "name": "a second waiting row is accepted beside a live one",
+      "name": "a full slot is reported as an error, not a refusal",
       "tree": "..",
       "file": "internal/record/waiting.go",
       "find": "\t\t                    WHERE playbook_name = ? AND outcome = 'waiting')`,\n",
@@ -2455,8 +2455,8 @@
       "name": "a waiting trigger runs the playbook as it stood on arrival",
       "tree": "..",
       "file": "internal/guard/wait.go",
-      "find": "\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,\n",
-      "replace": "\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: w.book,\n",
+      "find": "\treturn &Admitted{\n\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: edited,\n",
+      "replace": "\t_ = edited\n\treturn &Admitted{\n\t\tClaim: claim, Reach: g.Coordinator.Reach(), RunID: req.RunID, Book: w.book,\n",
       "command": [
         "go",
         "test",
@@ -2529,9 +2529,9 @@
     {
       "name": "a trigger that waited and ran is also recorded as refused",
       "tree": "..",
-      "file": "internal/guard/wait.go",
-      "find": "\t\tOutcome: record.WaitRan, At: g.clock().Wall(), RunID: runID,\n",
-      "replace": "\t\tOutcome: record.WaitRan, At: g.clock().Wall(), RunID: runID,\n\t\tRefusal: &record.Refusal{\n\t\t\tPlaybookName: admitted.Book.Name, TriggerKind: record.TriggerManual,\n\t\t\tWaitingTriggerID: admitted.WaitingTriggerID, Mechanism: record.MechanismClaimHeld,\n\t\t\tDetail: \"waited\", RefusedAt: g.clock().Wall(),\n\t\t},\n",
+      "file": "internal/record/runs.go",
+      "find": "\t\t\treturn fmt.Errorf(\"run %s: waiting trigger %s has already ended\", run.ID, run.WaitingTriggerID)\n\t\t}\n",
+      "replace": "\t\t\treturn fmt.Errorf(\"run %s: waiting trigger %s has already ended\", run.ID, run.WaitingTriggerID)\n\t\t}\n\t\tif err := s.insertRefusal(ctx, tx, Refusal{\n\t\t\tPlaybookName: run.PlaybookName, TriggerKind: run.TriggerKind,\n\t\t\tWaitingTriggerID: run.WaitingTriggerID, Mechanism: MechanismClaimHeld,\n\t\t\tDetail: \"waited\", RefusedAt: run.StartedAt,\n\t\t}); err != nil {\n\t\t\treturn err\n\t\t}\n",
       "command": [
         "go",
         "test",
@@ -2629,6 +2629,141 @@
         "-count=1",
         "-run",
         "TestSystemClocksReadOnOneAxis"
+      ]
+    },
+    {
+      "name": "the file lock's waiter takes the lock to look",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tif l.poll != nil {\n\t\tl.poll(name)\n\t}\n",
+      "replace": "\tif file, err := l.manager.acquireLock(name); err == nil {\n\t\tif l.poll != nil {\n\t\t\tl.poll(name)\n\t\t}\n\t\tl.manager.releaseLock(file)\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestTheWaitersPollCannotRefuseATick"
+      ]
+    },
+    {
+      "name": "a waiting trigger's playbook is read again without the load gate",
+      "tree": "..",
+      "file": "cmd/gronin/deployment.go",
+      "find": "\t\t\treturn playbook.LoadFile(path, capabilities(cfg, catalog, declared))\n",
+      "replace": "\t\t\treturn playbook.ParseFile(path)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook/refused"
+      ]
+    },
+    {
+      "name": "a file read alone accepts a name another file declares",
+      "tree": "..",
+      "file": "internal/playbook/load.go",
+      "find": "\t\tif other.Name == book.Name {\n",
+      "replace": "\t\tif other.Name == book.Name && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestLoadFileRefusesANameAnotherFileDeclares"
+      ]
+    },
+    {
+      "name": "a changed playbook keeps the claim the wait took",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\t\tg.giveBack(ctx, claim)\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestAChangedPlaybookGivesTheClaimBack"
+      ]
+    },
+    {
+      "name": "a run that starts from a waiting trigger leaves its wait open",
+      "tree": "..",
+      "file": "internal/record/runs.go",
+      "find": "\tif run.WaitingTriggerID != \"\" {\n",
+      "replace": "\tif run.WaitingTriggerID != \"\" && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestARunFromAWaitingTriggerEndsItsWaitInTheSameStep"
+      ]
+    },
+    {
+      "name": "a waiting trigger that ran is read as dropped",
+      "tree": "..",
+      "file": "internal/guard/instance.go",
+      "find": "\t\tif trigger.RunID != \"\" {\n",
+      "replace": "\t\tif trigger.RunID != \"\" && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestReconcileDoesNotDropATriggerThatRan"
+      ]
+    },
+    {
+      "name": "every system clock reads from an origin of its own",
+      "tree": "..",
+      "file": "internal/guard/clock.go",
+      "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
+      "replace": "func SystemClock() Clock { return systemClock{origin: time.Now()} }\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitingTriggerRunsTheEditedPlaybook/edited"
+      ]
+    },
+    {
+      "name": "every system clock reads from an origin of its own",
+      "tree": "..",
+      "file": "internal/guard/clock.go",
+      "find": "func SystemClock() Clock { return systemClock{origin: systemOrigin} }\n",
+      "replace": "func SystemClock() Clock { return systemClock{origin: time.Now()} }\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAWaitExpiresOnTheSystemClock"
+      ]
+    },
+    {
+      "name": "the guard decides after the gather stage",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
+      "replace": "\tearly, _ := os.MkdirTemp(\"\", \"early-gather-\")\n\tdefer func() { _ = os.RemoveAll(early) }()\n\t_ = e.gather(ctx, &Run{ID: \"early\", WorkDir: early}, book, &problems{}, trigger.Values)\n\tadmitted, err := e.admitTrigger(ctx, book, trigger)\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAKilledWaitIsDropped"
       ]
     }
   ]
