@@ -105,7 +105,7 @@ func TestAListingNamesEverySkippedFile(t *testing.T) {
 		"mode        lexical",
 		"source      directory " + directory,
 		"generation  not indexed yet",
-		"changed     yes — 2 added, 0 changed, 0 removed",
+		"changed     not indexed yet",
 		"",
 		"document    notes.md                18 bytes  not indexed",
 		"document    sub/deeper.md           15 bytes  not indexed",

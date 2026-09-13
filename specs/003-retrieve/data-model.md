@@ -82,7 +82,12 @@ embeddings API would receive before anything is sent (FR-221, US3 scenario 5).
 
 A directory walk never follows a symbolic link (FR-213), and records it as skipped instead. A file
 is skipped, with its reason, when it is a symbolic link, when it is larger than 1 MiB, or when it is
-not text: it holds a NUL byte, or it is not valid UTF-8. Nothing else is skipped. A file that cannot
+not text: it holds a NUL byte, or it is not valid UTF-8. An entry that is none of a directory, a
+regular file and a symbolic link — a named pipe, a socket, a device — is skipped as not a regular
+file: a pipe with no writer reads as an empty document, and one with a writer holds the walk.
+Nothing else is skipped. The collection's own directory is the one path resolved before the walk,
+every component of it links included: it is the path the deployment declared, and a mount point is
+often a link. Nothing below it is followed. A file that cannot
 be read, and a directory that does not exist, refuse the retrieval and name the path (FR-228)
 rather than reading as an empty collection.
 
@@ -144,9 +149,10 @@ sees the generation before or the one after, never part of either. A seam betwee
 generation and opening the transaction is what lets a test hold one update there while another
 commits (SC-211).
 
-Whether one SQLite transaction survives a kill as the plan expects, or a generation has to be a
-whole file renamed into place, is decided by SC-211's kill rather than argued here. The listing and
-the record see the same fields either way.
+One SQLite write transaction per update survives a kill, and no generation is a file renamed into
+place: SC-211's kill decided it, and [research.md](./research.md) §12 records what it showed. The
+listing reads the index through a connection that can roll a hot journal back, which a read-only
+one cannot.
 
 ### Retrieval (in the record store)
 

@@ -9,7 +9,13 @@ import (
 // generation it will change, and inside its write transaction once the difference is
 // applied and before the generation row is written.
 func SetSeams(ix *Index, afterRead, inTransaction func()) {
-	ix.seams = seams{afterRead: afterRead, inTransaction: inTransaction}
+	ix.seams.afterRead, ix.seams.inTransaction = afterRead, inTransaction
+}
+
+// SetBusySeam installs what an operation calls each time it finds the index held by
+// another connection, before it waits and tries again.
+func SetBusySeam(ix *Index, busy func()) {
+	ix.seams.busy = busy
 }
 
 // Dump is everything an index holds, one line per row in a fixed order, so two indexes

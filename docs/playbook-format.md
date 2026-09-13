@@ -60,8 +60,8 @@ together. It is also driven through the load gate rather than only through the s
 is a different check: the schema is the shape layer, and it accepted an example carrying a sink type
 this deployment does not implement, a `label` field the GitHub sink never reads, and an
 `output_schema` no run could compile. An example is the first thing a reader copies, so what it is
-checked against is the gate that arms a playbook. The `guard` and `retrieve` blocks a later feature
-will add are absent for the same reason — see the refusal list below.
+checked against is the gate that arms a playbook. The `guard` block a later feature will add is
+absent for the same reason — see the refusal list below.
 
 ## Interpolation is namespaced by source
 
@@ -147,8 +147,8 @@ The runtime rejects a playbook at load time, before any trigger is armed, when:
 - `agent.mcp` names a server that is not configured on this deployment.
 - A sink that creates things omits its `cap`.
 - A creating sink's `label` holds a comma, resolves to nothing, or names `${trigger.…}` — see above.
-- A `guard` or `retrieve` block is present while the runtime does not yet apply it. A declared
-  bound the runtime ignores is worse than an absent one, so it is refused rather than dropped.
+- A `guard` block is present while the runtime does not yet apply it. A declared bound the
+  runtime ignores is worse than an absent one, so it is refused rather than dropped.
 - An interpolation omits its namespace. `${repo}` is refused; `${config.repo}` is not.
 - A `${config.x}` names a key this deployment does not hold. Refused at load rather than at trigger
   time, which is the difference between finding out now and finding out at six in the morning.

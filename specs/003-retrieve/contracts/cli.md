@@ -51,7 +51,16 @@ skipped     shared                symbolic link, not followed
 ```
 
 For a reports collection each document is a run identifier. For a collection not indexed yet, the
-`generation` line says so and every document is marked `not indexed`.
+`generation` line says so, the `changed` line reads `changed     not indexed yet`, and every
+document is marked `not indexed`.
+
+A skipped entry's reason is one of `symbolic link, not followed`, `larger than 1 MiB`, `not text`,
+and `not a regular file` for a named pipe, a socket or a device ([data-model.md](../data-model.md)).
+
+`list` states a collection whose source cannot be read on that collection's line, as
+`cannot be listed: <cause>` in place of its generation, and still exits zero: one collection's
+missing directory does not withhold the others. `show` names a single collection, so the same
+cause is its non-zero exit.
 
 A retrieval in a run's record:
 
@@ -60,6 +69,7 @@ $ gronin show 20260910T061214Z-a41c09e7b6f2
 ...
 retrieved runbooks.md from runbooks (lexical) generation 3f9a1c0b2e4d built 2026-09-10T06:00:00Z: found 3
   query     disk full on /var
+  cut       the result count
   result    1  -2.2713  disk-full.md#2
   result    2  -1.9320  disk-full.md#1
   result    3  -0.8841  swap.md#1

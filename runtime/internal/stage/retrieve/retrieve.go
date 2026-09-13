@@ -22,8 +22,8 @@ type Stage struct {
 	IndexDir string
 	// Config resolves a query's ${config.x} references.
 	Config *config.Config
-	// Redactor is the one the record store and the log are built with, applied to the
-	// results file before the agent reads it, so the agent and the record hold one text.
+	// Redactor is the record store's own, applied to the results file before the agent
+	// reads it, so the agent and the record hold one text.
 	Redactor *record.Redactor
 }
 
@@ -98,7 +98,10 @@ func (s *Stage) retrieve(
 	bounded, cancel := context.WithTimeout(ctx, collection.RetrievalTimeout)
 	defer cancel()
 	found, err := s.search(bounded, collection, query, declared.ResultCount()+1)
-	if err != nil {
+	switch {
+	case errors.Is(err, index.ErrNoWords):
+		return refuse(errEmptyQuery)
+	case err != nil:
 		if errors.Is(bounded.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			err = fmt.Errorf("it did not complete within %s, the collection's retrieval_timeout: %w",
 				collection.RetrievalTimeout, err)
@@ -117,8 +120,10 @@ func (s *Stage) retrieve(
 		return refuse(fmt.Errorf("writing the results into the working directory: %w", err))
 	}
 
+	// What the agent was handed decides the outcome, not what matched: a byte bound too
+	// small for any passage hands it none.
 	row.Outcome = record.RetrievalFound
-	if len(hits) == 0 {
+	if len(items) == 0 {
 		row.Outcome = record.RetrievalEmpty
 	}
 	row.ResultsBytes = int64(len(file))

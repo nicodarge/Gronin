@@ -281,7 +281,7 @@ func (d *deployment) retrieving(declared *collections.Catalog) {
 		Catalog:  declared,
 		IndexDir: indexDir(d.stateDir),
 		Config:   d.config,
-		Redactor: record.NewRedactor(d.config.Secrets()),
+		Redactor: d.store.Redactor(),
 	}
 }
 

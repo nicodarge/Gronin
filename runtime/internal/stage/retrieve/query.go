@@ -18,10 +18,13 @@ import (
 // faster than its length.
 const MaxQueryBytes = 1024
 
-var errEmptyQuery = errors.New("the query is empty once resolved, so nothing was searched")
+// errEmptyQuery refuses a query that holds no word the index can search, whitespace alone
+// included (FR-228). It is decided where the words are, in the index's search: a second
+// test here would be one of two guards, and a defect in either would be hidden by the other.
+var errEmptyQuery = errors.New("the query is empty once resolved: it holds no word the index " +
+	"can search, so nothing was searched")
 
-// queryOf is the query a retrieval searches: resolved, cut to the bound, and refused when
-// nothing is left of it (FR-228).
+// queryOf is the query a retrieval searches: resolved, and cut to the bound.
 func queryOf(
 	cfg *config.Config, workDir string, declared playbook.Retrieval, trigger map[string]string,
 ) (query string, truncated bool, err error) {
@@ -30,9 +33,6 @@ func queryOf(
 		return "", false, err
 	}
 	query, truncated = cutQuery(resolved)
-	if query == "" {
-		return "", truncated, errEmptyQuery
-	}
 	return query, truncated, nil
 }
 

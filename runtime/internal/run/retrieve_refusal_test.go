@@ -27,6 +27,12 @@ func TestARetrievalThatCannotRunRefuses(t *testing.T) {
 			symptom: "  \t ",
 			names:   func(string) string { return "empty" },
 		},
+		// Not empty as text, and nothing in it is a word the index holds: no search can
+		// run, so nothing can be found, and "empty" is reserved for a search that ran.
+		"a query holding no word the index can search": {
+			symptom: "*** ---",
+			names:   func(string) string { return "empty" },
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t, fakeagent.ModeSuccess)

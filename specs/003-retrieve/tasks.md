@@ -336,12 +336,13 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
       the generation is unchanged — working it out again if another update committed — and applies
       it; `Rebuild`; and `Status`, the generation, its build time, identity and documents, compared
       with a fresh walk for the listing. An index under another identity is emptied first. Two seams,
-      nil outside tests: after the read, and inside the write transaction. When T022's kill leaves
-      a torn generation, the generation becomes a file built beside the index and renamed into
-      place, and research.md records which the kill decided
+      nil outside tests: after the read, and inside the write transaction. T022's kill decided that
+      one write transaction is enough and no generation file is renamed into place; research.md
+      §12 records it
 - [x] T032 [US1] `runtime/internal/index/lexical.go`: the FTS5 table over passage text with the
-      `unicode61` tokenizer (research.md §10); the query split on whitespace, each word quoted with
-      embedded quotes doubled, joined with `OR` (§2); `ORDER BY bm25(…), source, ordinal`, the
+      `unicode61` tokenizer (research.md §10); the query split where `unicode61` splits rather
+      than on whitespace, each word quoted with embedded quotes doubled, joined with `OR` (§2, as
+      revised); `ORDER BY bm25(…), source, ordinal`, the
       search read inside one transaction
 - [x] T033 [US1] `runtime/internal/stage/retrieve/doc.go`, `query.go`, `retrieve.go` and `results.go`:
       a `Stage` holding the catalogue, the index directory, the configuration and the redactor.
@@ -417,7 +418,8 @@ matching passage, and `gronin show` names the collection, `lexical`, the generat
       `internal/index/passage.go`, command `go test ./internal/index -count=1 -run TestPassages`
 - [x] T050 [US1] SC-219, command `go test ./internal/run -count=1 -run
       TestARetrievalThatCannotRunRefuses`: `a missing directory walks as empty`, in
-      `internal/index/walk.go`; `an empty query is searched`, in `internal/stage/retrieve/query.go`;
+      `internal/index/walk.go`; `an empty query is searched`, in `internal/index/lexical.go`, where a query holding no word to
+      search is refused;
       `a refused retrieval lets the run continue` and `a refused retrieval is recorded failed`, in
       `internal/run/execute.go`. And `nothing found is not said`, in
       `internal/stage/retrieve/results.go`, command

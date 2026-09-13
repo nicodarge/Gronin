@@ -154,13 +154,20 @@ func printInspection(cmd *cobra.Command, found inspection) {
 	if generation.ID == "" {
 		cmd.Println("generation  not indexed yet")
 	} else {
+		identity := generation.Identity
+		if len(identity) > 4 {
+			identity = identity[:4]
+		}
 		cmd.Printf("generation  %s built %s under identity %s…\n",
-			generation.Short(), generation.BuiltAt.Format(time.RFC3339), generation.Identity[:4])
+			generation.Short(), generation.BuiltAt.Format(time.RFC3339), identity)
 	}
-	if comparison.Changed {
+	switch {
+	case generation.ID == "":
+		cmd.Println("changed     not indexed yet")
+	case comparison.Changed:
 		cmd.Printf("changed     yes — %d added, %d changed, %d removed\n",
 			comparison.Added, comparison.Modified, len(comparison.Removed))
-	} else {
+	default:
 		cmd.Println("changed     no")
 	}
 	cmd.Println()

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -49,6 +50,11 @@ func skippingDirectory(t *testing.T) string {
 	if err := os.Symlink("..", filepath.Join(collection, "parent-link")); err != nil {
 		t.Fatal(err)
 	}
+	// Opened for reading, a pipe with no writer answers nothing at once and would be
+	// indexed as an empty document; with a writer it would hold the walk.
+	if err := syscall.Mkfifo(filepath.Join(collection, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return collection
 }
 
@@ -87,16 +93,8 @@ func TestTheWalkSkipsWhatItMustNotRead(t *testing.T) {
 		{Source: "notes.md", Digest: digestOf("disk full on /var\n"), Bytes: 18},
 		{Source: "sub/deeper.md", Digest: digestOf("swap exhausted\n"), Bytes: 15},
 	}
-	var documents []index.Document
-	for _, document := range got.walk.Documents {
-		if strings.Contains(string(document.Content), outsideMarker) {
-			t.Errorf("%s holds the content of a file outside the collection", document.Source)
-		}
-		document.Content = nil
-		documents = append(documents, document)
-	}
-	if !reflect.DeepEqual(documents, wantDocuments) {
-		t.Errorf("documents:\n  got  %+v\n  want %+v", documents, wantDocuments)
+	if !reflect.DeepEqual(got.walk.Documents, wantDocuments) {
+		t.Errorf("documents:\n  got  %+v\n  want %+v", got.walk.Documents, wantDocuments)
 	}
 
 	wantSkipped := []index.Skipped{
@@ -105,6 +103,7 @@ func TestTheWalkSkipsWhatItMustNotRead(t *testing.T) {
 		{Source: "latin1.txt", Reason: index.ReasonNotText},
 		{Source: "outside-link", Reason: index.ReasonSymlink},
 		{Source: "parent-link", Reason: index.ReasonSymlink},
+		{Source: "pipe", Reason: index.ReasonNotRegular},
 	}
 	if !reflect.DeepEqual(got.walk.Skipped, wantSkipped) {
 		t.Errorf("skipped:\n  got  %+v\n  want %+v", got.walk.Skipped, wantSkipped)

@@ -28,14 +28,15 @@ const (
 	ReasonNotRegular = "not a regular file"
 )
 
-// Document is one file a walk read.
+// Document is one file a walk read. Its text is not kept: an update reads again the
+// documents it indexes and no other, so a walk of a large unchanged directory holds
+// digests rather than every file's content.
 type Document struct {
 	// Source is the path relative to the collection's directory, with forward slashes.
 	Source string
-	// Digest is the SHA-256 of Content, in hex.
-	Digest  string
-	Bytes   int64
-	Content []byte
+	// Digest is the SHA-256 of the file's content, in hex.
+	Digest string
+	Bytes  int64
 }
 
 // Skipped is an entry a walk did not read, and why.
@@ -48,13 +49,15 @@ type Skipped struct {
 type Walk struct {
 	Documents []Document
 	Skipped   []Skipped
+	root      string
 }
 
 // WalkDirectory reads every text file under dir, in lexical order.
 //
 // No symbolic link is followed, wherever it points, so nothing outside the directory is
 // read through one and a loop cannot hold the walk. The directory itself is resolved
-// first: it is the path the deployment declared, and a mount point is often a link.
+// first, every component of it: it is the path the deployment declared, and a mount point
+// is often a link.
 //
 // A directory that does not exist, and a file that cannot be read, are errors naming the
 // path (FR-228). Neither reads as an empty collection, which the agent would be told
@@ -64,11 +67,15 @@ func WalkDirectory(ctx context.Context, dir string) (Walk, error) {
 	if err != nil {
 		return Walk{}, fmt.Errorf("the collection's directory %s cannot be read: %w", dir, err)
 	}
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+	info, err := os.Stat(root)
+	if err != nil {
+		return Walk{}, fmt.Errorf("the collection's directory %s cannot be read: %w", dir, err)
+	}
+	if !info.IsDir() {
 		return Walk{}, fmt.Errorf("the collection's directory %s is not a directory", dir)
 	}
 
-	var walk Walk
+	walk := Walk{root: root}
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
@@ -116,8 +123,7 @@ func WalkDirectory(ctx context.Context, dir string) (Walk, error) {
 		}
 		sum := sha256.Sum256(content)
 		walk.Documents = append(walk.Documents, Document{
-			Source: source, Digest: hex.EncodeToString(sum[:]),
-			Bytes: int64(len(content)), Content: content,
+			Source: source, Digest: hex.EncodeToString(sum[:]), Bytes: int64(len(content)),
 		})
 		return nil
 	})
@@ -125,6 +131,21 @@ func WalkDirectory(ctx context.Context, dir string) (Walk, error) {
 		return Walk{}, err
 	}
 	return walk, nil
+}
+
+// contentOf reads a walked document again to index it, and refuses one whose content no
+// longer has the digest the walk took: indexed, it would sit under a generation naming
+// content the index does not hold.
+func (w Walk) contentOf(document Document) ([]byte, error) {
+	content, err := readDocument(filepath.Join(w.root, filepath.FromSlash(document.Source)))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", document.Source, err)
+	}
+	sum := sha256.Sum256(content)
+	if hex.EncodeToString(sum[:]) != document.Digest {
+		return nil, fmt.Errorf("%s changed while it was being indexed, and nothing of this update was kept", document.Source)
+	}
+	return content, nil
 }
 
 // errGrew is a file that was within the document bound when it was listed and past it

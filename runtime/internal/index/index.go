@@ -16,7 +16,8 @@ import (
 	"time"
 
 	// The driver the record store already links; FTS5 is compiled into it.
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 //go:embed schema.sql
@@ -99,16 +100,51 @@ type Index struct {
 	now      func() time.Time
 }
 
-// seams are where a test holds an update. Nil outside tests.
+// seams are where a test holds an update, or learns that it found the index held. Nil
+// outside tests.
 type seams struct {
 	afterRead     func()
 	inTransaction func()
+	busy          func()
 }
 
 func (ix *Index) seam(at func()) {
 	if at != nil {
 		at()
 	}
+}
+
+// busyPause is how long an operation that found the index held waits before trying again.
+const busyPause = 20 * time.Millisecond
+
+// retryBusy runs operation until it does not find the database held by another
+// connection, or until ctx ends. The wait is the caller's bound — a retrieval's own
+// remaining time — and not a figure of this package's: SQLite's busy_timeout is kept to a
+// slice, because a busy handler sleeping inside SQLite does not notice a context ending.
+func retryBusy(ctx context.Context, busy func(), operation func() error) error {
+	for {
+		err := operation()
+		if !isBusy(err) {
+			return err
+		}
+		if busy != nil {
+			busy()
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the index is held by another process: %w", errors.Join(ctx.Err(), err))
+		case <-time.After(busyPause):
+		}
+	}
+}
+
+func isBusy(err error) bool {
+	var held *sqlite.Error
+	return errors.As(err, &held) && held.Code()&0xff == sqlite3.SQLITE_BUSY
+}
+
+func (ix *Index) whileBusy(ctx context.Context, operation func() error) error {
+	return retryBusy(ctx, ix.seams.busy, operation)
 }
 
 // name is what a collection may be called, checked again here because it becomes a path.
@@ -121,11 +157,26 @@ func path(dir, collection string) (string, error) {
 	return filepath.Join(dir, collection+".db"), nil
 }
 
+// private creates an index file readable by its owner alone, and narrows one created wider
+// before. An index holds the collection's text unredacted, and SQLite gives its journal
+// the database file's mode.
+func private(file string) error {
+	handle, err := os.OpenFile(file, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // the index path, from a checked collection name
+	if err != nil {
+		return err
+	}
+	if err := handle.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(file, 0o600)
+}
+
 // Open opens or creates a collection's index under dir.
 //
 // Writes take the database's write lock when they begin, not when they first write: two
 // processes updating one collection then wait for each other at the start, rather than
-// one finding at its first write that the other got there first.
+// one finding at its first write that the other got there first. How long they wait is
+// the context's.
 func Open(ctx context.Context, dir, collection string, cfg Configuration) (*Index, error) {
 	file, err := path(dir, collection)
 	if err != nil {
@@ -134,11 +185,17 @@ func Open(ctx context.Context, dir, collection string, cfg Configuration) (*Inde
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating the index directory: %w", err)
 	}
-	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(5000)&_txlock=immediate")
+	if err := private(file); err != nil {
+		return nil, fmt.Errorf("creating the index of %s: %w", collection, err)
+	}
+	db, err := sql.Open("sqlite", "file:"+file+"?_pragma=busy_timeout(100)&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("opening the index of %s: %w", collection, err)
 	}
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+	if err := retryBusy(ctx, nil, func() error {
+		_, err := db.ExecContext(ctx, schema)
+		return err
+	}); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("opening the index of %s: %w", collection, err)
 	}
@@ -164,8 +221,11 @@ type StoredDocument struct {
 	Bytes  int64
 }
 
-// ReadStored reads a collection's index without writing to it, and reports false when no
-// index exists. Listing a collection is not a request to index it (FR-221).
+// ReadStored reads a collection's index, and reports false when no index exists. Listing a
+// collection is not a request to index it (FR-221): it writes nothing to the index, with
+// one exception. The connection is read-write, never read-only, because a rebuild killed
+// mid-transaction leaves a hot journal, and only a connection that can write rolls it back
+// to the previous generation — a read-only one refuses to read at all (SC-211).
 func ReadStored(ctx context.Context, dir, collection string) (Stored, bool, error) {
 	file, err := path(dir, collection)
 	if err != nil {
@@ -174,12 +234,17 @@ func ReadStored(ctx context.Context, dir, collection string) (Stored, bool, erro
 	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
 		return Stored{}, false, nil
 	}
-	db, err := sql.Open("sqlite", "file:"+file+"?mode=ro&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+file+"?mode=rw&_pragma=busy_timeout(100)")
 	if err != nil {
 		return Stored{}, false, err
 	}
 	defer func() { _ = db.Close() }()
-	stored, err := readStored(ctx, db)
+	var stored Stored
+	err = retryBusy(ctx, nil, func() error {
+		var err error
+		stored, err = readStored(ctx, db)
+		return err
+	})
 	if err != nil {
 		return Stored{}, true, fmt.Errorf("reading the index of %s: %w", collection, err)
 	}
@@ -207,8 +272,8 @@ func readGeneration(ctx context.Context, q querier) (Generation, error) {
 	return generation, err
 }
 
-// readStored reads the generation and its documents inside one read transaction when q is
-// a database, so the two cannot come from different generations.
+// readStored reads the generation and its documents inside one read transaction, so the
+// two cannot come from different generations.
 func readStored(ctx context.Context, db *sql.DB) (Stored, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -322,8 +387,12 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 		if err := ctx.Err(); err != nil {
 			return Generation{}, err
 		}
-		read, err := readStored(ctx, ix.db)
-		if err != nil {
+		var read Stored
+		if err := ix.whileBusy(ctx, func() error {
+			var err error
+			read, err = readStored(ctx, ix.db)
+			return err
+		}); err != nil {
 			return Generation{}, err
 		}
 		if !rebuild && read.Generation.ID == target {
@@ -331,8 +400,13 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 		}
 		ix.seam(ix.seams.afterRead)
 
-		generation, err := ix.commit(ctx, read.Generation.ID,
-			difference(ix.identity, read, walk, rebuild), target)
+		var generation Generation
+		err := ix.whileBusy(ctx, func() error {
+			var err error
+			generation, err = ix.commit(ctx, read.Generation.ID,
+				difference(ix.identity, read, walk, rebuild), target)
+			return err
+		})
 		if errors.Is(err, errMoved) {
 			continue
 		}
@@ -341,23 +415,24 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 }
 
 // change is what an update applies: everything removed first, or the named sources, then
-// the documents added.
+// the documents added, whose text is read from the walk's directory as each is indexed.
 type change struct {
 	everything bool
 	remove     []string
 	add        []Document
+	walk       Walk
 }
 
 func difference(identity string, read Stored, walk Walk, rebuild bool) change {
 	if rebuild || read.Generation.Identity != identity {
-		return change{everything: true, add: walk.Documents}
+		return change{everything: true, add: walk.Documents, walk: walk}
 	}
 	held := make(map[string]string, len(read.Documents))
 	for _, document := range read.Documents {
 		held[document.Source] = document.Digest
 	}
 
-	var diff change
+	diff := change{walk: walk}
 	present := make(map[string]bool, len(walk.Documents))
 	for _, document := range walk.Documents {
 		present[document.Source] = true
@@ -395,11 +470,15 @@ func (c change) apply(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	for _, document := range c.add {
+		content, err := c.walk.contentOf(document)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,
 			document.Source, document.Digest, document.Bytes); err != nil {
 			return fmt.Errorf("indexing %s: %w", document.Source, err)
 		}
-		for _, passage := range TextPassages(document.Source, document.Content) {
+		for _, passage := range TextPassages(document.Source, content) {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,
 				passage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {

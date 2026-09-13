@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"unicode"
 )
@@ -20,12 +21,27 @@ type Found struct {
 	Hits       []Hit
 }
 
+// ErrNoWords is a query holding nothing the index can search. No search runs, so what
+// comes back is not an empty result: FR-228 keeps "empty" for a search that ran and
+// matched nothing.
+var ErrNoWords = errors.New("the query holds no word the index can search")
+
 // Search returns at most limit passages matching query, best first, and the generation
 // they came from, read inside one transaction so the two cannot disagree (FR-219).
 //
 // Equal scores are ordered by source, then ordinal (FR-210), never by the order rows
 // happen to have in the index.
 func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, error) {
+	var found Found
+	err := ix.whileBusy(ctx, func() error {
+		var err error
+		found, err = ix.search(ctx, query, limit)
+		return err
+	})
+	return found, err
+}
+
+func (ix *Index) search(ctx context.Context, query string, limit int) (Found, error) {
 	tx, err := ix.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Found{}, err
@@ -39,7 +55,7 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 	found := Found{Generation: generation}
 	match := plainQuery(query)
 	if match == "" {
-		return found, nil
+		return found, ErrNoWords
 	}
 
 	rows, err := tx.QueryContext(ctx, `
@@ -61,12 +77,12 @@ func (ix *Index) Search(ctx context.Context, query string, limit int) (Found, er
 	return found, rows.Err()
 }
 
-// plainQuery turns text into an FTS5 query that holds no FTS5 syntax (FR-211): the words
-// the tokenizer would index, each quoted, joined with OR.
+// plainQuery turns text into an FTS5 query that holds no FTS5 syntax (FR-211): its words,
+// each quoted, joined with OR.
 //
 // Words are split where the tokenizer splits them rather than at whitespace. Split at
 // whitespace, `text:disk` is one quoted phrase, "text disk", which finds only those two
-// words side by side — not what the same words find as plain terms.
+// words side by side — not what the same words find as plain terms (research.md §2).
 func plainQuery(query string) string {
 	words := strings.FieldsFunc(query, func(r rune) bool { return !indexedRune(r) })
 	quoted := make([]string, 0, len(words))
@@ -76,8 +92,10 @@ func plainQuery(query string) string {
 	return strings.Join(quoted, " OR ")
 }
 
-// indexedRune is a character unicode61 keeps in a token: a letter, a number, or a
-// private-use character. Everything else separates tokens.
+// indexedRune is a letter, a number or a private-use character by Go's Unicode tables:
+// the categories unicode61 keeps in a token. The tokenizer judges them by Unicode 6.1's
+// tables and folds diacritics its own way, so a character newer than 6.1 can be split
+// here where it would not be there; each side of such a split is still quoted plain text.
 func indexedRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.Is(unicode.Co, r)
 }

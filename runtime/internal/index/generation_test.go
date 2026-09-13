@@ -2,10 +2,12 @@ package index_test
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -71,6 +73,22 @@ var (
 	secondSources = map[string]string{"a.md": "memory pressure\n", "c.md": "disk quota exceeded\n"}
 )
 
+// spillingSources is secondSources with enough text beside it that a rebuild overflows
+// SQLite's page cache and writes pages into the database file before it commits. Two
+// one-line files never do: the file stays untouched, no journal is hot, and a kill leaves
+// nothing for a reader to recover.
+func spillingSources() map[string]string {
+	files := map[string]string{}
+	for name, content := range secondSources {
+		files[name] = content
+	}
+	filler := strings.Repeat("lorem ipsum dolor sit amet consectetur adipiscing elit\n\n", 150)
+	for at := range 600 {
+		files[fmt.Sprintf("filler-%03d.md", at)] = filler
+	}
+	return files
+}
+
 // TestHelperUpdateThenBlocks is not a test of its own. It does nothing unless
 // killHelperEnv is set, which only the test below does, on a re-execution of this binary.
 func TestHelperUpdateThenBlocks(t *testing.T) {
@@ -121,7 +139,7 @@ func TestAKilledRebuildLeavesThePreviousGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeSources(t, sources, secondSources)
+	writeSources(t, sources, spillingSources())
 
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestHelperUpdateThenBlocks$")
 	cmd.Env = append(os.Environ(), killHelperEnv+"="+dir)
@@ -152,6 +170,17 @@ func TestAKilledRebuildLeavesThePreviousGeneration(t *testing.T) {
 	}
 	_ = cmd.Wait()
 
+	// A hot journal is what makes the kill a test of recovery: without one the database
+	// file was never touched, and any reader would name the previous generation.
+	journal, err := os.Stat(filepath.Join(indexDir, "runbooks.db-journal"))
+	if err != nil || journal.Size() == 0 {
+		t.Fatalf("the killed rebuild left no hot journal, so nothing had to be recovered: %v", err)
+	}
+	if mode := journal.Mode().Perm(); mode != 0o600 {
+		t.Errorf("the journal holds the collection's text with mode %o, want 600", mode)
+	}
+
+	// Read the way `gronin collections list` reads, which is the reader SC-211 names.
 	stored, present, err := index.ReadStored(t.Context(), indexDir, "runbooks")
 	if err != nil || !present {
 		t.Fatalf("the index cannot be read after the kill: present=%v err=%v", present, err)
@@ -167,6 +196,39 @@ func TestAKilledRebuildLeavesThePreviousGeneration(t *testing.T) {
 	}
 	if got := sourcesOf(t, ix, "memory"); len(got) != 0 {
 		t.Errorf("a search for memory returned %v after the kill: the killed rebuild's passages are visible", got)
+	}
+}
+
+// A document's text is read when it is indexed rather than held from the walk, so a file
+// rewritten between the two must not be indexed under the digest the walk took of what it
+// held before: the generation would name content the index does not hold. The update is
+// refused naming the file, or it indexes what the walk saw — never the one under the
+// other's digest.
+func TestAnUpdateNeverIndexesTextUnderAnotherDigest(t *testing.T) {
+	dir := t.TempDir()
+	sources := filepath.Join(dir, "sources")
+	writeSources(t, sources, firstSources)
+	ix := openIndex(t, filepath.Join(dir, "index"), sources)
+	walk := walked(t, sources)
+
+	index.SetSeams(ix, func() {
+		if err := os.WriteFile(filepath.Join(sources, "a.md"), []byte("rewritten while indexed\n"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}, nil)
+	_, err := ix.Update(t.Context(), walk)
+	index.SetSeams(ix, nil, nil)
+	if err != nil {
+		if !strings.Contains(err.Error(), "a.md") {
+			t.Errorf("the update was refused without naming the file that changed: %v", err)
+		}
+		return
+	}
+	if got := sourcesOf(t, ix, "rewritten"); len(got) != 0 {
+		t.Errorf("text written after the walk was indexed under the walk's digest: %v", got)
+	}
+	if got := sourcesOf(t, ix, "disk"); !reflect.DeepEqual(got, []string{"a.md"}) {
+		t.Errorf("the update indexed neither what the walk saw nor refused: disk found in %v", got)
 	}
 }
 
