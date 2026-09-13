@@ -100,6 +100,73 @@ func TestAFileThatKeepsChangingIsRefusedAtTheBound(t *testing.T) {
 	}
 }
 
+// A file that changed once and settled is not what a later refusal blames. Here the index is
+// taken by another connection once the file has settled, and held past the bound: the
+// refusal is the held index.
+func TestAHeldIndexAtTheBoundDoesNotBlameAFileThatSettled(t *testing.T) {
+	dir := t.TempDir()
+	sources := filepath.Join(dir, "sources")
+	indexDir := filepath.Join(dir, "index")
+	writeSources(t, sources, firstSources)
+	ix := openIndex(t, indexDir, sources)
+	walk := walked(t, sources)
+
+	calls := 0
+	index.SetSeams(ix, func() {
+		calls++
+		switch calls {
+		case 1:
+			if err := os.WriteFile(filepath.Join(sources, "a.md"), []byte("rewritten once\n"), 0o600); err != nil {
+				t.Error(err)
+			}
+		case 2:
+			holdWriteLock(t, indexDir)
+		}
+	}, nil)
+	t.Cleanup(func() { index.SetSeams(ix, nil, nil) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	_, err := ix.Update(ctx, walk)
+	if !errors.Is(err, index.ErrHeld) {
+		t.Errorf("the update ended with %v, want the held index", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "a.md") {
+		t.Errorf("the refusal blames a file that had settled: %v", err)
+	}
+}
+
+// Nor does a refusal at the bound blame it when the bound ends while the update, the file
+// long settled, is still writing the generation.
+func TestAnUpdateAtTheBoundDoesNotBlameAFileThatSettled(t *testing.T) {
+	dir := t.TempDir()
+	sources := filepath.Join(dir, "sources")
+	writeSources(t, sources, firstSources)
+	ix := openIndex(t, filepath.Join(dir, "index"), sources)
+	walk := walked(t, sources)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	calls := 0
+	index.SetSeams(ix, func() {
+		calls++
+		if calls == 1 {
+			if err := os.WriteFile(filepath.Join(sources, "a.md"), []byte("rewritten once\n"), 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+	}, func() { <-ctx.Done() })
+	t.Cleanup(func() { index.SetSeams(ix, nil, nil) })
+
+	_, err := ix.Update(ctx, walk)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the update ended with %v, want its bound's deadline", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "a.md") {
+		t.Errorf("the refusal blames a file that had settled: %v", err)
+	}
+}
+
 // A rebuild runs outside any retrieval and has no bound, so a file that changes on every
 // read would hold it forever. It fails naming the file once the file has changed on each of
 // its walks.

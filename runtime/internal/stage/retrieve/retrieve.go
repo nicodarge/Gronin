@@ -103,10 +103,7 @@ func (s *Stage) retrieve(
 	bounded, cancel := context.WithTimeout(ctx, collection.RetrievalTimeout)
 	defer cancel()
 	found, err := s.search(bounded, collection, query, declared.ResultCount()+1)
-	switch {
-	case errors.Is(err, index.ErrNoWords):
-		return refuse(emptyQuery(truncated))
-	case err != nil:
+	if err != nil {
 		if errors.Is(bounded.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			err = fmt.Errorf("it did not complete within %s, the collection's retrieval_timeout: %w",
 				collection.RetrievalTimeout, err)

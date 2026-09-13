@@ -102,12 +102,12 @@ type Index struct {
 	now      func() time.Time
 }
 
-// seams are where a test holds an update, or learns that it found the index held. Nil
-// outside tests.
+// seams are where a test holds an update, or learns what it is doing. Nil outside tests.
 type seams struct {
 	afterRead     func()
 	inTransaction func()
 	busy          func()
+	read          func(source string)
 }
 
 func (ix *Index) seam(at func()) {
@@ -165,9 +165,10 @@ func path(dir, collection string) (string, error) {
 // private creates an index file readable by its owner alone. An index holds the
 // collection's text unredacted, and SQLite gives its journal the database file's mode.
 //
-// A file that already exists is narrowed only when this user owns it: chmod on another
-// user's file fails, and would refuse every retrieval for a mode the owner chose. A file
-// this process cannot write is refused naming why, since the likeliest cause is a
+// A file that already exists at a wider mode is narrowed only when this user owns it:
+// chmod on another user's file fails, and using that file as it is would leave the text
+// where others can read it, so it is refused naming the owner and the mode. A file this
+// process cannot write is refused naming why, since the likeliest cause is a
 // `gronin collections` command run as another user than the deployment's.
 func private(file string) error {
 	info, err := os.Stat(file)
@@ -185,7 +186,13 @@ func private(file string) error {
 		return err
 	}
 	owner := ownerOf(info)
-	if owner == os.Getuid() && info.Mode().Perm()&^0o600 != 0 {
+	wide := info.Mode().Perm()&^0o600 != 0
+	if wide && owner != os.Getuid() {
+		return fmt.Errorf("%s belongs to uid %d at mode %o, wider than 600, and this process, uid %d, "+
+			"cannot narrow it; an index holds the collection's text unredacted, so "+
+			"gronin collections has to run as the deployment's user", file, owner, info.Mode().Perm(), os.Getuid())
+	}
+	if wide {
 		if err := os.Chmod(file, 0o600); err != nil {
 			return err
 		}
@@ -202,7 +209,8 @@ var writable = func(file string) error {
 	return unix.Access(file, unix.W_OK)
 }
 
-func ownerOf(info os.FileInfo) int {
+// ownerOf is the uid owning an index file, or -1 where the platform does not say.
+var ownerOf = func(info os.FileInfo) int {
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		return int(stat.Uid)
 	}
@@ -424,15 +432,15 @@ var errMoved = errors.New("another update committed a generation since this one 
 const maxRewalks = 10
 
 // Update brings the index up to date with a walk of its sources (FR-217). It works the
-// difference out from a read of the stored generation, reads and cuts the text it will
-// add, then inside one write transaction checks that generation is still the one it read —
-// working the difference out again if another update committed meanwhile — and applies it
-// with the new generation's row. A search therefore sees the generation before or the one
-// after, never part of either (FR-219). An index stored under another identity is emptied
-// first.
+// difference out from a read of the stored generation, then inside one write transaction
+// checks that generation is still the one it read — working the difference out again if
+// another update committed meanwhile — and applies it with the new generation's row. A
+// search therefore sees the generation before or the one after, never part of either
+// (FR-219). An index stored under another identity is emptied first.
 //
 // A file whose content no longer has the digest the walk took is never indexed under it:
-// the sources are walked again and the difference worked out afresh.
+// the transaction is rolled back, the sources are walked again and the difference worked
+// out afresh.
 func (ix *Index) Update(ctx context.Context, walk Walk) (Generation, error) {
 	return ix.write(ctx, walk, false)
 }
@@ -444,9 +452,12 @@ func (ix *Index) Rebuild(ctx context.Context, walk Walk) (Generation, error) {
 }
 
 func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation, error) {
+	// changed is the file the last attempt found changed. It is cleared once an attempt has
+	// read every document it adds unchanged, and a held index is its own cause: a refusal
+	// names the file only while the file is what kept the update from finishing.
 	var changed error
 	fail := func(err error) (Generation, error) {
-		if changed != nil && ctx.Err() != nil {
+		if changed != nil && ctx.Err() != nil && !errors.Is(err, ErrHeld) {
 			err = errors.Join(err, changed)
 		}
 		return Generation{}, err
@@ -470,9 +481,16 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 		}
 		ix.seam(ix.seams.afterRead)
 
-		ready, err := difference(ix.identity, read, walk, rebuild).prepare()
+		diff := difference(ix.identity, read, walk, rebuild)
+		var generation Generation
+		err := ix.whileBusy(ctx, func() error {
+			var err error
+			generation, err = ix.commit(ctx, read.Generation.ID, diff, target, func() { changed = nil })
+			return err
+		})
 		var moved *changedError
-		if errors.As(err, &moved) {
+		switch {
+		case errors.As(err, &moved):
 			changed = err
 			rewalks++
 			if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {
@@ -481,30 +499,17 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 			if walk, err = WalkDirectory(ctx, walk.root); err != nil {
 				return fail(err)
 			}
-			continue
-		}
-		if err != nil {
+		case errors.Is(err, errMoved):
+		case err != nil:
 			return fail(err)
+		default:
+			return generation, nil
 		}
-
-		var generation Generation
-		err = ix.whileBusy(ctx, func() error {
-			var err error
-			generation, err = ix.commit(ctx, read.Generation.ID, ready, target)
-			return err
-		})
-		if errors.Is(err, errMoved) {
-			continue
-		}
-		if err != nil {
-			return fail(err)
-		}
-		return generation, nil
 	}
 }
 
 // change is what an update applies: everything removed first, or the named sources, then
-// the documents added.
+// the documents added, whose text is read from the walk's directory as each is indexed.
 type change struct {
 	everything bool
 	remove     []string
@@ -542,35 +547,19 @@ func difference(identity string, read Stored, walk Walk, rebuild bool) change {
 	return diff
 }
 
-// ready is a change whose added documents have been read and cut, so that nothing is read
-// from the sources while the write lock is held, and a retry for a busy database repeats
-// the transaction alone.
-type ready struct {
-	change
-	passages [][]Passage
-}
-
-func (c change) prepare() (ready, error) {
-	prepared := ready{change: c, passages: make([][]Passage, len(c.add))}
-	for at, document := range c.add {
-		content, err := c.walk.contentOf(document)
-		if err != nil {
-			return ready{}, err
-		}
-		prepared.passages[at] = TextPassages(document.Source, content)
-	}
-	return prepared, nil
-}
-
-func (r ready) apply(ctx context.Context, tx *sql.Tx) error {
-	if r.everything {
+// apply writes the change into tx. Each added document's text is read as that document is
+// indexed, one at a time: read first, every added file's text would be held until the
+// commit, which on a rebuild or a first retrieval is the whole collection with no bound on
+// its size.
+func (c change) apply(ctx context.Context, tx *sql.Tx, read func(source string)) error {
+	if c.everything {
 		for _, statement := range []string{`DELETE FROM passages`, `DELETE FROM documents`} {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
 			}
 		}
 	}
-	for _, source := range r.remove {
+	for _, source := range c.remove {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM passages WHERE source = ?`, source); err != nil {
 			return err
 		}
@@ -578,12 +567,19 @@ func (r ready) apply(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	for at, document := range r.add {
+	for _, document := range c.add {
+		content, err := c.walk.contentOf(document)
+		if err != nil {
+			return err
+		}
+		if read != nil {
+			read(document.Source)
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO documents (source, digest, bytes) VALUES (?, ?, ?)`,
 			document.Source, document.Digest, document.Bytes); err != nil {
 			return fmt.Errorf("indexing %s: %w", document.Source, err)
 		}
-		for _, passage := range r.passages[at] {
+		for _, passage := range TextPassages(document.Source, content) {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,
 				passage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {
@@ -594,7 +590,11 @@ func (r ready) apply(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func (ix *Index) commit(ctx context.Context, readID string, diff ready, target string) (Generation, error) {
+// commit applies diff and the new generation's row in one write transaction. settled is
+// called once every document it adds has been read unchanged.
+func (ix *Index) commit(
+	ctx context.Context, readID string, diff change, target string, settled func(),
+) (Generation, error) {
 	tx, err := ix.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Generation{}, err
@@ -608,9 +608,10 @@ func (ix *Index) commit(ctx context.Context, readID string, diff ready, target s
 	if current.ID != readID {
 		return Generation{}, errMoved
 	}
-	if err := diff.apply(ctx, tx); err != nil {
+	if err := diff.apply(ctx, tx, ix.seams.read); err != nil {
 		return Generation{}, err
 	}
+	settled()
 	ix.seam(ix.seams.inTransaction)
 
 	next := Generation{ID: target, Identity: ix.identity, BuiltAt: ix.now()}

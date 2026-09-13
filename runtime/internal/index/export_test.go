@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 // SetSeams installs the two points an update can be held at: after it has read the
@@ -21,10 +22,25 @@ func SetWritable(t interface{ Cleanup(func()) }, check func(file string) error) 
 	t.Cleanup(func() { writable = previous })
 }
 
+// SetOwner replaces how an index file's owner is read, for as long as the test runs: making
+// a file another user's needs root, which the suite's namespace does not grant over the
+// files it creates.
+func SetOwner(t interface{ Cleanup(func()) }, owner func(info os.FileInfo) int) {
+	previous := ownerOf
+	ownerOf = owner
+	t.Cleanup(func() { ownerOf = previous })
+}
+
 // SetBusySeam installs what an operation calls each time it finds the index held by
 // another connection, before it waits and tries again.
 func SetBusySeam(ix *Index, busy func()) {
 	ix.seams.busy = busy
+}
+
+// SetReadSeam installs what an update calls each time it has read a document's text to
+// index it.
+func SetReadSeam(ix *Index, read func(source string)) {
+	ix.seams.read = read
 }
 
 // Dump is everything an index holds, one line per row in a fixed order, so two indexes

@@ -28,9 +28,9 @@ const (
 	ReasonNotRegular = "not a regular file"
 )
 
-// Document is one file a walk read. Its text is not kept: an update reads again the
-// documents it indexes and no other, so a walk of a large unchanged directory holds
-// digests rather than every file's content.
+// Document is one file a walk read. Its text is not kept: an update reads again each
+// document it adds as it indexes that document, one at a time inside its write
+// transaction, so neither a walk nor an update holds more than one file's text at once.
 type Document struct {
 	// Source is the path relative to the collection's directory, with forward slashes.
 	Source string

@@ -141,17 +141,21 @@ none ──first retrieval or rebuild──▶ G1 ──sources change, next ret
 **How an update is made whole.** An update walks and digests the sources, reads the generation
 the index holds, and works out what was added, changed and removed. For the semantic mode it then
 embeds the passages of what was added or changed — the only network step, and the one that takes
-time — before it opens a write transaction. Also before it, it reads again the text of each
-document it is about to add and checks the text still has the digest the walk took, so that no
-reading is repeated while the write lock is held. A file changed in between is never indexed under
-the earlier digest: the update walks the sources again and works the difference out afresh, inside
-the same retrieval bound, and is refused naming the file only when the bound ends with the file
-still changing. A rebuild has no bound, and is refused naming the file once it has changed on each
-of ten walks. Waiting for a write lock another process holds is inside the same bound, and repeats
-the transaction alone. Inside the transaction it checks that the generation
+time — before it opens a write transaction. Inside the transaction it checks that the generation
 is still the one it read; if another update committed meanwhile, it rolls back and works the
 difference out again from the new one, inside the same retrieval bound. Otherwise it applies the
-difference and the new generation's row and commits. A search reads inside one transaction, so it
+difference and the new generation's row and commits.
+
+It reads the text of each document it adds as it indexes that document, one at a time inside the
+transaction, and checks the text still has the digest the walk took: reading every added file first
+would hold the whole collection's text until the commit on a rebuild or a first retrieval, with no
+bound on its size. A file changed since the walk is never indexed under the earlier digest: the
+update rolls back, walks the sources again and works the difference out afresh, inside the same
+retrieval bound, and is refused naming the file only when the bound ends with the file still
+changing. A rebuild, which has no bound, is refused naming the file once it has changed on each of
+ten walks. A refusal names a changed file only while the file is still changing: once an attempt
+has read every document it adds unchanged, a later refusal is for its own cause. Waiting for a
+write lock another process holds is inside the same bound. A search reads inside one transaction, so it
 sees the generation before or the one after, never part of either. A seam between reading the
 generation and opening the transaction is what lets a test hold one update there while another
 commits (SC-211).
