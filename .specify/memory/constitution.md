@@ -9,7 +9,7 @@ Modified principles:
 Added sections: none
 Removed sections: none
 Documents brought in line with the new wording in the same change:
-  - CLAUDE.md, docs/roadmap.md
+  - CLAUDE.md, docs/roadmap.md, specs/001-runtime-core/tasks.md (T067)
 Templates requiring review:
   - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
     Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
