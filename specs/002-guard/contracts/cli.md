@@ -57,17 +57,24 @@ A manual invocation that finds its playbook running:
 
 ```text
 $ gronin run doc-check
-doc-check is running (run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c…); waiting up to 30m
+doc-check is running (run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c1a0b); waiting up to 30m
 20260910T061214Z-a41c09e7b6f2 succeeded (waited 12m14s)
 ```
 
+A duration is rounded to the second and written unit by unit, largest first, leaving out every
+unit that is zero: `30m`, `12m14s`, `2h5s`, and `0s` for less than half a second. A process is
+named by its whole instance identifier, which is also the name of its lock file.
+
 ```text
 $ gronin refusals
-2026-09-10T06:00:00Z  doc-check  schedule  claim_held          held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com
-2026-09-10T06:03:11Z  doc-check  manual    waiting_slot_full   a trigger accepted at 06:01:02Z is already waiting
+2026-09-10T06:00:00Z  doc-check  schedule  claim_held          held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c1a0b
+2026-09-10T06:03:11Z  doc-check  manual    waiting_slot_full   a trigger accepted at 2026-09-10T06:01:02Z is already waiting
 2026-09-10T06:05:00Z  doc-check  schedule  tick_already_ran    tick 06:05:00Z ran as 20260910T060500Z-7b21e4c09d3a on host-b.example.com
-2026-09-10T07:30:00Z  doc-check  manual    dropped             accepted at 07:12:40Z; process 8f2c… ended before it ran
+2026-09-10T07:30:00Z  doc-check  manual    dropped             trigger 5d1e9c3a7b2f4e60 accepted at 2026-09-10T07:12:40Z; process 8f2c1a0b ended before it ran
 ```
+
+An arrival time is written in full: a drop is recorded when it is observed, which can be days
+after the trigger arrived, and a slot refusal can fall on the day after the trigger it names.
 
 ## `coordination.json`
 

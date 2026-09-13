@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
@@ -79,11 +80,12 @@ var probed func(id string)
 // alive reports whether the process that accepted a waiting trigger still holds its
 // instance lock.
 //
-// Unlike the file lock's poll, this looks by taking the lock, and that cannot make a real
-// contender fail: the only process that ever asks for an instance's lock is the one that
-// takes it at start, before any row names that instance, and no identifier is used twice.
-// Another reconciliation looking at the same instance at the same instant reads it as alive
-// and leaves the row to this one.
+// Unlike the file lock's poll, this looks by taking the lock, and a real contender does not
+// ask for it: the only process that takes an instance's lock is its owner, at start, before
+// any row names the instance. An identifier is 32 random bits, so two processes drawing the
+// same one is possible and not expected; the second would fail to take the lock at start
+// rather than share it. Another reconciliation looking at the same instance at the same
+// instant reads it as alive and leaves the row to this one.
 //
 // A lock file that is there and cannot be examined reads as alive: dropping a trigger that
 // is still waiting loses it, while a row left waiting is looked at again by the next
@@ -106,7 +108,7 @@ func alive(stateDir, id string) bool {
 	if probed != nil {
 		probed(id)
 	}
-	// Proven dead while the lock is held, and nothing takes an instance twice: a killed
+	// Proven dead while the lock is held, and its owner never takes it again: a killed
 	// process's lock file would otherwise stay for good.
 	_ = os.Remove(instancePath(stateDir, id))
 	return false
@@ -144,8 +146,8 @@ func Reconcile(ctx context.Context, stateDir string, store Store, clock Clock) (
 			Refusal: &record.Refusal{
 				PlaybookName: trigger.PlaybookName, TriggerKind: trigger.TriggerKind,
 				WaitingTriggerID: trigger.ID, Mechanism: record.MechanismDropped,
-				Detail: fmt.Sprintf("accepted at %s; process %s ended before it ran",
-					trigger.AcceptedAt.UTC().Format(TimeOfDay), trigger.Instance),
+				Detail: fmt.Sprintf("trigger %s accepted at %s; process %s ended before it ran",
+					trigger.ID, trigger.AcceptedAt.UTC().Format(time.RFC3339), trigger.Instance),
 				RefusedAt: at,
 			},
 		})

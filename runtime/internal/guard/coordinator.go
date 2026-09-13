@@ -87,7 +87,7 @@ var (
 // that waits tells its invoker who it waits for without parsing a message.
 type HeldError struct{ Holder Holder }
 
-func (e *HeldError) Error() string { return ErrHeld.Error() + " by " + e.Holder.String() }
+func (e *HeldError) Error() string { return "held by " + e.Holder.String() }
 
 // Unwrap makes a HeldError ErrHeld.
 func (e *HeldError) Unwrap() error { return ErrHeld }

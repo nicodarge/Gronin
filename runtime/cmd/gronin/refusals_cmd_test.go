@@ -27,7 +27,7 @@ func TestRefusalsAreReadableAfterwards(t *testing.T) {
 		{
 			PlaybookName: "drift-check", TriggerKind: record.TriggerSchedule, DueAt: tick,
 			Mechanism: record.MechanismClaimHeld,
-			Detail:    "claim held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c",
+			Detail:    "held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c1a0b",
 			RefusedAt: tick,
 		},
 		{
@@ -66,7 +66,7 @@ func TestRefusalsAreReadableAfterwards(t *testing.T) {
 			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
 			WaitingTriggerID: "2c3d4e5f60718293",
 			Mechanism:        record.MechanismDropped,
-			Detail:           "trigger 2c3d4e5f60718293 accepted at 2026-09-10T06:52:40Z; process 8f2c ended before it ran",
+			Detail:           "trigger 2c3d4e5f60718293 accepted at 2026-09-10T06:52:40Z; process 8f2c1a0b ended before it ran",
 			RefusedAt:        tick.Add(55 * time.Minute),
 		},
 	}

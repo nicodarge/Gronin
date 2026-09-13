@@ -182,13 +182,20 @@ func droppedWhenStopped(t *testing.T, stop syscall.Signal) {
 
 	if stop == syscall.SIGKILL {
 		// FR-111 and FR-102: a further invocation is refused for the slot, and gathers nothing.
+		// The trace is read while the invocation may still be going, before anything that
+		// depends on it having printed or ended: a gather step it ran would hold on the gate,
+		// and the refusal would then never be printed at all.
 		third := h.run(t)
+		waitFor(t, time.Minute, func() bool {
+			_, err := third.Wait(50 * time.Millisecond)
+			return err == nil || h.ran(t) > 1
+		}, func() string { return "the invocation refused for the slot neither ended nor gathered" })
+		if ran := h.ran(t); ran != 1 {
+			t.Fatalf("%d gather step(s) started, want only the first run's", ran)
+		}
 		third.Expect(t, string(record.MechanismWaitingSlotFull), time.Minute)
 		if code, err := third.Wait(time.Minute); err != nil || code == 0 {
 			t.Fatalf("the invocation refused for the slot exited %d, err %v", code, err)
-		}
-		if ran := h.ran(t); ran != 1 {
-			t.Fatalf("%d gather step(s) started, want only the first run's", ran)
 		}
 	}
 
@@ -228,10 +235,12 @@ func droppedWhenStopped(t *testing.T, stop syscall.Signal) {
 	if err != nil {
 		t.Fatalf("the drop names no waiting trigger that was recorded: %v", err)
 	}
+	// SC-113: the drop names the trigger and when it arrived, in full — it is read after the
+	// fact, possibly days later.
 	for _, named := range []string{
 		"drift-check", string(record.TriggerManual),
-		fmt.Sprintf("accepted at %s; process %s ended before it ran",
-			trigger.AcceptedAt.UTC().Format(guard.TimeOfDay), trigger.Instance),
+		fmt.Sprintf("trigger %s accepted at %s; process %s ended before it ran",
+			trigger.ID, trigger.AcceptedAt.UTC().Format(time.RFC3339), trigger.Instance),
 	} {
 		if !strings.Contains(dropped, named) {
 			t.Fatalf("the drop does not say %q: %q", named, dropped)
@@ -276,8 +285,9 @@ func droppedWhenStopped(t *testing.T, stop syscall.Signal) {
 		t.Fatalf("the run it waited behind exited %d, err %v: %s", code, err, busy.Stderr())
 	}
 	finished := later.Expect(t, "(waited ", 2*time.Minute)
-	if !strings.HasSuffix(finished, "s)") {
-		t.Fatalf("the time waited is not written in whole seconds: %q", finished)
+	waited := strings.TrimSuffix(finished[strings.Index(finished, "(waited ")+len("(waited "):], ")")
+	if parsed, err := time.ParseDuration(waited); err != nil || guard.HumanDuration(parsed) != waited {
+		t.Fatalf("the time waited is not written in whole seconds as the contract writes it: %q", finished)
 	}
 	if code, err := later.Wait(time.Minute); err != nil || code != 0 {
 		t.Fatalf("the waiting invocation exited %d, err %v: %s", code, err, later.Stderr())

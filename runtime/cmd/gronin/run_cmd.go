@@ -53,14 +53,7 @@ func newRunCommand() *cobra.Command {
 			finished, err := deployment.executor.Execute(cmd.Context(), book, run.Trigger{
 				Kind: record.TriggerManual, Values: triggerValues(cmd),
 				// Said before the wait begins, so that a caller does not read it as a hang.
-				OnWait: func(waiting guard.Waiting) {
-					held := waiting.Held
-					if waiting.Holder != nil {
-						held = waiting.Holder.String()
-					}
-					cmd.Printf("%s is running (%s); waiting up to %s\n",
-						book.Name, held, guard.HumanDuration(waiting.UpTo))
-				},
+				OnWait: func(waiting guard.Waiting) { cmd.Println(waitingLine(book.Name, waiting)) },
 			})
 			var refused *guard.Refused
 			if errors.As(err, &refused) {
@@ -97,6 +90,20 @@ func newRunCommand() *cobra.Command {
 	command.Flags().StringToString("trigger", nil,
 		"values the playbook may interpolate as ${trigger.x}")
 	return command
+}
+
+// unnamedHolder is what the waiting line says when the coordinator could not name who holds
+// the claim: the file lock between a lock being taken and its holder being written into it.
+const unnamedHolder = "held by another process"
+
+// waitingLine is what `gronin run` says as a trigger begins to wait (contracts/cli.md).
+func waitingLine(playbookName string, waiting guard.Waiting) string {
+	holder := unnamedHolder
+	if waiting.Holder != nil {
+		holder = waiting.Holder.String()
+	}
+	return fmt.Sprintf("%s is running (%s); waiting up to %s",
+		playbookName, holder, guard.HumanDuration(waiting.UpTo))
 }
 
 type errNotSucceeded struct{ status string }
