@@ -309,7 +309,10 @@ func renewing(t *testing.T, s Subject, holder, contender guard.Coordinator, name
 		// this claim is gone, so it is released before the next attempt tries to acquire it
 		// under the same name.
 		if step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {
-			releaseClaim(t, claim)
+			// The claim may already be lost by the time this releases it, which C5 permits and is not this call's error to report.
+			if err := claim.Release(bounded(t)); err != nil && !errors.Is(err, guard.ErrLost) {
+				t.Fatalf("releasing an excused claim: %v", err)
+			}
 			return nil, step, nil
 		}
 		if err := claim.Renew(bounded(t)); err != nil {

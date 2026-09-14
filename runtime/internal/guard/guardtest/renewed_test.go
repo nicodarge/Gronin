@@ -150,3 +150,36 @@ func TestABackendJumpBeyondTheBoundIsExcusedLikeAStall(t *testing.T) {
 		t.Fatalf("gap = %s, want at least the jump of %s", gap, 100*renewalExpiry)
 	}
 }
+
+// lostOnRelease reports ErrLost from Release, which C5 does not forbid: it only obliges Renew
+// and Fence to do that on a lapsed claim, and C7 only promises a second release is not an error.
+type lostOnRelease struct{ guard.Claim }
+
+func (c *lostOnRelease) Release(context.Context) error { return guard.ErrLost }
+
+// releasingAsLost wraps every claim its underlying coordinator hands out in lostOnRelease.
+type releasingAsLost struct{ guard.Coordinator }
+
+func (c *releasingAsLost) Acquire(ctx context.Context, req guard.AcquireRequest) (guard.Claim, error) {
+	claim, err := c.Coordinator.Acquire(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &lostOnRelease{Claim: claim}, nil
+}
+
+// A subject whose Release reports ErrLost on the claim a Backend jump excuses must not turn
+// that excuse into a hard failure.
+func TestAnExcusedClaimsReleaseMayAlreadyReportItLost(t *testing.T) {
+	r := newRenewal()
+	holder := &capturing{Coordinator: &releasingAsLost{Coordinator: r.fake.Host(nil)}}
+	subject := r.subject
+	subject.Backend = jumpBy(100 * renewalExpiry)
+	claim, _, err := renewing(t, subject, holder, r.fake.Host(nil), "jump-lost-release", 1, func() {}, onTheFake)
+	if err != nil {
+		t.Fatalf("a Backend jump beyond the bound, released as already lost, was not excused: %v", err)
+	}
+	if claim != nil {
+		t.Fatalf("claim = %v, want none: a Backend jump beyond the bound must restart the attempt", claim)
+	}
+}

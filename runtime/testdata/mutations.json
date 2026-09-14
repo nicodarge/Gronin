@@ -4330,7 +4330,7 @@
       "name": "the Backend jump bound is not checked",
       "tree": "..",
       "file": "internal/guard/guardtest/contract.go",
-      "find": "\t\tif step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {\n\t\t\treleaseClaim(t, claim)\n\t\t\treturn nil, step, nil\n\t\t}\n",
+      "find": "\t\tif step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {\n\t\t\t// The claim may already be lost by the time this releases it, which C5 permits and is not this call's error to report.\n\t\t\tif err := claim.Release(bounded(t)); err != nil && !errors.Is(err, guard.ErrLost) {\n\t\t\t\tt.Fatalf(\"releasing an excused claim: %v\", err)\n\t\t\t}\n\t\t\treturn nil, step, nil\n\t\t}\n",
       "replace": "",
       "command": [
         "go",
@@ -4354,6 +4354,21 @@
         "-count=1",
         "-run",
         "TestABackendJumpBeyondTheBoundIsExcusedLikeAStall"
+      ]
+    },
+    {
+      "name": "the excuse path releases strictly instead of tolerating an already-lost claim",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\t\t\t// The claim may already be lost by the time this releases it, which C5 permits and is not this call's error to report.\n\t\t\tif err := claim.Release(bounded(t)); err != nil && !errors.Is(err, guard.ErrLost) {\n\t\t\t\tt.Fatalf(\"releasing an excused claim: %v\", err)\n\t\t\t}\n",
+      "replace": "\t\t\treleaseClaim(t, claim)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAnExcusedClaimsReleaseMayAlreadyReportItLost"
       ]
     }
   ]
