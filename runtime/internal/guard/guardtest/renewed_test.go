@@ -88,3 +88,65 @@ func TestALossWithinTheExpiryIsTheBackends(t *testing.T) {
 			renewalExpiry/4, renewalExpiry, claim)
 	}
 }
+
+// delayedAck advances backend right after the underlying Acquire returns, standing in for a
+// stall in the trip back to the caller: the grant itself lands at the earlier instant, but a
+// caller that reads Backend only after Acquire returns sees the later one instead.
+type delayedAck struct {
+	guard.Coordinator
+	backend *Clock
+	delay   time.Duration
+}
+
+func (d *delayedAck) Acquire(ctx context.Context, req guard.AcquireRequest) (guard.Claim, error) {
+	claim, err := d.Coordinator.Acquire(ctx, req)
+	d.backend.Advance(d.delay)
+	return claim, err
+}
+
+// A stall in the grant's own return trip must not make the claim look younger than it is: sent
+// has to be read before Acquire is called, not after it returns, or a loss found right after is
+// misjudged not the backend's.
+func TestAStallInTheGrantsReturnTripIsStillTheBackends(t *testing.T) {
+	r := newRenewal()
+	holder := &capturing{Coordinator: &delayedAck{Coordinator: r.fake.Host(nil), backend: r.backend, delay: 2 * renewalExpiry}}
+	claim, _, err := renewing(t, r.subject, holder, r.fake.Host(nil), "grant-stall", 1,
+		func() { r.fake.Expire(holder.claim) }, onTheFake)
+	if err != nil {
+		t.Fatalf("a claim lost right after a stalled grant was not judged the backend's: %v", err)
+	}
+	if claim != nil {
+		t.Fatalf("claim = %v, want none: a claim expired since a stalled grant must be lost", claim)
+	}
+}
+
+// jumpBy returns a Backend func whose reading advances by step every call, whatever else
+// moves: a stand-in for a Backend wired to a clock other than the one the backend judges
+// expiry on.
+func jumpBy(step time.Duration) func() guard.Instant {
+	var at guard.Instant
+	return func() guard.Instant {
+		at = at.Add(step)
+		return at
+	}
+}
+
+// A Backend that jumps beyond backendJumpBound in one round is excused like a stall, not
+// failed outright: a real freeze that big is retried rather than hard-failing the clause on
+// the spot, the way a Backend wired to the wrong clock — which jumps the same way on every
+// attempt — still does once every attempt is spent.
+func TestABackendJumpBeyondTheBoundIsExcusedLikeAStall(t *testing.T) {
+	r := newRenewal()
+	subject := r.subject
+	subject.Backend = jumpBy(100 * renewalExpiry)
+	claim, gap, err := renewing(t, subject, r.holder, r.fake.Host(nil), "jump", 1, func() {}, onTheFake)
+	if err != nil {
+		t.Fatalf("a Backend jump beyond the bound was not excused like a stall: %v", err)
+	}
+	if claim != nil {
+		t.Fatalf("claim = %v, want none: a Backend jump beyond the bound must restart the attempt", claim)
+	}
+	if gap < 100*renewalExpiry {
+		t.Fatalf("gap = %s, want at least the jump of %s", gap, 100*renewalExpiry)
+	}
+}

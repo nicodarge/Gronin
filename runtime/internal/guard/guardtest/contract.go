@@ -293,16 +293,24 @@ func renewing(t *testing.T, s Subject, holder, contender guard.Coordinator, name
 	each func(), label func(round int) string,
 ) (guard.Claim, time.Duration, error) {
 	t.Helper()
+	sent := s.Backend()
 	claim := acquire(t, s, holder, manual(name, "run-a"))
 	if granted := claim.Expiry(); granted < s.Expiry {
 		t.Fatalf("%s was granted %s, less than the %s asked: the cadence below assumes granted expiry is never shorter than requested", name, granted, s.Expiry)
 	}
-	sent := s.Backend()
 	for round := range rounds {
 		each()
 		renewal := s.Backend()
+		// A Backend that jumps further than this in one round cannot be the real one this
+		// claim's expiry is judged on. Excused like a stall rather than failed outright, so
+		// a genuine freeze that big is retried instead of hard-failing on the spot, and a
+		// miswired Backend — which jumps the same way on every attempt — still exhausts them.
+		// Unlike a loss found through Renew or a contender, nothing here has told the backend
+		// this claim is gone, so it is released before the next attempt tries to acquire it
+		// under the same name.
 		if step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {
-			t.Fatalf("Backend advanced %s in one renewal round %s: wired to a clock the backend does not judge expiry on", step, label(round))
+			releaseClaim(t, claim)
+			return nil, step, nil
 		}
 		if err := claim.Renew(bounded(t)); err != nil {
 			if gap, late := overdue(sent, s.Backend(), claim.Expiry()); late && errors.Is(err, guard.ErrLost) {
@@ -329,17 +337,15 @@ func renewing(t *testing.T, s Subject, holder, contender guard.Coordinator, name
 	return claim, 0, nil
 }
 
-// backendJumpBound is the most Backend plausibly advances in one renewal round: well past
-// the real per-call latency every subject here has, and far short of the hour StepRuntime
-// moves the runtime's clock by, so a Backend wired to that clock instead is caught rather
-// than excused.
+// backendJumpBound is the most Backend plausibly advances in one renewal round.
 func backendJumpBound(s Subject) time.Duration { return 10 * s.Expiry }
 
 // overdue is how long after sent the backend's clock read at, and whether that is past
-// expiry. gap > expiry rules out false lateness, since the backend cannot judge a call
-// before it answers; it does not rule out the reverse — client-side jitter between sent
-// and at inflating gap past expiry while the backend's own elapsed time was not — so a
-// genuine early loss stays excusable by however wide that window is.
+// expiry. Every sent reading here is taken before the RPC that restarts the countdown, so
+// gap is never less than the real elapsed time since that restart — a genuine stall is never
+// read as less overdue than it was. It is not bounded from above: jitter after the loss is
+// found can still inflate gap past expiry while the real elapsed time was not, excusing a
+// genuine early loss.
 func overdue(sent, at guard.Instant, expiry time.Duration) (time.Duration, bool) {
 	gap := at.Sub(sent)
 	return gap, gap > expiry

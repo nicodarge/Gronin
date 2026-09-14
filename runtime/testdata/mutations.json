@@ -4310,6 +4310,51 @@
         "-run",
         "TestFakeContract"
       ]
+    },
+    {
+      "name": "the initial sent reading moves after acquire",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\tsent := s.Backend()\n\tclaim := acquire(t, s, holder, manual(name, \"run-a\"))\n",
+      "replace": "\tclaim := acquire(t, s, holder, manual(name, \"run-a\"))\n\tsent := s.Backend()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAStallInTheGrantsReturnTripIsStillTheBackends"
+      ]
+    },
+    {
+      "name": "the Backend jump bound is not checked",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\t\tif step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {\n\t\t\treleaseClaim(t, claim)\n\t\t\treturn nil, step, nil\n\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestABackendJumpBeyondTheBoundIsExcusedLikeAStall"
+      ]
+    },
+    {
+      "name": "the Backend jump bound compares the wrong way",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "step > backendJumpBound(s)",
+      "replace": "step < backendJumpBound(s)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestABackendJumpBeyondTheBoundIsExcusedLikeAStall"
+      ]
     }
   ]
 }
