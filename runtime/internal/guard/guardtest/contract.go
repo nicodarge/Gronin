@@ -27,6 +27,9 @@ type Subject struct {
 	Lapse func(t *testing.T, claim guard.Claim)
 	// Elapse lets d pass on the backend's clock.
 	Elapse func(t *testing.T, d time.Duration)
+	// Backend reads the clock the backend judges a claim's expiry on. Nil only where C2 and
+	// C3 are n/a.
+	Backend func() guard.Instant
 	// StepRuntime moves the runtime's clock, and only the runtime's.
 	StepRuntime func(d time.Duration)
 	// ShortGrant returns a coordinator whose backend grants less than it is asked; nil
@@ -215,17 +218,11 @@ func exclusion(t *testing.T, s Subject) {
 // sleeping the expiry and hoping.
 func expiryIsTheBackends(t *testing.T, s Subject) {
 	holder, contender := s.New(t, nil), s.New(t, nil)
-	claim := acquire(t, s, holder, manual("c2", "run-a"))
 
 	step := s.Expiry / 4
-	for elapsed := time.Duration(0); elapsed < 3*s.Expiry/2; elapsed += step {
-		s.Elapse(t, step)
-		if err := claim.Renew(bounded(t)); err != nil {
-			t.Fatalf("renewing after %s: %v", elapsed+step, err)
-		}
-		_, err := try(t, s, contender, manual("c2", "run-b"))
-		refusedAs(t, err, guard.ErrHeld, "acquiring a claim its holder keeps renewing")
-	}
+	renewed(t, s, holder, contender, "c2", int(3*s.Expiry/2/step),
+		func() { s.Elapse(t, step) },
+		func(round int) string { return fmt.Sprintf("after %s", time.Duration(round+1)*step) })
 
 	poll := s.Expiry / 10
 	for waited := time.Duration(0); ; waited += poll {
@@ -245,18 +242,94 @@ func expiryIsTheBackends(t *testing.T, s Subject) {
 // C3. Moving the runtime's clock by hours changes nothing about a claim its holder renews.
 func noHostClockJudgesAClaim(t *testing.T, s Subject) {
 	holder, contender := s.New(t, nil), s.New(t, nil)
-	claim := acquire(t, s, holder, manual("c3", "run-a"))
-
-	for range 4 {
-		s.StepRuntime(time.Hour)
-		s.Elapse(t, s.Expiry/4)
-		if err := claim.Renew(bounded(t)); err != nil {
-			t.Fatalf("renewing after the runtime's clock moved: %v", err)
-		}
-		_, err := try(t, s, contender, manual("c3", "run-b"))
-		refusedAs(t, err, guard.ErrHeld, "acquiring a renewed claim after the runtime's clock moved hours")
-	}
+	claim := renewed(t, s, holder, contender, "c3", 4,
+		func() {
+			s.StepRuntime(time.Hour)
+			s.Elapse(t, s.Expiry/4)
+		},
+		func(int) string { return "after the runtime's clock moved hours" })
 	releaseClaim(t, claim)
+}
+
+// renewalAttempts is how many attempts in a row renewed lets a stalled host cost it.
+const renewalAttempts = 3
+
+// renewed acquires name on holder and renews it rounds times, calling each before every
+// renewal and asserting after it that contender is refused. It returns the claim, held.
+//
+// A backend judging expiry on a real clock keeps counting while the host running the suite
+// is stalled, and a stall longer than the expiry lapses a claim nobody was able to renew:
+// losing it then is the backend being right, not a clause failing. So a loss found more than
+// the expiry after the last renewal was sent starts the attempt over (renewing), and only a
+// host that stalls like that in every attempt fails the clause for it.
+func renewed(t *testing.T, s Subject, holder, contender guard.Coordinator, name string, rounds int,
+	each func(), label func(round int) string,
+) guard.Claim {
+	t.Helper()
+	if s.Backend == nil {
+		t.Fatal("a subject whose claims expire reads its backend's clock through Backend")
+	}
+	var longest time.Duration
+	for range renewalAttempts {
+		claim, gap, err := renewing(t, s, holder, contender, name, rounds, each, label)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if claim != nil {
+			return claim
+		}
+		t.Logf("%s was lost %s after its last renewal was sent, past its expiry: starting over", name, gap)
+		longest = max(longest, gap)
+	}
+	t.Fatalf("every one of %d attempts went longer than the expiry of %s between renewals, up to %s: "+
+		"this host stalls too long for any renewal to be judged", renewalAttempts, s.Expiry, longest)
+	return nil
+}
+
+// renewing is one attempt of renewed. It returns the claim still held; or no claim and how
+// long after the last renewal was sent it was found lost, when that is past its expiry; or
+// an error, when it was lost sooner, which only the backend can have done.
+func renewing(t *testing.T, s Subject, holder, contender guard.Coordinator, name string, rounds int,
+	each func(), label func(round int) string,
+) (guard.Claim, time.Duration, error) {
+	t.Helper()
+	sent := s.Backend()
+	claim := acquire(t, s, holder, manual(name, "run-a"))
+	for round := range rounds {
+		each()
+		renewal := s.Backend()
+		if err := claim.Renew(bounded(t)); err != nil {
+			if gap, late := overdue(sent, s.Backend(), claim.Expiry()); late && errors.Is(err, guard.ErrLost) {
+				return nil, gap, nil
+			}
+			return nil, 0, fmt.Errorf("renewing %s: %w", label(round), err)
+		}
+		sent = renewal
+		took, err := try(t, s, contender, manual(name, "run-b"))
+		if err == nil {
+			gap, late := overdue(sent, s.Backend(), claim.Expiry())
+			releaseClaim(t, took)
+			if late {
+				return nil, gap, nil
+			}
+			return nil, 0, fmt.Errorf("a claim its holder keeps renewing was acquired by another %s, %s after its last renewal was sent",
+				label(round), gap)
+		}
+		if !errors.Is(err, guard.ErrHeld) {
+			return nil, 0, fmt.Errorf("acquiring a claim its holder keeps renewing %s: got %w, want %w",
+				label(round), err, guard.ErrHeld)
+		}
+	}
+	return claim, 0, nil
+}
+
+// overdue is how long after sent the backend's clock read at, and whether that is past
+// expiry. A backend restarts a claim's countdown no earlier than a renewal is sent and
+// judges a call no later than it is answered, so a claim lost no more than its expiry after
+// the last renewal was sent was lost by the backend, whatever the host did in between.
+func overdue(sent, at guard.Instant, expiry time.Duration) (time.Duration, bool) {
+	gap := at.Sub(sent)
+	return gap, gap > expiry
 }
 
 // C4. Every call returns by its context's deadline, asserted from a watchdog of the

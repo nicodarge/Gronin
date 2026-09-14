@@ -1312,6 +1312,21 @@
       ]
     },
     {
+      "name": "the fake's renewal does not move the expiry",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tlive.expires = f.clock.Monotonic().Add(live.granted)\n\treturn nil",
+      "replace": "\t_ = live\n\treturn nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract"
+      ]
+    },
+    {
       "name": "a held fake call ignores its context",
       "tree": "..",
       "file": "internal/guard/guardtest/fake.go",
@@ -1414,6 +1429,21 @@
       "file": "internal/guard/etcd/etcd.go",
       "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
       "replace": "if _, err := c.coordinator.client.KeepAliveOnce(context.Background(), c.lease); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a renewal never reaches the etcd server",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
+      "replace": "if _, err := c.coordinator.client.Get(ctx, c.coordinator.claimKey(c.name)); err != nil {",
       "command": [
         "go",
         "test",
@@ -4219,6 +4249,36 @@
         "-race",
         "-run",
         "TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency"
+      ]
+    },
+    {
+      "name": "a loss past the expiry is judged the backend's",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\treturn gap, gap > expiry",
+      "replace": "\treturn gap, false",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAStallPastTheExpiryIsNotTheBackends"
+      ]
+    },
+    {
+      "name": "every loss is excused as a stall",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\treturn gap, gap > expiry",
+      "replace": "\treturn gap, true",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestALossWithinTheExpiryIsTheBackends"
       ]
     }
   ]

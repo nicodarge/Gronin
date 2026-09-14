@@ -54,7 +54,9 @@ func TestEtcdContract(t *testing.T) {
 				t.Fatalf("revoking the lease of a claim: %v", err)
 			}
 		},
-		Elapse:      func(_ *testing.T, d time.Duration) { time.Sleep(d) },
+		Elapse: func(_ *testing.T, d time.Duration) { time.Sleep(d) },
+		// The server is embedded in this process, and its lessor reads this host's clock.
+		Backend:     guard.SystemClock().Monotonic,
 		StepRuntime: runtime.Advance,
 		// The server grants at least a second and a half, rounded up, whatever it is
 		// asked, so the refusing half of C12 cannot be reached through it. TestGrantedExpiry
