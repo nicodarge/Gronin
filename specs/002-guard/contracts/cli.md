@@ -70,6 +70,7 @@ $ gronin refusals
 2026-09-10T06:00:00Z  doc-check  schedule  claim_held          held by run 20260910T060000Z-3f9a1c0b2e4d on host-b.example.com, process 8f2c1a0b
 2026-09-10T06:03:11Z  doc-check  manual    waiting_slot_full   a trigger accepted at 2026-09-10T06:01:02Z is already waiting
 2026-09-10T06:05:00Z  doc-check  schedule  tick_already_ran    tick 06:05:00Z ran as 20260910T060500Z-7b21e4c09d3a on host-b.example.com
+2026-09-10T06:10:00Z  doc-check  manual    rate_limited        rate limit reached: 2 runs per 5m
 2026-09-10T07:30:00Z  doc-check  manual    dropped             trigger 5d1e9c3a7b2f4e60 accepted at 2026-09-10T07:12:40Z; process 8f2c1a0b ended before it ran
 ```
 

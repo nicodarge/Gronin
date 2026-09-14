@@ -169,4 +169,47 @@ func TestTheRateLimitBoundsRunsAcrossTheDeployment(t *testing.T) {
 		}
 		assertEndedAs(t, store, accepted.TriggerID, record.WaitRateLimited)
 	})
+
+	t.Run("a waiting trigger is discarded when an independent admission fills the remaining capacity", func(t *testing.T) {
+		// A limit of two: one slot is taken and released by a trigger that has nothing to
+		// do with the one that waits or the one it collides with, before either of them is
+		// admitted at all. By the time the run it waits behind frees the claim, that
+		// independent admission and the run together have already filled the window, so
+		// the wait ends discarded rather than run — FR-124, the window bounds runs and not
+		// only the run a wait happened to collide with.
+		stateDir := t.TempDir()
+		backend := guardtest.NewClock(start)
+		runtime := guardtest.NewClock(start)
+		fake := guardtest.NewFake(backend, runtime)
+		book := rated(t, "drift-check", 2, "1m")
+
+		other, _ := waitingGuard(t, fake.Host(nil), runtime, t.TempDir(), "instance-other", book)
+		independent, err := other.Admit(t.Context(), book, guard.Request{RunID: "run-other", Kind: record.TriggerManual})
+		if err != nil {
+			t.Fatalf("the independent admission was refused: %v", err)
+		}
+		if err := independent.Claim.Release(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+
+		holder, _ := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-holder", book)
+		held, err := holder.Admit(t.Context(), book, guard.Request{RunID: "run-held", Kind: record.TriggerManual})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		waiter, store := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-waiter", book)
+		waiting, done := admitInBackground(t, waiter, book, "run-waiter")
+		accepted := startedWaiting(t, waiting, done)
+
+		if err := held.Claim.Release(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		result := ended(t, done, 10*time.Second)
+		if !refusedWith(result.err, record.MechanismRateLimited) || result.admitted != nil {
+			t.Fatalf("a waiting trigger was not refused for rate once an independent admission had filled "+
+				"the remaining capacity: admitted %v, err %v", result.admitted, result.err)
+		}
+		assertEndedAs(t, store, accepted.TriggerID, record.WaitRateLimited)
+	})
 }

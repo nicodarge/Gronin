@@ -2800,8 +2800,8 @@
       "name": "a waiting trigger takes the claim before it reads its file",
       "tree": "..",
       "file": "internal/guard/wait.go",
-      "find": "\tedited, err := g.reread(w)\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tclaim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
-      "replace": "\tclaim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tedited, err := g.reread(w)\n\tif err != nil {\n\t\tg.giveBack(decide, claim)\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
+      "find": "\tedited, err := g.reread(w)\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\t// FR-124: judged against edited's own limit, so a rate declared or changed since the\n\t// trigger arrived is the one it is held to when it finally asks for the claim.\n\tclaim, err := g.Coordinator.Acquire(decide, g.ask(edited, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
+      "replace": "\tclaim, err := g.Coordinator.Acquire(decide, g.ask(w.book, req))\n\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n\tedited, err := g.reread(w)\n\tif err != nil {\n\t\tg.giveBack(decide, claim)\n\t\treturn nil, nil, err\n\t}\n\treturn claim, edited, nil\n",
       "command": [
         "go",
         "test",
@@ -4019,7 +4019,7 @@
       ]
     },
     {
-      "name": "the window is counted on this host even with a backend",
+      "name": "the rate limit is never asked for",
       "tree": "..",
       "file": "internal/guard/guard.go",
       "find": "\treturn &RateLimit{Runs: book.Guard.Rate.Runs, Per: per}\n",
@@ -4076,6 +4076,22 @@
         "-count=1",
         "-run",
         "TestGuardBlock"
+      ]
+    },
+    {
+      "name": "the fake's commit does not re-check the rate slots",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\t\tif f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) ||\n\t\t\t(req.Rate != nil && f.rateFullLocked(req.Name, req.Rate)) {\n\t\t\t// Overtaken between the read and the transaction \u2014 by another claim, another\n\t\t\t// tick, or another caller that took the rate slot this one was about to: read\n\t\t\t// and decide again. Two callers racing the last slot both pass the check above\n\t\t\t// before either commits, so the check has to run again here, under the same\n\t\t\t// lock the commit itself takes (C8) \u2014 otherwise both take the claim.\n",
+      "replace": "\t\tif f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) {\n\t\t\t// Overtaken between the read and the transaction: read and decide again.\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-race",
+        "-run",
+        "TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency"
       ]
     }
   ]

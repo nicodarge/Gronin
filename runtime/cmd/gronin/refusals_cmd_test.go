@@ -51,7 +51,7 @@ func TestRefusalsAreReadableAfterwards(t *testing.T) {
 		{
 			PlaybookName: "drift-check", TriggerKind: record.TriggerManual,
 			Mechanism: record.MechanismRateLimited,
-			Detail:    "rate limit reached: 2 runs per 1m0s",
+			Detail:    "rate limit reached: 2 runs per 1m",
 			RefusedAt: tick.Add(20 * time.Minute),
 		},
 		{

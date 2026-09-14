@@ -675,9 +675,17 @@ times inside one minute: two runs and two refusals.
       the slots are checked` and `release frees the rate slot`, in `internal/guard/guardtest/fake.go`,
       `internal/guard/etcd/etcd.go`, and — for the second, as `the window counts only runs still in
       flight` — `internal/run/filelock.go`
-- [x] T096 [US3] SC-107: `a trigger refused for rate waits`, in `internal/guard/guard.go`; `a waiting
-      trigger is not judged against the limit again`, in `internal/guard/wait.go`; `the window is counted
-      on this host even with a backend`, in `internal/guard/guard.go` — all with command
+      *After review*: the fake's C8 checked the rate slots, released its lock, then committed without
+      looking again — the etcd adapter's transaction cannot do this, but the fake's two-step
+      check-then-commit could, and two callers racing the last slot both passed the check before
+      either committed. `TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency` in
+      `internal/guard/guardtest/fake_race_test.go` runs many goroutines against a limit of one run
+      and asserts never more than one succeeds; the mutant `the fake's commit does not re-check the
+      rate slots` restores the gap, in `internal/guard/guardtest/fake.go`, command
+      `go test ./internal/guard/guardtest -count=1 -race -run TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency`
+- [x] T096 [US3] SC-107: `a trigger refused for rate waits`, in `internal/guard/wait.go`; `a waiting
+      trigger is not judged against the limit again`, in `internal/guard/wait.go`; `the rate limit is
+      never asked for`, in `internal/guard/guard.go` — all with command
       `go test ./internal/guard -count=1 -run TestTheRateLimit`; `the single-host window ignores its
       duration` and `a replay takes a rate slot`, in `internal/run/filelock.go`, command
       `go test ./internal/run -count=1 -run TestFileLockRate`

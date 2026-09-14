@@ -134,6 +134,20 @@ type FakeHost struct {
 	grant   func(asked time.Duration) time.Duration
 	// watching is called each time Released begins to wait on the fake's notification.
 	watching func(name string)
+	// rateSeam is called between the first rate-slot check and the commit that would take
+	// one, for any request that declares a limit — unlike guard.Seam, whether or not the
+	// request is scheduled. Nil outside the test that exercises that exact window (C8).
+	rateSeam func(ctx context.Context, name string)
+}
+
+// OnRateCheck sets what Acquire calls between checking a name's rate slots and committing
+// one, so a test can hold one caller there while a second one takes the last slot — the
+// same race a caller reading the check under one lock and committing under a later one
+// would otherwise only hit by chance.
+func (h *FakeHost) OnRateCheck(hook func(ctx context.Context, name string)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.rateSeam = hook
 }
 
 var _ guard.Coordinator = (*FakeHost)(nil)
@@ -245,14 +259,25 @@ func (h *FakeHost) Acquire(ctx context.Context, req guard.AcquireRequest) (guard
 		if scheduled && h.seam != nil {
 			h.seam(ctx, req.Name)
 		}
+		h.mu.Lock()
+		rateSeam := h.rateSeam
+		h.mu.Unlock()
+		if req.Rate != nil && rateSeam != nil {
+			rateSeam(ctx, req.Name)
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("%w: %w", guard.ErrUnavailable, err)
 		}
 
 		f.mu.Lock()
 		current := f.ticks[req.Name]
-		if f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) {
-			// Overtaken between the read and the transaction: read and decide again.
+		if f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) ||
+			(req.Rate != nil && f.rateFullLocked(req.Name, req.Rate)) {
+			// Overtaken between the read and the transaction — by another claim, another
+			// tick, or another caller that took the rate slot this one was about to: read
+			// and decide again. Two callers racing the last slot both pass the check above
+			// before either commits, so the check has to run again here, under the same
+			// lock the commit itself takes (C8) — otherwise both take the claim.
 			f.mu.Unlock()
 			continue
 		}

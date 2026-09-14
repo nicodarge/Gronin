@@ -124,8 +124,10 @@ func (c *Coordinator) Acquire(ctx context.Context, req guard.AcquireRequest) (gu
 	}
 
 	// A rate slot's own lease, granted alongside the claim's so both can be written in one
-	// transaction (C8). Its window is minutes or hours, far past the server's minimum grant,
-	// so nothing here compares what came back with what was asked, unlike the claim's.
+	// transaction (C8). Unlike the claim's, nothing here compares what came back with what
+	// was asked (CheckGrant): the server only ever rounds a grant up, never down, so the
+	// window can only be longer than declared, never shorter — and its minutes or hours are
+	// already far past the server's minimum grant, which is what CheckGrant exists to catch.
 	var rateLease clientv3.LeaseID
 	if req.Rate != nil {
 		rateGrant, err := c.client.Grant(ctx, int64(req.Rate.Per/time.Second))
