@@ -11,8 +11,10 @@ software rather than a target.
 ## 1. Install
 
 ```bash
-curl -sSLo gronin https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
-chmod +x gronin && sudo mv gronin /usr/local/bin/
+curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
+curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS &&
+  chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
 gronin version
 ```
 
@@ -63,7 +65,7 @@ a value you forget is found below rather than at six in the morning.
 ## 4. Check it before arming it
 
 ```bash
-gronin validate ~/.gronin/playbooks
+gronin validate
 ```
 
 This is the load gate. If it refuses, it names the playbook, the field, what it found and what
