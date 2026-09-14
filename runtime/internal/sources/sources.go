@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/config"
@@ -201,9 +203,12 @@ func (c *Catalog) Get(sourceName string) (Source, bool) {
 	return source, ok
 }
 
-// Summary is what `gronin sources list` prints for one source (FR-311): its header, its
-// identity location, its replay window, and never its secret. It never calls Secret, so
-// it cannot print what that resolves.
+// Summary is what `gronin sources list` prints for one source, appended straight after
+// its name (FR-311): its header, its identity location, its replay window, and never its
+// secret. It never calls Secret, so it cannot print what that resolves. The field widths
+// are the layout contracts/cli.md documents, e.g.:
+//
+//	alerts   header X-Grafana-Alerting-Signature   identity digest of the body   window 10m
 func (c *Catalog) Summary(sourceName string) string {
 	source, ok := c.entries[sourceName]
 	if !ok {
@@ -213,8 +218,29 @@ func (c *Catalog) Summary(sourceName string) string {
 	if source.Identity != "" {
 		identity = source.Identity
 	}
-	return fmt.Sprintf("header %s   identity %s   window %s",
-		source.SignatureHeader, identity, source.ReplayWindow)
+	return fmt.Sprintf("header %-30s identity %-20s window %s",
+		source.SignatureHeader, identity, humanDuration(source.ReplayWindow))
+}
+
+// humanDuration mirrors internal/guard's HumanDuration exactly (contracts/cli.md's
+// layout, unit by unit, largest first, no zero unit) rather than importing internal/guard
+// here: this package stays a leaf catalogue beside internal/mcpcatalog, and plan.md's
+// project structure does not have it reach into the guard.
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d <= 0 {
+		return "0s"
+	}
+	var text strings.Builder
+	for _, part := range []struct {
+		count time.Duration
+		unit  string
+	}{{d / time.Hour, "h"}, {d % time.Hour / time.Minute, "m"}, {d % time.Minute / time.Second, "s"}} {
+		if part.count > 0 {
+			text.WriteString(strconv.FormatInt(int64(part.count), 10) + part.unit)
+		}
+	}
+	return text.String()
 }
 
 // Secret resolves a source's secret value. Only the ingress calls this, when it is

@@ -48,7 +48,9 @@ type DeliveryRefusal struct {
 
 // AddDeliveryRefusal writes one authenticated refusal, filling in its identifier when
 // empty. body is written under the refusal's own identifier when given, and left unset
-// for a value refusal, whose body is the delivery's.
+// for a value refusal, whose body is the delivery's. Source, ValueName and PlaybookName
+// go through the redactor too, though none is meant to hold a secret: a source name or a
+// declared value's name is text an operator wrote, not a value this runtime can vouch for.
 func (s *Store) AddDeliveryRefusal(ctx context.Context, refusal DeliveryRefusal, body []byte) (string, error) {
 	if refusal.ID == "" {
 		id, err := newRecordID()

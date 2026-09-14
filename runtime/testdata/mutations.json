@@ -2695,7 +2695,7 @@
       "name": "a waiting trigger's playbook is read again without the load gate",
       "tree": "..",
       "file": "cmd/gronin/deployment.go",
-      "find": "\t\t\treturn playbook.LoadFile(path, capabilities(cfg, catalog, declared))\n",
+      "find": "\t\t\treturn playbook.LoadFile(path, capabilities(cfg, catalog, declared, srcs))\n",
       "replace": "\t\t\treturn playbook.ParseFile(path)\n",
       "command": [
         "go",
@@ -3969,8 +3969,8 @@
       "name": "the source summary resolves the secret",
       "tree": "..",
       "file": "internal/sources/sources.go",
-      "find": "return fmt.Sprintf(\"header %s   identity %s   window %s\",\n\t\tsource.SignatureHeader, identity, source.ReplayWindow)",
-      "replace": "secret, _ := c.Secret(sourceName)\n\treturn fmt.Sprintf(\"header %s   identity %s   window %s   secret %s\",\n\t\tsource.SignatureHeader, identity, source.ReplayWindow, secret)",
+      "find": "return fmt.Sprintf(\"header %-30s identity %-20s window %s\",\n\t\tsource.SignatureHeader, identity, humanDuration(source.ReplayWindow))",
+      "replace": "secret, _ := c.Secret(sourceName)\n\treturn fmt.Sprintf(\"header %-30s identity %-20s window %s   secret %s\",\n\t\tsource.SignatureHeader, identity, humanDuration(source.ReplayWindow), secret)",
       "command": [
         "go",
         "test",
@@ -3981,7 +3981,7 @@
       ]
     },
     {
-      "name": "an unauthenticated refusal inserts a row per request",
+      "name": "a repeated unauthenticated refusal key errors instead of being counted",
       "tree": "..",
       "file": "internal/record/delivery_refusals.go",
       "find": "\t\tON CONFLICT(interval_start, reason, source_bucket)\n\t\tDO UPDATE SET count = count + 1, last_peer = excluded.last_peer, last_at = excluded.last_at`,",

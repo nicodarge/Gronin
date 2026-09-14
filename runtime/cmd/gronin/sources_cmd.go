@@ -32,8 +32,10 @@ func newSourcesCommand() *cobra.Command {
 				cmd.Printf("no sources configured in %s\n", stateDirOf(cmd))
 				return nil
 			}
+			// The name field is 9 wide, matching contracts/cli.md's example exactly;
+			// Summary's own fields carry the rest of the line's layout.
 			for _, name := range names {
-				cmd.Printf("%-8s %s\n", name, srcs.Summary(name))
+				cmd.Printf("%-9s%s\n", name, srcs.Summary(name))
 			}
 			return nil
 		},

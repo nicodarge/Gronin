@@ -56,13 +56,12 @@ func TestSourcesAreListedWithoutTheirSecret(t *testing.T) {
 	if got.ExitCode != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", got.ExitCode, got.Stderr)
 	}
-	for _, want := range []string{
-		"alerts", "forge", "X-Grafana-Alerting-Signature", "X-Forgejo-Signature",
-		"/delivery_uuid", "30m",
-	} {
-		if !strings.Contains(got.Stdout, want) {
-			t.Errorf("stdout does not mention %q: %q", want, got.Stdout)
-		}
+	// The exact layout contracts/cli.md documents — not merely a substring match, which
+	// "window 30m0s" would also satisfy.
+	want := "alerts   header X-Grafana-Alerting-Signature   identity digest of the body   window 10m\n" +
+		"forge    header X-Forgejo-Signature            identity /delivery_uuid       window 30m\n"
+	if got.Stdout != want {
+		t.Fatalf("stdout =\n%q\nwant:\n%q", got.Stdout, want)
 	}
 	if strings.Contains(got.Stdout, testsecret.Value) {
 		t.Fatalf("the secret is in the listing: %q", got.Stdout)
