@@ -4280,6 +4280,36 @@
         "-run",
         "TestALossWithinTheExpiryIsTheBackends"
       ]
+    },
+    {
+      "name": "the etcd subject's Backend reads the runtime's clock instead of the host's",
+      "tree": "..",
+      "file": "internal/guard/etcd/contract_test.go",
+      "find": "Backend:     guard.SystemClock().Monotonic,",
+      "replace": "Backend:     runtime.Monotonic,",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the fake subject's Backend reads the runtime's clock instead of the backend's",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake_contract_test.go",
+      "find": "Backend:     backend.Monotonic,",
+      "replace": "Backend:     runtime.Monotonic,",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract"
+      ]
     }
   ]
 }
