@@ -85,7 +85,10 @@ func RunWithStdin(t *testing.T, stdin string, args ...string) Result {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err := start(cmd)
+	if err == nil {
+		err = cmd.Wait()
+	}
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
@@ -133,7 +136,7 @@ func Start(t *testing.T, args ...string) *Process {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cmd.Start(); err != nil {
+	if err := start(cmd); err != nil {
 		t.Fatalf("starting gronin %v: %v", args, err)
 	}
 
@@ -168,6 +171,21 @@ func Start(t *testing.T, args ...string) *Process {
 		_, _ = p.Wait(10 * time.Second)
 	})
 	return p
+}
+
+// start starts cmd so that, on Linux, it does not outlive this process: a test binary
+// killed from outside or by go test's -timeout panic never runs the cleanup that would
+// have ended it.
+//
+// The parent-death signal fires when the starting OS thread exits, and the runtime ends a
+// thread when a goroutine locked to it returns still locked. cmd.Start runs on a new,
+// never-locked goroutine, so the thread it runs on outlives this call whichever thread
+// the caller is locked to.
+func start(cmd *exec.Cmd) error {
+	dieWithThisProcess(cmd)
+	started := make(chan error, 1)
+	go func() { started <- cmd.Start() }()
+	return <-started
 }
 
 func (p *Process) push(line string, closed bool) {

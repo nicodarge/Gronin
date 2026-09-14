@@ -4687,6 +4687,36 @@
         "-run",
         "TestAnExcusedClaimsReleaseMayAlreadyReportItLost"
       ]
+    },
+    {
+      "name": "a started gronin no longer dies with the test process",
+      "tree": "..",
+      "file": "internal/bintest/deathsig_linux.go",
+      "find": "\tcmd.SysProcAttr.Pdeathsig = syscall.SIGKILL\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/bintest",
+        "-count=1",
+        "-run",
+        "^TestAServeDiesWithTheTestThatStartedIt$"
+      ]
+    },
+    {
+      "name": "gronin is started from the caller's own thread, which may exit before the process does",
+      "tree": "..",
+      "file": "internal/bintest/bintest.go",
+      "find": "\tgo func() { started <- cmd.Start() }()\n",
+      "replace": "\tstarted <- cmd.Start()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/bintest",
+        "-count=1",
+        "-run",
+        "^TestAProcessOutlivesTheThreadThatStartedIt$"
+      ]
     }
   ]
 }
