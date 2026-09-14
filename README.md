@@ -75,7 +75,73 @@ takes a position:
 
 ## Quickstart
 
-Not yet. This section fills in when the runtime lands.
+Install the binary from the latest release, and make sure the agent it drives (`claude`
+by default, or name another with `--agent`) is on the `PATH`:
+
+```bash
+curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
+curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS &&
+  chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
+gronin version
+```
+
+`SHA256SUMS` is itself signed; its `.sig` and `.pem` sit beside it in the release.
+
+`gronin version` also prints the agent version it found, and says so if it is missing or
+below the floor.
+
+From a clone of this repository, copy the shipped example into the state directory
+(`gronin state-dir` prints where that is):
+
+```bash
+mkdir -p "$(gronin state-dir)/playbooks"
+cp examples/doc-check.{yaml,prompt} "$(gronin state-dir)/playbooks/"
+```
+
+The example reads a local checkout and opens issues on a GitHub repository. Both are
+configuration values, not playbook fields. `config set` reads the value from standard
+input, never from its own command line, so feed it from a variable or a file rather than
+typing a secret into the shell:
+
+```bash
+printf '%s' "$HOME/some-repository" | gronin config set checkout
+printf '%s' 'example-owner/example-repo' | gronin config set repo
+```
+
+A report with no findings opens nothing; one with findings fails at the sink until it has a
+token. Add `token: ${config.github_token}` under `github:` in the playbook, and store it
+as a secret so it is redacted everywhere it would otherwise be printed or recorded:
+
+```bash
+printf '%s' "$GITHUB_TOKEN" | gronin config set github_token --secret
+```
+
+Check it, run it once by hand, and look at what happened:
+
+```bash
+gronin validate              # the load gate; names every refusal and what would be accepted
+gronin run doc-check         # now, ignoring the schedule
+gronin runs
+gronin show <run>            # gathered inputs, tool calls, refusals, cost, what each sink did
+```
+
+Iterate on the prompt without paying for delivery twice, or on delivery without paying for
+the agent again:
+
+```bash
+gronin replay <run>          # re-runs the agent against the recorded inputs
+gronin resume <run>          # re-runs only the sinks against the recorded report
+```
+
+Then leave it running. `serve` validates every playbook and arms nothing if any is refused:
+
+```bash
+gronin serve
+```
+
+The longer walkthrough, including what each step refuses, is
+[specs/001-runtime-core/quickstart.md](specs/001-runtime-core/quickstart.md).
 
 ## Licence
 
