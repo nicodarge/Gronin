@@ -306,7 +306,11 @@ func fromRecord(
 		if err != nil {
 			return err
 		}
-		loaded, err := loadPlaybooks(cmd, cfg, catalog, declared)
+		srcs, err := openSources(cmd, cfg)
+		if err != nil {
+			return err
+		}
+		loaded, err := loadPlaybooks(cmd, cfg, catalog, declared, srcs)
 		if err != nil {
 			return errSilent{err}
 		}

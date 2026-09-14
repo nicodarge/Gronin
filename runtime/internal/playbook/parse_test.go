@@ -11,10 +11,9 @@ import (
 )
 
 // T012, SC-002's shape half, SC-109's since the guard block stopped being refused whole,
-// and SC-203's since the retrieve block did. Twenty-six documents, twenty-one of which
-// the published schema must refuse. The corpus is here rather than in a probe script so
-// it keeps running: a probe that passed once, on a machine that no longer exists, is a
-// claim rather than a check.
+// and SC-203's since the retrieve block did. T014 added the webhook trigger's own
+// fixtures. The corpus is here rather than in a probe script so it keeps running: a probe
+// that passed once, on a machine that no longer exists, is a claim rather than a check.
 //
 // Every refusal here is one JSON Schema can express. The ones it cannot — a shell in a
 // tool set, a path escaping the working directory, an MCP server this deployment does not
@@ -23,12 +22,12 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 	accepted := documentsIn(t, "testdata/schema/accepted")
 	refused := documentsIn(t, "testdata/schema/refused")
 
-	if len(accepted)+len(refused) != 26 {
-		t.Fatalf("the corpus holds %d documents, and it is meant to hold twenty-six",
+	if len(accepted)+len(refused) != 33 {
+		t.Fatalf("the corpus holds %d documents, and it is meant to hold thirty-three",
 			len(accepted)+len(refused))
 	}
-	if len(refused) != 21 {
-		t.Fatalf("%d documents are meant to be refused, and twenty-one are", len(refused))
+	if len(refused) != 27 {
+		t.Fatalf("%d documents are meant to be refused, and twenty-seven are", len(refused))
 	}
 
 	for name, document := range accepted {
@@ -40,19 +39,25 @@ func TestTheSchemaAcceptsAndRefusesTheProbeCorpus(t *testing.T) {
 	// refused would let one drift into being refused by accident — a typo in a field the
 	// case does not care about — and the corpus would stay green while covering nothing.
 	because := map[string]string{
-		"agent-without-output-schema.yaml": "agent: missing property 'output_schema'",
-		"cron-without-schedule.yaml":       "trigger: missing property 'schedule'",
-		"gather-step-without-a-name.yaml":  "gather/0: missing property 'as'",
-		"guard-unknown-key.yaml":           "guard: additional properties 'lock' not allowed",
-		"guard-rate-per-seconds.yaml":      "guard/rate/per: '30s' does not match pattern",
-		"guard-rate-zero-runs.yaml":        "guard/rate/runs: minimum: got 0, want 1",
-		"name-not-a-slug.yaml":             "does not match pattern",
-		"no-name.yaml":                     "missing property 'name'",
-		"no-sinks.yaml":                    "sinks: minItems: got 0, want 1",
-		"output-schema-as-a-path.yaml":     "agent/output_schema: got string, want object",
-		"sink-with-two-types.yaml":         "sinks/0: maxProperties: got 2, want 1",
-		"trigger-type-unknown.yaml":        "trigger/type: value must be one of 'cron', 'manual'",
-		"unknown-top-level-key.yaml":       "additional properties 'on_failure' not allowed",
+		"agent-without-output-schema.yaml":         "agent: missing property 'output_schema'",
+		"cron-without-schedule.yaml":               "trigger: missing property 'schedule'",
+		"gather-step-without-a-name.yaml":          "gather/0: missing property 'as'",
+		"guard-unknown-key.yaml":                   "guard: additional properties 'lock' not allowed",
+		"guard-rate-per-seconds.yaml":              "guard/rate/per: '30s' does not match pattern",
+		"guard-rate-zero-runs.yaml":                "guard/rate/runs: minimum: got 0, want 1",
+		"name-not-a-slug.yaml":                     "does not match pattern",
+		"no-name.yaml":                             "missing property 'name'",
+		"no-sinks.yaml":                            "sinks: minItems: got 0, want 1",
+		"output-schema-as-a-path.yaml":             "agent/output_schema: got string, want object",
+		"sink-with-two-types.yaml":                 "sinks/0: maxProperties: got 2, want 1",
+		"trigger-type-unknown.yaml":                "trigger/type: value must be one of 'cron', 'manual', 'webhook'",
+		"unknown-top-level-key.yaml":               "additional properties 'on_failure' not allowed",
+		"webhook-without-source.yaml":              "trigger: missing property 'source'",
+		"webhook-with-schedule.yaml":               "trigger: 'not' failed",
+		"cron-with-source.yaml":                    "trigger: 'not' failed",
+		"webhook-value-without-pattern.yaml":       "trigger/values/alertname: missing property 'pattern'",
+		"webhook-value-without-max-length.yaml":    "trigger/values/alertname: missing property 'max_length'",
+		"webhook-value-pointer-without-slash.yaml": "trigger/values/alertname/at: 'alertname' does not match pattern",
 	}
 	// The retrieve block's own reasons live with the test that is about them, so the two
 	// lists cannot come to disagree about why a fixture is refused.

@@ -26,13 +26,13 @@ func (s *Store) CreateRun(ctx context.Context, run Run) error {
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO runs (id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref,
 		                  trigger_kind, parent_run_id, status, started_at,
-		                  waiting_trigger_id, waited_ms, claim_reach, claim_token)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                  waiting_trigger_id, waited_ms, claim_reach, claim_token, delivery_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.ID, s.redactor.Redact(run.PlaybookName), nullable(run.ResolvedPlaybookRef),
 		nullable(run.ReportRef), nullable(run.PromptRef), string(run.TriggerKind), parent,
 		string(run.Status), formatTime(run.StartedAt),
 		nullable(run.WaitingTriggerID), waited(run), nullable(string(run.ClaimReach)),
-		nullableInt(run.ClaimToken))
+		nullableInt(run.ClaimToken), nullable(run.DeliveryID))
 	if err != nil {
 		return fmt.Errorf("recording run %s: %w", run.ID, err)
 	}
@@ -110,7 +110,7 @@ const runColumns = `
 		SELECT id, playbook_name, resolved_playbook_ref, report_ref, prompt_ref, trigger_kind,
 		       parent_run_id, status, started_at, ended_at, cost_usd, tokens, agent_session_id,
 		       credential_source, error, waiting_trigger_id, waited_ms, claim_reach,
-		       claim_token`
+		       claim_token, delivery_id`
 
 // scanner is what sql.Row and sql.Rows have in common, so one scan serves both.
 type scanner interface{ Scan(dest ...any) error }
@@ -120,18 +120,19 @@ func scanRun(from scanner) (Run, error) {
 		run                                       Run
 		resolved, report, prompt, parent, session sql.NullString
 		credential, failure, started, ended       sql.NullString
-		waitingTrigger, reach                     sql.NullString
+		waitingTrigger, reach, delivery           sql.NullString
 		cost                                      sql.NullFloat64
 		tokens, waitedMS, token                   sql.NullInt64
 		trigger, status                           string
 	)
 	if err := from.Scan(&run.ID, &run.PlaybookName, &resolved, &report, &prompt, &trigger,
 		&parent, &status, &started, &ended, &cost, &tokens, &session, &credential,
-		&failure, &waitingTrigger, &waitedMS, &reach, &token); err != nil {
+		&failure, &waitingTrigger, &waitedMS, &reach, &token, &delivery); err != nil {
 		return Run{}, err
 	}
 	run.WaitingTriggerID, run.WaitedMS = waitingTrigger.String, waitedMS.Int64
 	run.ClaimReach, run.ClaimToken = Reach(reach.String), token.Int64
+	run.DeliveryID = delivery.String
 
 	run.ResolvedPlaybookRef, run.ReportRef, run.PromptRef = resolved.String, report.String, prompt.String
 	run.TriggerKind, run.Status = TriggerKind(trigger), Status(status)

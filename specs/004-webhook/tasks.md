@@ -139,27 +139,27 @@ here needs the guard's decision or its wait.
 
 ### The record store
 
-- [ ] T005 `runtime/internal/record/migrations/<next free number>_webhook.sql`: the `deliveries`,
+- [x] T005 `runtime/internal/record/migrations/<next free number>_webhook.sql`: the `deliveries`,
       `delivery_identities`, `handoffs`, `delivery_refusals` and `ingress_refusal_counts` tables per
       [data-model.md](./data-model.md), with `delivery_identities` keyed on `(source, identity)` and
       `ingress_refusal_counts` on `(interval_start, reason, source_bucket)`; and `delivery_id` added to
       `runs` and to the guard's `refusals` and `waiting_triggers`. A new file rather than an edit, for
       the reason G005 gives; its number is read from the directory when it lands, never predicted here
-- [ ] T006 `runtime/internal/record/store.go`, `runtime/internal/record/runs.go`,
+- [x] T006 `runtime/internal/record/store.go`, `runtime/internal/record/runs.go`,
       `runtime/internal/record/refusals.go` and `runtime/internal/record/waiting.go`: the trigger kind
       `webhook`; `DeliveryID` on the Run, the guard's refusal record and its waiting trigger, written
       and read by the functions that already write and read each
-- [ ] T007 [P] `runtime/internal/record/deliveries.go`: the Delivery and HandOff types and their
+- [x] T007 [P] `runtime/internal/record/deliveries.go`: the Delivery and HandOff types and their
       states — the delivery's `accepted`, `waiting`, `handed_off`, `dropped` and `unbound`, the
       hand-off's `pending`, `waiting`, `handed_off`, `refused` and `dropped`
       ([data-model.md](./data-model.md), *Delivery* and *Hand-off*); `GetDelivery`, `ListDeliveries`
       most recent first, `HandOffsOf`, `SetHandOffState` and `SetDeliveryState`. A
       delivery's body goes through the blob store under the delivery's identifier, so the blob
       store's own identifier check and the redactor apply unchanged
-- [ ] T008 [P] `runtime/internal/record/delivery_refusals.go`: `AddDeliveryRefusal`, one row with its
+- [x] T008 [P] `runtime/internal/record/delivery_refusals.go`: `AddDeliveryRefusal`, one row with its
       body when there is one; `CountUnauthenticated(interval, reason, bucket, peer, at)`, one upsert
       adding to the row for its key; and the two listings. Every timestamp in UTC
-- [ ] T009 `TestWebhookRecord…` in `runtime/internal/record/webhook_test.go`: a store created under the
+- [x] T009 `TestWebhookRecord…` in `runtime/internal/record/webhook_test.go`: a store created under the
       guard's schema migrates, and its existing runs, refusals and waiting triggers read back with
       `delivery_id` empty; a delivery, its hand-offs and a refusal round-trip; counting one key twice
       leaves one row whose count is two, and a second reason a second row; the `testsecret` sentinel
@@ -168,23 +168,23 @@ here needs the guard's decision or its wait.
 
 ### Sources
 
-- [ ] T010 [P] `runtime/internal/sources/sources.go`: `Load(stateDir, cfg)` reads `sources.json` as
+- [x] T010 [P] `runtime/internal/sources/sources.go`: `Load(stateDir, cfg)` reads `sources.json` as
       [contracts/cli.md](./contracts/cli.md) specifies and refuses, all at once and naming the source
       and field: an unknown key, a name that is not a slug, a missing or malformed signature header, a
       secret that is a literal, names an unconfigured key, or names a key not marked secret, an
       identity that is not a JSON Pointer, and a replay window that does not parse or is not positive.
       `Names()`; `Summary(name)`, which never resolves the secret; and the resolved secret for the
       ingress, read only when the ingress is built
-- [ ] T011 `TestSources…` in `runtime/internal/sources/sources_test.go`: every refusal T010 names,
+- [x] T011 `TestSources…` in `runtime/internal/sources/sources_test.go`: every refusal T010 names,
       probed one at a time on an otherwise valid file, so each one is shown refused for its own reason;
       the three shapes in contracts/cli.md accepted, with the defaults filled in; an absent file is no
       source rather than an error; and no `Summary` contains the sentinel set as a source's secret
-- [ ] T012 `runtime/cmd/gronin/sources_cmd.go`, `runtime/cmd/gronin/root.go` and
+- [x] T012 `runtime/cmd/gronin/sources_cmd.go`, `runtime/cmd/gronin/root.go` and
       `runtime/cmd/gronin/deployment.go`: `gronin sources list`, beside `gronin mcp list` and like it
       read-only; the deployment opens the source catalogue beside the MCP catalogue; `capabilities`
       passes the configured names as `playbook.Deployment.Sources`, a field this task adds to
       `runtime/internal/playbook/validate.go` and nothing reads until T025
-- [ ] T013 SC-316, `TestSourcesAreListedWithoutTheirSecret` in `runtime/cmd/gronin/sources_cmd_test.go`:
+- [x] T013 SC-316, `TestSourcesAreListedWithoutTheirSecret` in `runtime/cmd/gronin/sources_cmd_test.go`:
       through the built executable, the sentinel is set with `gronin config set --secret` on standard
       input (`bintest.RunWithStdin`), `sources.json` references it, and `gronin sources list` names
       every source and holds no sentinel. The same value given as an argument is refused, which the
@@ -193,7 +193,7 @@ here needs the guard's decision or its wait.
 
 ### The trigger's shape
 
-- [ ] T014 [P] `runtime/internal/playbook/playbook.go` gains `Trigger.Source` and `Trigger.Values`
+- [x] T014 [P] `runtime/internal/playbook/playbook.go` gains `Trigger.Source` and `Trigger.Values`
       (`at`, `pattern`, `max_length`). The `trigger` property of
       `specs/001-runtime-core/contracts/playbook.schema.json` is replaced by the content of
       [contracts/webhook-trigger.schema.json](./contracts/webhook-trigger.schema.json), and
@@ -205,14 +205,14 @@ here needs the guard's decision or its wait.
       `webhook-value-without-max-length.yaml`, `webhook-value-pointer-without-slash.yaml`. In
       `runtime/internal/playbook/validate.go`, a new `validateTrigger` refuses `trigger.type: webhook`
       by field as declared but not yet applied, until T031 lifts it
-- [ ] T015 `TestTheSchemaAcceptsAndRefusesTheProbeCorpus`'s table in
+- [x] T015 `TestTheSchemaAcceptsAndRefusesTheProbeCorpus`'s table in
       `runtime/internal/playbook/parse_test.go` gains T014's fixtures, and `TestAWebhookTriggerIsHeld`
       in `runtime/internal/playbook/validate_test.go` asserts the hold by field name, so that lifting
       it is a one-line change to the table
 
 ### Mutants for the foundation
 
-- [ ] T016 Register, in `internal/sources/sources.go` with command
+- [x] T016 Register, in `internal/sources/sources.go` with command
       `go test ./internal/sources -count=1` unless named: `a literal source secret is accepted`, `a
       source secret may name a value not marked secret`, `sources.json accepts an unknown key`, `a
       replay window of zero is accepted`, and `the source summary resolves the secret`, the last with
