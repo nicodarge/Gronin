@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A shared group keeps only the newest pending run and cancels older pending ones even
+# without cancel-in-progress, so a push to production gets a group of its own: every
+# merged commit keeps its run. Only a pull request's superseded run is cancelled.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Every static hook, from the file that already pins them. A second pin in this
   # workflow would be a second thing to bump, and the one that drifts is the copy.
