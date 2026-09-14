@@ -261,6 +261,8 @@ func declaredValueNames(book *Playbook) string {
 	return strings.Join(names, ", ")
 }
 
+// validateAgent only ever appends to problems and never returns early, which is what
+// keeps the webhook prompt-reference check below reached whatever earlier checks found.
 func validateAgent(book *Playbook, dep Deployment) []Problem {
 	var problems []Problem
 	agent := book.Agent

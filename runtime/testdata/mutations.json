@@ -2177,8 +2177,8 @@
       "name": "a refused configuration still arms",
       "tree": "..",
       "file": "cmd/gronin/serve_cmd.go",
-      "find": "\t\t\t\tcmd.PrintErrln(\"Nothing was armed.\")\n",
-      "replace": "",
+      "find": "\t\t\t\t// A coordination configuration whose durations cannot hold is refused\n\t\t\t\t// here, before a single schedule is armed (FR-123).\n\t\t\t\tcmd.PrintErrln(err)\n\t\t\t\tcmd.PrintErrln(\"Nothing was armed.\")\n",
+      "replace": "\t\t\t\t// A coordination configuration whose durations cannot hold is refused\n\t\t\t\t// here, before a single schedule is armed (FR-123).\n\t\t\t\tcmd.PrintErrln(err)\n",
       "command": [
         "go",
         "test",
@@ -4011,21 +4011,6 @@
       ]
     },
     {
-      "name": "the gate lets a webhook trigger through before its rules exist",
-      "tree": "..",
-      "file": "internal/playbook/validate.go",
-      "find": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" {\n\t\treturn nil\n\t}",
-      "replace": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" || true {\n\t\treturn nil\n\t}",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1",
-        "-run",
-        "TestAWebhookTriggerIsHeld"
-      ]
-    },
-    {
       "name": "a control character in the identity pointer is accepted",
       "tree": "..",
       "file": "internal/sources/sources.go",
@@ -4536,6 +4521,21 @@
         "TestServeRefusesAWebhookPlaybookWithNoIngress",
         "-timeout",
         "20s"
+      ]
+    },
+    {
+      "name": "the gate refuses a webhook trigger that passes every rule",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tvar problems []Problem\n\n\tif !contains(dep.Sources, book.Trigger.Source) {\n",
+      "replace": "\tvar problems []Problem\n\tproblems = append(problems, Problem{Field: \"trigger.type\", Found: \"held unconditionally\"})\n\n\tif !contains(dep.Sources, book.Trigger.Source) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestAWebhookTriggerIsHeld"
       ]
     }
   ]

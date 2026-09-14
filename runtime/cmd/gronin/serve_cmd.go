@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -53,12 +54,12 @@ func newServeCommand() *cobra.Command {
 				return err
 			}
 			// FR-305, ahead of the ingress this deployment does not yet have: a loaded
-			// webhook playbook refuses startup before anything is armed. T054 narrows
-			// this once --ingress-address exists, so it refuses only when that flag is
-			// absent rather than unconditionally.
+			// webhook playbook refuses startup before anything is armed. contracts/cli.md
+			// shows this ending "and no --ingress-address is set", which is T054's
+			// wording once that flag exists; until then there is no flag to name, so
+			// this phase says "and no ingress exists yet" instead.
 			if name, found := firstWebhookPlaybook(loaded); found {
-				err := fmt.Errorf(
-					"refused: %s: its trigger is webhook, and this deployment has no ingress for it yet", name)
+				err := fmt.Errorf("refused: %s has a webhook trigger, and no ingress exists yet", name)
 				cmd.PrintErrln(err)
 				cmd.PrintErrln("Nothing was armed.")
 				return errSilent{err}
@@ -194,13 +195,15 @@ func newServeCommand() *cobra.Command {
 	}
 }
 
-// firstWebhookPlaybook names the first loaded playbook, in load order, whose trigger is
-// webhook — enough to refuse startup by (FR-305); which one is first is not load-bearing,
-// only that refusing before anything is armed names at least one.
+// firstWebhookPlaybook names the file of the first loaded playbook, in load order, whose
+// trigger is webhook — enough to refuse startup by (FR-305); which one is first is not
+// load-bearing, only that refusing before anything is armed names at least one. The file
+// name, the way loadPlaybooks' own refusals name a playbook (deployment.go), not the
+// playbook's declared name: contracts/cli.md's example is a file name.
 func firstWebhookPlaybook(loaded playbook.Loaded) (string, bool) {
 	for _, book := range loaded.Playbooks {
 		if book.Trigger.Type == "webhook" {
-			return book.Name, true
+			return filepath.Base(book.Path), true
 		}
 	}
 	return "", false

@@ -524,7 +524,10 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
 - [ ] T054 [US1] `runtime/cmd/gronin/serve_cmd.go` and `runtime/cmd/gronin/webhook.go`:
       `--ingress-address`, with no default; T030's refusal narrowed to a webhook playbook with no ingress
       address, and T034's mutant `serve arms a webhook playbook with no ingress` re-declared against the
-      new line; the delivery reconciliation before either listener opens; the ingress listener bound
+      new line. Its message's ending changes too, now that the flag exists to name: from "and no ingress
+      exists yet" (phase 3, no flag to name) to contracts/cli.md's "and no --ingress-address is set",
+      `TestServeRefusesAWebhookPlaybookWithNoIngress`'s exact assertion updated with it; the delivery
+      reconciliation before either listener opens; the ingress listener bound
       after the API's; the startup line of contracts/cli.md naming the address, the sources and the
       single-host reach of repeat detection (FR-319); and the dispatcher, which runs each hand-off in a
       goroutine of its own through the guard and the executor, so that a waiting trigger never holds up
