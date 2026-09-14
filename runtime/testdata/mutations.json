@@ -4194,7 +4194,7 @@
       "name": "the fake's commit does not re-check the rate slots",
       "tree": "..",
       "file": "internal/guard/guardtest/fake.go",
-      "find": "\t\tif f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) ||\n\t\t\t(req.Rate != nil && f.rateFullLocked(req.Name, req.Rate)) {\n\t\t\t// Overtaken between the read and the transaction \u2014 by another claim, another\n\t\t\t// tick, or another caller that took the rate slot this one was about to: read\n\t\t\t// and decide again. Two callers racing the last slot both pass the check above\n\t\t\t// before either commits, so the check has to run again here, under the same\n\t\t\t// lock the commit itself takes (C8) \u2014 otherwise both take the claim.\n",
+      "find": "\t\tif f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) ||\n\t\t\t(req.Rate != nil && f.rateFullLocked(req.Name, req.Rate)) {\n\t\t\t// Overtaken between the read and the transaction — by another claim, another\n\t\t\t// tick, or another caller that took the rate slot this one was about to: read\n\t\t\t// and decide again. Two callers racing the last slot both pass the check above\n\t\t\t// before either commits, so the check has to run again here, under the same\n\t\t\t// lock the commit itself takes (C8) — otherwise both take the claim.\n",
       "replace": "\t\tif f.liveLocked(req.Name) != nil || (scheduled && current.revision != read.revision) {\n\t\t\t// Overtaken between the read and the transaction: read and decide again.\n",
       "command": [
         "go",
@@ -4536,6 +4536,156 @@
         "-count=1",
         "-run",
         "TestAWebhookTriggerIsHeld"
+      ]
+    },
+    {
+      "name": "the fake's renewal does not move the expiry",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tlive.expires = f.clock.Monotonic().Add(live.granted)\n\treturn nil",
+      "replace": "\t_ = live\n\treturn nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract"
+      ]
+    },
+    {
+      "name": "a renewal never reaches the etcd server",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
+      "replace": "if _, err := c.coordinator.client.Get(ctx, c.coordinator.claimKey(c.name)); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "a loss past the expiry is judged the backend's",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\treturn gap, gap > expiry",
+      "replace": "\treturn gap, false",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAStallPastTheExpiryIsNotTheBackends"
+      ]
+    },
+    {
+      "name": "every loss is excused as a stall",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\treturn gap, gap > expiry",
+      "replace": "\treturn gap, true",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestALossWithinTheExpiryIsTheBackends"
+      ]
+    },
+    {
+      "name": "the etcd subject's Backend reads the runtime's clock instead of the host's",
+      "tree": "..",
+      "file": "internal/guard/etcd/contract_test.go",
+      "find": "Backend:     guard.SystemClock().Monotonic,",
+      "replace": "Backend:     runtime.Monotonic,",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
+      ]
+    },
+    {
+      "name": "the fake subject's Backend reads the runtime's clock instead of the backend's",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake_contract_test.go",
+      "find": "Backend:     backend.Monotonic,",
+      "replace": "Backend:     runtime.Monotonic,",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract"
+      ]
+    },
+    {
+      "name": "the initial sent reading moves after acquire",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\tsent := s.Backend()\n\tclaim := acquire(t, s, holder, manual(name, \"run-a\"))\n",
+      "replace": "\tclaim := acquire(t, s, holder, manual(name, \"run-a\"))\n\tsent := s.Backend()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAStallInTheGrantsReturnTripIsStillTheBackends"
+      ]
+    },
+    {
+      "name": "the Backend jump bound is not checked",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\t\tif step := renewal.Sub(sent); step < 0 || step > backendJumpBound(s) {\n\t\t\t// The claim may already be lost by the time this releases it, which C5 permits and is not this call's error to report.\n\t\t\tif err := claim.Release(bounded(t)); err != nil && !errors.Is(err, guard.ErrLost) {\n\t\t\t\tt.Fatalf(\"releasing an excused claim: %v\", err)\n\t\t\t}\n\t\t\treturn nil, step, nil\n\t\t}\n",
+      "replace": "",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestABackendJumpBeyondTheBoundIsExcusedLikeAStall"
+      ]
+    },
+    {
+      "name": "the Backend jump bound compares the wrong way",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "step > backendJumpBound(s)",
+      "replace": "step < backendJumpBound(s)",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestABackendJumpBeyondTheBoundIsExcusedLikeAStall"
+      ]
+    },
+    {
+      "name": "the excuse path releases strictly instead of tolerating an already-lost claim",
+      "tree": "..",
+      "file": "internal/guard/guardtest/contract.go",
+      "find": "\t\t\t// The claim may already be lost by the time this releases it, which C5 permits and is not this call's error to report.\n\t\t\tif err := claim.Release(bounded(t)); err != nil && !errors.Is(err, guard.ErrLost) {\n\t\t\t\tt.Fatalf(\"releasing an excused claim: %v\", err)\n\t\t\t}\n",
+      "replace": "\t\t\treleaseClaim(t, claim)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestAnExcusedClaimsReleaseMayAlreadyReportItLost"
       ]
     }
   ]
