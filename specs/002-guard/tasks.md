@@ -679,8 +679,9 @@ times inside one minute: two runs and two refusals.
       looking again — the etcd adapter's transaction cannot do this, but the fake's two-step
       check-then-commit could, and two callers racing the last slot both passed the check before
       either committed. `TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency` in
-      `internal/guard/guardtest/fake_race_test.go` runs many goroutines against a limit of one run
-      and asserts never more than one succeeds; the mutant `the fake's commit does not re-check the
+      `internal/guard/guardtest/fake_race_test.go` pauses one caller through the `OnRateCheck` hook
+      between its rate check and its commit while a second takes and releases the only slot, and
+      asserts the first is then refused for rate; the mutant `the fake's commit does not re-check the
       rate slots` restores the gap, in `internal/guard/guardtest/fake.go`, command
       `go test ./internal/guard/guardtest -count=1 -race -run TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency`
 - [x] T096 [US3] SC-107: `a trigger refused for rate waits`, in `internal/guard/wait.go`; `a waiting
