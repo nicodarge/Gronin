@@ -31,11 +31,15 @@ func TestTheWaitExpiresOnItsMonotonicReading(t *testing.T) {
 				t.Fatal(err)
 			}
 			waiter, _ := waitingGuard(t, fake.Host(nil), runtime, stateDir, "instance-waiter", drift)
+			since := runtime.Set()
 			waiting, done := admitInBackground(t, waiter, drift, "run-waiter")
 			accepted := startedWaiting(t, waiting, done)
 			if accepted.UpTo != 10*time.Minute {
 				t.Fatalf("the trigger says it waits up to %s, not the 10m declared", accepted.UpTo)
 			}
+			// The trigger says it waits before it reads how long is left and sets its timer
+			// for that. A clock moved in between pushes the timer ten minutes past the move.
+			waitForTimer(t, runtime, since, 10*time.Minute)
 
 			runtime.StepWall(stepWall)
 			runtime.Advance(10*time.Minute + time.Second)
