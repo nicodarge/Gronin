@@ -128,9 +128,7 @@ func TestAServeDiesWithTheTestThatStartedIt(t *testing.T) {
 	}
 }
 
-// The parent-death signal fires when the creating OS thread exits, not the process, and the
-// Go runtime terminates a thread when a goroutine locked to it returns without unlocking.
-// A caller in that position must not take its process down with it.
+// A caller whose goroutine returns still locked to its thread ends that thread; see start.
 func TestAProcessOutlivesTheThreadThatStartedIt(t *testing.T) {
 	args := serveArgs(t, emptyDeployment(t))
 	Build(t)
@@ -154,6 +152,8 @@ func TestAProcessOutlivesTheThreadThatStartedIt(t *testing.T) {
 			}
 			process = Start(t, args...)
 		}()
+		// Start may call t.Fatal on that goroutine. It is safe only while the test function
+		// waits here for it to end, and then returns on a nil process.
 		<-done
 		starter := <-tid
 		if starter == os.Getpid() {
