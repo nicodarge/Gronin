@@ -442,45 +442,45 @@ reports returns exactly one result, naming the first run.
 
 ### Tests for User Story 2
 
-- [ ] T051 [P] [US2] `TestReportPassages…` in `runtime/internal/index/passage_report_test.go`, research.md
+- [x] T051 [P] [US2] `TestReportPassages…` in `runtime/internal/index/passage_report_test.go`, research.md
       §8's report rules: key names, booleans and nulls are not indexed; values keep document order;
       each object in an array opens a passage; a report holding no values is no document; and the
       query `nthe` matches nothing, where indexing the JSON text would have matched the escaped
       newline
-- [ ] T052 [P] [US2] SC-208, `TestOnlyOriginalValidatedReportsAreRetrieved` in
+- [x] T052 [P] [US2] SC-208, `TestOnlyOriginalValidatedReportsAreRetrieved` in
       `runtime/internal/run/retrieve_reports_test.go`, seeded through the executor rather than by
       writing rows: a run whose stub report validates, one whose report fails its schema, a replay of
       the first answering the same report, and a resume of the first. A playbook retrieving from a
       collection over those reports gets exactly one result, and both the record and the results
       file name the first run
-- [ ] T053 [P] [US2] `TestIndexableReports` in `runtime/internal/record/reports_test.go`: the store's
+- [x] T053 [P] [US2] `TestIndexableReports` in `runtime/internal/record/reports_test.go`: the store's
       answer for a list of playbooks, as a table — a run with a report and no parent is listed; one
       with no report, a replay and a resume are not; a playbook not named is not
-- [ ] T054 [P] [US2] In `runtime/internal/collections/collections_test.go`, the table of T011 edited:
+- [x] T054 [P] [US2] In `runtime/internal/collections/collections_test.go`, the table of T011 edited:
       `reports` is accepted, an empty `reports` list refused, and `embeddings` still refused as not
       yet applied
-- [ ] T055 [P] [US2] `TestAReportsCollectionListsItsRuns` in `runtime/cmd/gronin/collections_cmd_test.go`:
+- [x] T055 [P] [US2] `TestAReportsCollectionListsItsRuns` in `runtime/cmd/gronin/collections_cmd_test.go`:
       `gronin collections show` over a reports collection names each indexed run by its identifier,
       and says the sources changed once a further run has recorded a report
 
 ### Implementation for User Story 2
 
-- [ ] T056 [US2] `runtime/internal/record/reports.go`: the runs of the named playbooks whose
+- [x] T056 [US2] `runtime/internal/record/reports.go`: the runs of the named playbooks whose
       `report_ref` is set and whose `parent_run_id` is null, ordered by identifier — the rule
       [data-model.md](./data-model.md) states on the two facts rather than on a list of trigger kinds
-- [ ] T057 [US2] `runtime/internal/index/passage.go`: research.md §8's rules for a report, reading
+- [x] T057 [US2] `runtime/internal/index/passage.go`: research.md §8's rules for a report, reading
       the JSON through the decoder's token stream so that order survives
-- [ ] T058 [US2] `runtime/internal/index/reports.go`: a source whose documents are those runs, each
+- [x] T058 [US2] `runtime/internal/index/reports.go`: a source whose documents are those runs, each
       identified by its run, digested over its report as recorded, and cut by T057's rules
-- [ ] T059 [US2] `runtime/internal/collections/collections.go`: lift the refusal of `reports`
-- [ ] T060 [US2] `runtime/internal/stage/retrieve/retrieve.go` and `results.go`, and
+- [x] T059 [US2] `runtime/internal/collections/collections.go`: lift the refusal of `reports`
+- [x] T060 [US2] `runtime/internal/stage/retrieve/retrieve.go` and `results.go`, and
       `runtime/cmd/gronin/deployment.go`: the stage is handed the record store for a reports source,
       and each result from one is headed with the run it came from (FR-214)
-- [ ] T061 [US2] `runtime/cmd/gronin/collections_cmd.go`: `list` and `show` for a reports collection
+- [x] T061 [US2] `runtime/cmd/gronin/collections_cmd.go`: `list` and `show` for a reports collection
 
 ### Mutants for User Story 2
 
-- [ ] T062 [US2] SC-208, command `go test ./internal/run -count=1 -run
+- [x] T062 [US2] SC-208, command `go test ./internal/run -count=1 -run
       TestOnlyOriginalValidatedReportsAreRetrieved`: `a derived run's report is indexed` and `a run
       with no validated report is indexed`, in `internal/record/reports.go`; `a result does not name
       its run`, in `internal/stage/retrieve/results.go`. And `report keys are indexed`, in

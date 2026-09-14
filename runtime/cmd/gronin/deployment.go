@@ -290,6 +290,19 @@ func indexDir(stateDir string) string {
 	return filepath.Join(stateDir, "index")
 }
 
+// openRecordStore opens the record store on its own, for a command that reads a reports
+// collection's documents but runs no playbook — the collections commands, which write
+// nothing to it (FR-221) and can run alongside a full deployment, since the record store
+// is a database more than one process can open.
+func openRecordStore(cmd *cobra.Command) (*record.Store, error) {
+	cfg, err := openConfig(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return record.Open(cmd.Context(), filepath.Join(stateDirOf(cmd), "record"),
+		record.NewRedactor(cfg.Secrets()))
+}
+
 // retrieving hands the executor the retrieve stage over the collections this deployment
 // declares. Only a command that runs a playbook calls it, so a malformed collections.json
 // withholds nothing from one that reads run history.
@@ -299,6 +312,7 @@ func (d *deployment) retrieving(declared *collections.Catalog) {
 		IndexDir: indexDir(d.stateDir),
 		Config:   d.config,
 		Redactor: d.store.Redactor(),
+		Store:    d.store,
 	}
 }
 

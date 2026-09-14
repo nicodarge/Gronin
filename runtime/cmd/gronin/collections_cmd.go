@@ -11,6 +11,8 @@ import (
 
 	"github.com/nicodarge/Gronin/runtime/internal/collections"
 	"github.com/nicodarge/Gronin/runtime/internal/index"
+	"github.com/nicodarge/Gronin/runtime/internal/record"
+	"github.com/nicodarge/Gronin/runtime/internal/stage/retrieve"
 )
 
 // newCollectionsCommand is the operator's view of what a playbook may retrieve from
@@ -36,9 +38,14 @@ func newCollectionsCommand() *cobra.Command {
 				cmd.Printf("no collections declared in %s\n", stateDirOf(cmd))
 				return nil
 			}
+			store, err := openRecordStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = store.Close() }()
 			for _, name := range names {
 				collection, _ := declared.Get(name)
-				cmd.Println(listLine(cmd.Context(), stateDirOf(cmd), collection))
+				cmd.Println(listLine(cmd.Context(), stateDirOf(cmd), store, collection))
 			}
 			return nil
 		},
@@ -53,7 +60,12 @@ func newCollectionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			found, err := inspect(cmd.Context(), stateDirOf(cmd), collection)
+			store, err := openRecordStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = store.Close() }()
+			found, err := inspect(cmd.Context(), stateDirOf(cmd), store, collection)
 			if err != nil {
 				return err
 			}
@@ -71,7 +83,12 @@ func newCollectionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			generation, documents, err := rebuild(cmd.Context(), stateDirOf(cmd), collection)
+			store, err := openRecordStore(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = store.Close() }()
+			generation, documents, err := rebuild(cmd.Context(), stateDirOf(cmd), store, collection)
 			if err != nil {
 				// The previous generation is still in place: a rebuild is one transaction.
 				return fmt.Errorf("rebuilding %s: %w", collection.Name, err)
@@ -110,16 +127,12 @@ type inspection struct {
 // holds it until it is killed.
 const listingWait = 3 * time.Second
 
-// errNotADirectory is a collection this runtime cannot walk yet.
-var errNotADirectory = errors.New("only a collection over a directory can be listed")
-
 // inspect walks and compares, and writes nothing: listing a collection is not a request to
 // index it (FR-221).
-func inspect(ctx context.Context, stateDir string, collection collections.Collection) (inspection, error) {
-	if collection.Directory == "" {
-		return inspection{}, errNotADirectory
-	}
-	walk, err := index.WalkDirectory(ctx, collection.Directory)
+func inspect(
+	ctx context.Context, stateDir string, store *record.Store, collection collections.Collection,
+) (inspection, error) {
+	walk, cfg, err := retrieve.SourceWalk(ctx, store, collection)
 	if err != nil {
 		return inspection{}, err
 	}
@@ -134,13 +147,13 @@ func inspect(ctx context.Context, stateDir string, collection collections.Collec
 	}
 	return inspection{
 		collection: collection, walk: walk, stored: stored,
-		comparison: index.Compare(index.DirectoryConfiguration(collection.Directory), stored, walk),
+		comparison: index.Compare(cfg, stored, walk),
 	}, nil
 }
 
-func listLine(ctx context.Context, stateDir string, collection collections.Collection) string {
+func listLine(ctx context.Context, stateDir string, store *record.Store, collection collections.Collection) string {
 	line := fmt.Sprintf("%-15s %-9s %-25s ", collection.Name, collection.Mode(), collection.Source())
-	found, err := inspect(ctx, stateDir, collection)
+	found, err := inspect(ctx, stateDir, store, collection)
 	switch {
 	case err != nil:
 		return line + "cannot be listed: " + err.Error()
@@ -194,16 +207,14 @@ func printInspection(cmd *cobra.Command, found inspection) {
 }
 
 // rebuild replaces a collection's index with a walk of its sources, in one transaction.
-func rebuild(ctx context.Context, stateDir string, collection collections.Collection) (index.Generation, int, error) {
-	if collection.Directory == "" {
-		return index.Generation{}, 0, errNotADirectory
-	}
-	walk, err := index.WalkDirectory(ctx, collection.Directory)
+func rebuild(
+	ctx context.Context, stateDir string, store *record.Store, collection collections.Collection,
+) (index.Generation, int, error) {
+	walk, cfg, err := retrieve.SourceWalk(ctx, store, collection)
 	if err != nil {
 		return index.Generation{}, 0, err
 	}
-	ix, err := index.Open(ctx, indexDir(stateDir), collection.Name,
-		index.DirectoryConfiguration(collection.Directory))
+	ix, err := index.Open(ctx, indexDir(stateDir), collection.Name, cfg)
 	if err != nil {
 		return index.Generation{}, 0, err
 	}

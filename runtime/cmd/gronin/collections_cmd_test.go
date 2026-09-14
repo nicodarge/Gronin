@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/nicodarge/Gronin/runtime/internal/bintest"
+	"github.com/nicodarge/Gronin/runtime/internal/fakeagent"
 )
 
 // deploymentWithACollection writes a state directory holding a catalogue and a playbooks
@@ -138,6 +142,95 @@ func TestAListingNamesEverySkippedFile(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// digestCheckPlaybook records reports a reports collection can index.
+const digestCheckPlaybook = `
+name: digest-check
+trigger:
+  type: manual
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: SINK_URL
+`
+
+// T055. `collections show` over a reports collection names each indexed run by its
+// identifier, and says its sources changed once a further run has recorded a report —
+// which the operator's listing can only say once the collection has been indexed at
+// least once.
+func TestAReportsCollectionListsItsRuns(t *testing.T) {
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(sink.Close)
+
+	state := t.TempDir()
+	playbooks := filepath.Join(state, "playbooks")
+	if err := os.MkdirAll(playbooks, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalogue, err := json.Marshal(map[string]any{
+		"conclusions": map[string]any{"reports": []string{"digest-check"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range map[string]string{
+		filepath.Join(state, "collections.json"):      string(catalogue),
+		filepath.Join(playbooks, "digest-check.yaml"): strings.ReplaceAll(digestCheckPlaybook, "SINK_URL", sink.URL),
+		filepath.Join(playbooks, "prompt.md"):         "say something",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	runOnce := func(result string) string {
+		t.Helper()
+		agent := fakeagent.Wrapped(t, fakeagent.ResultVar+"="+result)
+		got := bintest.Run(t, "run", "digest-check", "--state-dir", state, "--agent", agent)
+		if got.ExitCode != 0 {
+			t.Fatalf("gronin run exited %d:\n%s\n%s", got.ExitCode, got.Stdout, got.Stderr)
+		}
+		fields := strings.Fields(got.Stdout)
+		if len(fields) == 0 {
+			t.Fatalf("gronin run printed no run identifier: %q", got.Stderr)
+		}
+		return fields[0]
+	}
+
+	first := runOnce(`{"summary":"first conclusion"}`)
+
+	if built := bintest.Run(t, "collections", "rebuild", "conclusions", "--state-dir", state); built.ExitCode != 0 {
+		t.Fatalf("gronin collections rebuild exited %d: %s", built.ExitCode, built.Stderr)
+	}
+
+	shown := bintest.Run(t, "collections", "show", "conclusions", "--state-dir", state)
+	if shown.ExitCode != 0 {
+		t.Fatalf("gronin collections show exited %d: %s", shown.ExitCode, shown.Stderr)
+	}
+	if !strings.Contains(shown.Stdout, "document    "+first) {
+		t.Errorf("the listing does not name the run by its identifier:\n%s", shown.Stdout)
+	}
+	if !strings.Contains(shown.Stdout, "changed     no") {
+		t.Errorf("a freshly rebuilt collection reads as changed:\n%s", shown.Stdout)
+	}
+
+	runOnce(`{"summary":"second conclusion"}`)
+
+	again := bintest.Run(t, "collections", "show", "conclusions", "--state-dir", state)
+	if again.ExitCode != 0 {
+		t.Fatalf("gronin collections show exited %d: %s", again.ExitCode, again.Stderr)
+	}
+	if !strings.Contains(again.Stdout, "changed     yes") {
+		t.Errorf("the listing does not say the sources changed after a further run:\n%s", again.Stdout)
 	}
 }
 

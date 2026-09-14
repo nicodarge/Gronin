@@ -170,7 +170,7 @@ var configReference = regexp.MustCompile(`^\$\{config\.[^{}.]+\}$`)
 // appliedSources are the sources a retrieval can actually search. One whose mechanism has
 // not landed is refused here, by name, because a declared collection nothing can search
 // is a source that reads, in review, as available. A source is lifted by adding it.
-var appliedSources = map[string]bool{"directory": true}
+var appliedSources = map[string]bool{"directory": true, "reports": true}
 
 func (e entry) resolve(name string) (Collection, []error) {
 	var problems []error
@@ -187,9 +187,11 @@ func (e entry) resolve(name string) (Collection, []error) {
 	switch {
 	case e.Directory != "" && len(e.Reports) > 0:
 		refuse("directory", "is given with reports", "exactly one source")
-	case e.Directory == "" && len(e.Reports) == 0:
+	case e.Directory == "" && e.Reports == nil:
 		refuse("the entry", "names neither a directory nor reports",
 			"exactly one source: a directory, or the reports of named playbooks")
+	case e.Reports != nil && len(e.Reports) == 0:
+		refuse("reports", "is empty", "the reports of at least one playbook this deployment records")
 	case e.Directory != "" && !filepath.IsAbs(e.Directory):
 		refuse("directory", fmt.Sprintf("%q is relative", e.Directory),
 			"an absolute path; it is resolved on the host the runtime runs on")
