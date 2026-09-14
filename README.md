@@ -81,8 +81,8 @@ by default, or name another with `--agent`) is on the `PATH`:
 ```bash
 curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
 curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS
-chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
+sha256sum --ignore-missing -c SHA256SUMS &&
+  chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
 gronin version
 ```
 
@@ -109,9 +109,13 @@ printf '%s' "$HOME/some-repository" | gronin config set checkout
 printf '%s' 'example-owner/example-repo' | gronin config set repo
 ```
 
-A report with no findings opens nothing. To let the sink open issues, add
-`token: ${config.github_token}` under `github:` in the playbook and set `github_token` the
-same way.
+A report with no findings opens nothing; one with findings fails at the sink until it has a
+token. Add `token: ${config.github_token}` under `github:` in the playbook, and store it
+as a secret so it is redacted everywhere it would otherwise be printed or recorded:
+
+```bash
+printf '%s' "$GITHUB_TOKEN" | gronin config set github_token --secret
+```
 
 Check it, run it once by hand, and look at what happened:
 
@@ -135,6 +139,9 @@ Then leave it running. `serve` validates every playbook and arms nothing if any 
 ```bash
 gronin serve
 ```
+
+The longer walkthrough, including what each step refuses, is
+[specs/001-runtime-core/quickstart.md](specs/001-runtime-core/quickstart.md).
 
 ## Licence
 

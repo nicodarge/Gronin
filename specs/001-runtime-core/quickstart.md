@@ -25,8 +25,8 @@ below the floor it says so here rather than at the first scheduled run.
 ## 2. Point it at a directory
 
 ```bash
-mkdir -p ~/.gronin/playbooks
-cp examples/doc-check.{yaml,prompt} ~/.gronin/playbooks/
+mkdir -p "$(gronin state-dir)/playbooks"
+cp examples/doc-check.{yaml,prompt} "$(gronin state-dir)/playbooks/"
 ```
 
 ## 3. Change two things
