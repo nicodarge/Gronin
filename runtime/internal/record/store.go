@@ -67,6 +67,7 @@ const (
 	TriggerManual   TriggerKind = "manual"
 	TriggerReplay   TriggerKind = "replay"
 	TriggerResume   TriggerKind = "resume"
+	TriggerWebhook  TriggerKind = "webhook"
 )
 
 // Run is one execution of one playbook.
@@ -95,6 +96,10 @@ type Run struct {
 	// ClaimToken is the fencing token the run held; zero on a single-host deployment,
 	// which has none.
 	ClaimToken int64
+
+	// DeliveryID is the delivery a webhook run came from (FR-336). Empty for any other
+	// trigger kind, and for a replay or resume, which record their parent run instead.
+	DeliveryID string
 }
 
 // Store is the run record: a SQLite database for what is queried, and a directory of

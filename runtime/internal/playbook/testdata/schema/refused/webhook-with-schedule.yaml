@@ -1,4 +1,7 @@
-name: drift-check
-trigger: {type: carrier-pigeon}
+name: alert-triage
+trigger:
+  type: webhook
+  source: alerts
+  schedule: "*/5 * * * *"
 agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
 sinks: [{discord: {channel: "#ops"}}]

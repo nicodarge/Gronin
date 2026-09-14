@@ -1,0 +1,10 @@
+name: alert-triage
+trigger:
+  type: webhook
+  source: alerts
+  values:
+    alertname:
+      at: /alerts/0/labels/alertname
+      max_length: 128
+agent: {model: m, prompt_file: p.md, output_schema: {type: object}}
+sinks: [{discord: {channel: "#ops"}}]

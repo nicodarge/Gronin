@@ -45,6 +45,10 @@ type WaitingTrigger struct {
 	Outcome   WaitOutcome
 	OutcomeAt time.Time
 	RunID     string
+
+	// DeliveryID is set for a waiting webhook trigger, so a drop that ends its wait names
+	// the delivery it came from (data-model.md, *Guard records*).
+	DeliveryID string
 }
 
 // ErrWaitingSlotFull is returned when a trigger is already waiting for the playbook
@@ -82,14 +86,15 @@ func (s *Store) AcceptWaiting(
 
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO waiting_triggers (id, playbook_name, playbook_path, trigger_kind, trigger_ref,
-		                              accepted_at, expires_at, instance, outcome)
-		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+		                              accepted_at, expires_at, instance, outcome, delivery_id)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 		 WHERE NOT EXISTS (SELECT 1 FROM waiting_triggers
 		                    WHERE playbook_name = ? AND outcome = 'waiting')`,
 		trigger.ID, trigger.PlaybookName, s.redactor.Redact(trigger.PlaybookPath),
 		string(trigger.TriggerKind), nullable(trigger.TriggerRef),
 		trigger.AcceptedAt.UTC().Format(sortableTime), trigger.ExpiresAt.UTC().Format(sortableTime),
-		s.redactor.Redact(trigger.Instance), string(WaitWaiting), trigger.PlaybookName)
+		s.redactor.Redact(trigger.Instance), string(WaitWaiting), nullable(trigger.DeliveryID),
+		trigger.PlaybookName)
 	if err != nil {
 		return WaitingTrigger{}, fmt.Errorf("accepting a waiting trigger of %s: %w", trigger.PlaybookName, err)
 	}
@@ -158,7 +163,8 @@ const waitingColumns = `
 		SELECT id, playbook_name, playbook_path, trigger_kind, trigger_ref, accepted_at,
 		       expires_at, instance, outcome, outcome_at,
 		       coalesce(run_id, (SELECT runs.id FROM runs
-		                          WHERE runs.waiting_trigger_id = waiting_triggers.id))
+		                          WHERE runs.waiting_trigger_id = waiting_triggers.id)),
+		       delivery_id
 		  FROM waiting_triggers`
 
 // StillWaiting lists every trigger whose row says it is waiting, whether or not the
@@ -200,10 +206,10 @@ func scanWaiting(from scanner) (WaitingTrigger, error) {
 	var (
 		trigger                          WaitingTrigger
 		kind, accepted, expires, outcome string
-		ref, outcomeAt, runID            sql.NullString
+		ref, outcomeAt, runID, delivery  sql.NullString
 	)
 	if err := from.Scan(&trigger.ID, &trigger.PlaybookName, &trigger.PlaybookPath, &kind, &ref,
-		&accepted, &expires, &trigger.Instance, &outcome, &outcomeAt, &runID); err != nil {
+		&accepted, &expires, &trigger.Instance, &outcome, &outcomeAt, &runID, &delivery); err != nil {
 		return WaitingTrigger{}, err
 	}
 	trigger.TriggerKind, trigger.Outcome = TriggerKind(kind), WaitOutcome(outcome)
@@ -211,5 +217,6 @@ func scanWaiting(from scanner) (WaitingTrigger, error) {
 	trigger.AcceptedAt = parseTime(sql.NullString{String: accepted, Valid: true})
 	trigger.ExpiresAt = parseTime(sql.NullString{String: expires, Valid: true})
 	trigger.OutcomeAt = parseTime(outcomeAt)
+	trigger.DeliveryID = delivery.String
 	return trigger, nil
 }

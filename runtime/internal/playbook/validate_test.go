@@ -387,6 +387,32 @@ func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
 	}
 }
 
+// T014's mutant target: a webhook trigger is held at the gate until its own rules exist
+// (T024 through T031), because a trigger accepted before its payload rules are checked is
+// the declared-but-unapplied state Principle I refuses. Asserted by field name, as
+// TestGuardBlockKeysAreRefusedUntilApplied is, so lifting the hold in T031 is a one-line
+// change to what this test expects rather than a rewrite of it.
+func TestAWebhookTriggerIsHeld(t *testing.T) {
+	held := func(problems []playbook.Problem) bool {
+		for _, problem := range problems {
+			if problem.Field == "trigger.type" && strings.Contains(problem.Found, "does not apply its rules yet") {
+				return true
+			}
+		}
+		return false
+	}
+
+	book := &playbook.Playbook{Name: "p", Trigger: playbook.Trigger{Type: "webhook", Source: "alerts"}}
+	if problems := playbook.Validate(book, deployment()); !held(problems) {
+		t.Fatalf("a webhook trigger was not held: %v", problems)
+	}
+
+	manual := &playbook.Playbook{Name: "p", Trigger: playbook.Trigger{Type: "manual"}}
+	if problems := playbook.Validate(manual, deployment()); held(problems) {
+		t.Fatalf("a manual trigger was held as if it were a webhook: %v", problems)
+	}
+}
+
 // SC-109 for wait, through both layers a loaded playbook passes: the schema and the gate.
 // A key the runtime implements loads; one it does not is still refused beside it. Observing
 // a refusal alone would pass against the runtime core, which refused the whole block.

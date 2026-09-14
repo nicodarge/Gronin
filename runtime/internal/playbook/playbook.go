@@ -28,10 +28,24 @@ type Playbook struct {
 	Path string `yaml:"-" json:"-"`
 }
 
-// Trigger is how a playbook comes to run. Webhooks are a later feature.
+// Trigger is how a playbook comes to run.
 type Trigger struct {
 	Type     string `yaml:"type"`
 	Schedule string `yaml:"schedule"`
+	// Source is the deployment's configured source this webhook trigger is bound to
+	// (FR-310). Empty for a cron or manual trigger.
+	Source string `yaml:"source"`
+	// Values is every payload value a webhook trigger declares (FR-322). Nothing in a
+	// delivery beyond these reaches the run (FR-323).
+	Values map[string]TriggerValue `yaml:"values"`
+}
+
+// TriggerValue is one payload value a webhook trigger declares: where it is in the body,
+// the pattern it must wholly match, and its maximum length in Unicode code points.
+type TriggerValue struct {
+	At        string `yaml:"at"`
+	Pattern   string `yaml:"pattern"`
+	MaxLength int    `yaml:"max_length"`
 }
 
 // Step is one gather command and the name it writes into the working directory.

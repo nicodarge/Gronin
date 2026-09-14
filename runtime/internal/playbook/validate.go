@@ -35,6 +35,10 @@ type Deployment struct {
 	// The values are deliberately absent. The gate decides whether a name resolves, and
 	// a gate holding the deployment's secrets is a gate that leaks them into a refusal.
 	ConfigKeys []string
+	// Sources this deployment configures (specs/004-webhook/data-model.md, *Source*). A
+	// webhook trigger naming anything else is refused here (FR-310), once validateWebhook
+	// (specs/004-webhook/tasks.md T025) reads this field. Unread until then.
+	Sources []string
 }
 
 // Problem is one refusal: where it is, what was found, and what would be accepted.
@@ -126,8 +130,24 @@ func Validate(book *Playbook, dep Deployment) []Problem {
 	problems = append(problems, validateSinks(book, dep)...)
 	problems = append(problems, validateRetrieve(book, dep)...)
 	problems = append(problems, validateGuard(book)...)
+	problems = append(problems, validateTrigger(book)...)
 	problems = append(problems, validateInterpolation(book, dep)...)
 	return problems
+}
+
+// validateTrigger holds a webhook trigger at load until its own rules exist. The schema
+// already accepts the shape (specs/004-webhook/contracts/webhook-trigger.schema.json);
+// this refuses it by field, the way validateGuard refuses a declared key nothing applies
+// yet, until T031 lifts it and validateWebhook (T025) takes its place.
+func validateTrigger(book *Playbook) []Problem {
+	if book.Trigger.Type != "webhook" {
+		return nil
+	}
+	return []Problem{{
+		Field:    "trigger.type",
+		Found:    "webhook, and this runtime does not apply its rules yet",
+		Accepted: "cron or manual; webhook is held until its load-time rules land",
+	}}
 }
 
 func validateAgent(book *Playbook, dep Deployment) []Problem {
