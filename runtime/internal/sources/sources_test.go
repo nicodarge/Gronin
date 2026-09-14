@@ -143,6 +143,15 @@ func TestSourcesRefusesEachProbeForItsOwnReason(t *testing.T) {
 		"an identity that is not a JSON Pointer": {
 			"identity", "is not a JSON Pointer",
 		},
+		// FR-311: an identity reaches a tabwriter cell in `gronin sources list`. A
+		// newline there reads as a second source's row; a tab desyncs the columns.
+		// jsonPointer's own class admits both, so they are refused separately.
+		"an identity holding a newline": {
+			"identity", "holds a control character",
+		},
+		"an identity holding a tab": {
+			"identity", "holds a control character",
+		},
 		"a replay window that does not parse": {
 			"replay_window", "is not a duration",
 		},
@@ -173,6 +182,10 @@ func TestSourcesRefusesEachProbeForItsOwnReason(t *testing.T) {
 				entry["secret"] = "${config.ops_channel}"
 			case "an identity that is not a JSON Pointer":
 				entry["identity"] = "delivery_uuid"
+			case "an identity holding a newline":
+				entry["identity"] = "/a\nb"
+			case "an identity holding a tab":
+				entry["identity"] = "/a\tb"
 			case "a replay window that does not parse":
 				entry["replay_window"] = "10 minutes"
 			case "a replay window that is not positive":

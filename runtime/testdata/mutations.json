@@ -4024,6 +4024,21 @@
         "-run",
         "TestAWebhookTriggerIsHeld"
       ]
+    },
+    {
+      "name": "a control character in the identity pointer is accepted",
+      "tree": "..",
+      "file": "internal/sources/sources.go",
+      "find": "case controlChar.MatchString(e.Identity):\n\t\t// Checked before the shape check: jsonPointer's own class would accept this.\n\t\trefuse(\"identity\", fmt.Sprintf(\"%q holds a control character\", e.Identity),\n\t\t\t\"a JSON Pointer into the body, such as /delivery_uuid, with no control characters\")\n",
+      "replace": "case controlChar.MatchString(e.Identity):\n\t\t_ = e.Identity\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sources",
+        "-count=1",
+        "-run",
+        "TestSourcesRefusesEachProbeForItsOwnReason"
+      ]
     }
   ]
 }

@@ -32,7 +32,7 @@ type Source struct {
 	ReplayWindow time.Duration
 
 	// secretKey is the configuration key the secret reference names, resolved only by
-	// Secret — never by Summary, which is what a listing calls.
+	// Secret — never by Cells, which is what a listing calls.
 	secretKey string
 }
 
@@ -58,6 +58,12 @@ var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 // document, or a sequence of "/"-prefixed reference tokens. The same pattern the webhook
 // trigger's schema holds `values.<name>.at` to.
 var jsonPointer = regexp.MustCompile(`^(/([^~/]|~[01])*)*$`)
+
+// controlChar matches a C0 control character or DEL. jsonPointer's own character class
+// admits these, and an identity holding one reaches a tabwriter cell in `gronin sources
+// list` (FR-311): a newline reads as a second source's row, and a tab desyncs the
+// columns.
+var controlChar = regexp.MustCompile("[\x00-\x1F\x7F]")
 
 // secretReference is the only form a source's secret may take: a single ${config.x}
 // reference, never a literal (FR-306).
@@ -163,7 +169,14 @@ func (e entry) resolve(sourceName string, cfg *config.Config) (Source, []error) 
 		}
 	}
 
-	if e.Identity != "" && !jsonPointer.MatchString(e.Identity) {
+	switch {
+	case e.Identity == "":
+		// No identity declared: the default, the body's own digest, applies.
+	case controlChar.MatchString(e.Identity):
+		// Checked before the shape check: jsonPointer's own class would accept this.
+		refuse("identity", fmt.Sprintf("%q holds a control character", e.Identity),
+			"a JSON Pointer into the body, such as /delivery_uuid, with no control characters")
+	case !jsonPointer.MatchString(e.Identity):
 		refuse("identity", fmt.Sprintf("%q is not a JSON Pointer", e.Identity),
 			"a JSON Pointer into the body, such as /delivery_uuid")
 	}
@@ -246,7 +259,7 @@ func humanDuration(d time.Duration) string {
 }
 
 // Secret resolves a source's secret value. Only the ingress calls this, when it is
-// built — a listing (Summary) never does, so a source cannot leak through it.
+// built — a listing (Cells) never does, so a source cannot leak through it.
 func (c *Catalog) Secret(sourceName string) (string, error) {
 	source, ok := c.entries[sourceName]
 	if !ok {

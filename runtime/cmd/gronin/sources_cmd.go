@@ -37,7 +37,10 @@ func newSourcesCommand() *cobra.Command {
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
 			for _, name := range names {
-				cells, _ := srcs.Cells(name)
+				cells, ok := srcs.Cells(name)
+				if !ok {
+					return fmt.Errorf("%q is in Names() but not in Cells()", name)
+				}
 				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, cells[0], cells[1], cells[2]); err != nil {
 					return err
 				}
