@@ -201,7 +201,9 @@ func (g *Guard) readThenClaim(
 	if err != nil {
 		return nil, nil, err
 	}
-	claim, err := g.Coordinator.Acquire(decide, g.ask(w.book.Name, req))
+	// FR-124: judged against edited's own limit, so a rate declared or changed since the
+	// trigger arrived is the one it is held to when it finally asks for the claim.
+	claim, err := g.Coordinator.Acquire(decide, g.ask(edited, req))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -100,6 +100,12 @@ func TickRanAs(tick time.Time, holder Holder) error {
 	return fmt.Errorf("%w: tick %s ran as %s", ErrTickRan, tick.UTC().Format(time.RFC3339), holder)
 }
 
+// RateLimitedBy is ErrRateLimited naming the limit it hit (FR-114), so that a refusal
+// reads the same detail whichever coordinator wrote it.
+func RateLimitedBy(limit RateLimit) error {
+	return fmt.Errorf("%w: %d runs per %s", ErrRateLimited, limit.Runs, HumanDuration(limit.Per))
+}
+
 // Seam is called by a coordinator between reading a name's last tick and sending the
 // transaction that would take the claim. Nil outside the contract suite, which sets one to
 // choose an interleaving that two calls in sequence cannot produce (C13).

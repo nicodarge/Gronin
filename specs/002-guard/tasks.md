@@ -634,11 +634,11 @@ times inside one minute: two runs and two refusals.
 
 ### Tests for User Story 3
 
-- [ ] T086 [P] [US3] C8 and C9 join `runtime/internal/guard/guardtest/contract.go`, for the fake, the
+- [x] T086 [P] [US3] C8 and C9 join `runtime/internal/guard/guardtest/contract.go`, for the fake, the
       etcd adapter and the file lock. C8 fills every slot, calls `Acquire`, and checks that a second
       contender can still take the claim with the limit lifted; C9 takes the limit's runs, releases
       each claim, and asserts the next `Acquire` is refused for rate
-- [ ] T087 [P] [US3] SC-107, `TestTheRateLimit…` in `runtime/internal/guard/rate_test.go`: a limit of N runs per window,
+- [x] T087 [P] [US3] SC-107, `TestTheRateLimit…` in `runtime/internal/guard/rate_test.go`: a limit of N runs per window,
       triggered N+2 times inside it, produces N runs and two `rate_limited` refusals naming the limit,
       and neither refused trigger enters the waiting slot, a manual one included (FR-116); once the
       fake's clock moves the window past the earlier runs, a trigger runs; with no limit declared, none
@@ -646,42 +646,51 @@ times inside one minute: two runs and two refusals.
       the window is refused `rate_limited` when the claim frees (FR-124). Two guards with separate
       record stores and one fake share one window: counted per host, the deployment would allow twice
       the declared runs
-- [ ] T088 [P] [US3] `TestFileLockRate…` in `runtime/internal/run/filelock_rate_test.go`: the single-host window is the
+- [x] T088 [P] [US3] `TestFileLockRate…` in `runtime/internal/run/filelock_rate_test.go`: the single-host window is the
       record store's count of scheduled and manual runs of the playbook started within `rate.per`, on
       the wall reading of an injected clock; replays and resumes are not counted and take no slot
-- [ ] T089 [P] [US3] SC-109, the implemented half for `rate`, `TestGuardBlock…` in
+- [x] T089 [P] [US3] SC-109, the implemented half for `rate`, `TestGuardBlock…` in
       `runtime/internal/playbook/validate_test.go`: `guard.rate` now loads; `per: 30s` is still refused
-- [ ] T090 [P] [US3] SC-108 for this story: `rate_limited` joins the table in
+- [x] T090 [P] [US3] SC-108 for this story: `rate_limited` joins the table in
       `runtime/cmd/gronin/refusals_cmd_test.go`, its detail naming the limit
 
 ### Implementation for User Story 3
 
-- [ ] T091 [US3] `runtime/internal/guard/guardtest/fake.go`: rate slots, taken with the claim or not at
+- [x] T091 [US3] `runtime/internal/guard/guardtest/fake.go`: rate slots, taken with the claim or not at
       all, each freeing after `per` on the fake's clock and not on release
-- [ ] T092 [US3] `runtime/internal/guard/etcd/etcd.go`: slots at `<prefix>/rate/<name>/<i>`, each on a
+- [x] T092 [US3] `runtime/internal/guard/etcd/etcd.go`: slots at `<prefix>/rate/<name>/<i>`, each on a
       lease of its own lasting `per` and never renewed, taken in the same transaction as the claim and
       the last tick. When the tick is refused and the window is full as well, the refusal is
       `ErrTickRan` (C13)
-- [ ] T093 [US3] `runtime/internal/run/filelock.go`: the window counted in the record store under the
+- [x] T093 [US3] `runtime/internal/run/filelock.go`: the window counted in the record store under the
       lock, per T088
-- [ ] T094 [US3] `runtime/internal/guard/guard.go` and `runtime/internal/guard/wait.go`: the playbook's
+- [x] T094 [US3] `runtime/internal/guard/guard.go` and `runtime/internal/guard/wait.go`: the playbook's
       limit is passed to every `Acquire`, a waiting trigger's second attempt included; `ErrRateLimited`
       is a `rate_limited` refusal and never a wait; replay and resume pass no limit. And
       `runtime/internal/playbook/validate.go`: lift `validateGuard`'s refusal of `rate`
 
 ### Mutants for User Story 3
 
-- [ ] T095 [US3] C8 and C9, command scoped to each subject's contract test: `the claim is taken before
+- [x] T095 [US3] C8 and C9, command scoped to each subject's contract test: `the claim is taken before
       the slots are checked` and `release frees the rate slot`, in `internal/guard/guardtest/fake.go`,
       `internal/guard/etcd/etcd.go`, and — for the second, as `the window counts only runs still in
       flight` — `internal/run/filelock.go`
-- [ ] T096 [US3] SC-107: `a trigger refused for rate waits`, in `internal/guard/guard.go`; `a waiting
-      trigger is not judged against the limit again`, in `internal/guard/wait.go`; `the window is counted
-      on this host even with a backend`, in `internal/guard/guard.go` — all with command
+      *After review*: the fake's C8 checked the rate slots, released its lock, then committed without
+      looking again — the etcd adapter's transaction cannot do this, but the fake's two-step
+      check-then-commit could, and two callers racing the last slot both passed the check before
+      either committed. `TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency` in
+      `internal/guard/guardtest/fake_race_test.go` pauses one caller through the `OnRateCheck` hook
+      between its rate check and its commit while a second takes and releases the only slot, and
+      asserts the first is then refused for rate; the mutant `the fake's commit does not re-check the
+      rate slots` restores the gap, in `internal/guard/guardtest/fake.go`, command
+      `go test ./internal/guard/guardtest -count=1 -race -run TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency`
+- [x] T096 [US3] SC-107: `a trigger refused for rate waits`, in `internal/guard/wait.go`; `a waiting
+      trigger is not judged against the limit again`, in `internal/guard/wait.go`; `the rate limit is
+      never asked for`, in `internal/guard/guard.go` — all with command
       `go test ./internal/guard -count=1 -run TestTheRateLimit`; `the single-host window ignores its
       duration` and `a replay takes a rate slot`, in `internal/run/filelock.go`, command
       `go test ./internal/run -count=1 -run TestFileLockRate`
-- [ ] T097 [US3] SC-109 and SC-108 for this story: `the guard block refuses rate`, in
+- [x] T097 [US3] SC-109 and SC-108 for this story: `the guard block refuses rate`, in
       `internal/playbook/validate.go`, command `go test ./internal/playbook -count=1 -run
       TestGuardBlock`; and T063's `gronin refusals drops the mechanism`, confirmed still killed with
       T090's `rate_limited` line in its table

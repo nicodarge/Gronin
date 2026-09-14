@@ -40,3 +40,15 @@ func TestAHeldClaimNamesItsHolderAsTheContractDoes(t *testing.T) {
 		t.Fatal("a held claim is not ErrHeld")
 	}
 }
+
+// A rate_limited refusal names the limit it hit as contracts/cli.md writes it, and stays
+// ErrRateLimited to anything that asks.
+func TestARateLimitedRefusalNamesTheLimitAsTheContractDoes(t *testing.T) {
+	err := guard.RateLimitedBy(guard.RateLimit{Runs: 2, Per: 5 * time.Minute})
+	if want := "rate limit reached: 2 runs per 5m"; err.Error() != want {
+		t.Fatalf("the refusal reads %q, want %q", err.Error(), want)
+	}
+	if !errors.Is(err, guard.ErrRateLimited) {
+		t.Fatal("a rate-limited refusal is not ErrRateLimited")
+	}
+}

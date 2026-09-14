@@ -12,8 +12,8 @@ Three places hold this feature's state, and which one holds what is most of the 
   own; there is no cross-host view.
 
 A deployment with no backend configured keeps all of it on one host. There, the file lock stands in
-for the claim, the record store's runs stand in for the rate window, and a row of the record store
-holds the last tick.
+for the claim, a dedicated table of the record store stands in for the rate window, and a row of the
+record store holds the last tick.
 
 ## Entities
 
@@ -86,10 +86,17 @@ cannot orphan the claim ([research.md](./research.md) §4).
 and the slot frees when its lease lapses — not when the run ends, because the limit bounds runs,
 not concurrency.
 
-On a single-host deployment the rate window is the record store's own count of runs of that
-playbook, triggered by a schedule or by hand, started within the last `rate.per` on the host clock's
-wall reading — the runs it counts were recorded by other processes, so no monotonic reading spans
-them (FR-118).
+On a single-host deployment the rate window is a dedicated table, `rate_starts`, rather than a count
+of the `runs` table: the claim is taken before a run row exists — `Manager.Begin` writes it only
+after `Acquire` has already granted the claim — so a query of `runs` at the moment the window is
+checked would undercount whatever is still being admitted. `FileLock.Acquire` writes a `rate_starts`
+row itself, under the same flock as the claim and the last tick (C8), naming the playbook and when
+it started, on the host clock's wall reading (FR-118); nothing ever deletes a row, so the window
+narrows only as rows age out of it, the same direction the backend's slots free in.
+
+A `rate_starts` row with no matching run — the process died between taking the slot and `Begin`
+writing the run — is expected rather than a leak: it ages out of the window exactly as an orphaned
+etcd slot's lease expires, and nothing reads a `rate_starts` row for anything but the count.
 
 **Why the window is in the backend at all**: counted per host, two hosts would each allow
 `rate.runs`, and the deployment twice the limit it declared.

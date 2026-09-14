@@ -68,6 +68,11 @@ func (c *Coordinator) Reach() string { return guard.ReachCrossHost }
 func (c *Coordinator) claimKey(name string) string { return c.prefix + "claims/" + name }
 func (c *Coordinator) tickKey(name string) string  { return c.prefix + "ticks/" + name }
 
+// rateKey is one of a playbook's rate slots, 0 <= i < the declared limit's runs.
+func (c *Coordinator) rateKey(name string, i int) string {
+	return fmt.Sprintf("%srate/%s/%d", c.prefix, name, i)
+}
+
 // holderValue is the claim key's value: read back only to name the holder in a refusal.
 type holderValue struct {
 	Host     string    `json:"host"`
@@ -118,12 +123,30 @@ func (c *Coordinator) Acquire(ctx context.Context, req guard.AcquireRequest) (gu
 		return nil, err
 	}
 
-	claim, err := c.take(ctx, req, lease.ID, granted)
+	// A rate slot's own lease, granted alongside the claim's so both can be written in one
+	// transaction (C8). Unlike the claim's, nothing here compares what came back with what
+	// was asked (CheckGrant): the server only ever rounds a grant up, never down, so the
+	// window can only be longer than declared, never shorter — and its minutes or hours are
+	// already far past the server's minimum grant, which is what CheckGrant exists to catch.
+	var rateLease clientv3.LeaseID
+	if req.Rate != nil {
+		rateGrant, err := c.client.Grant(ctx, int64(req.Rate.Per/time.Second))
+		if err != nil {
+			c.revoke(ctx, lease.ID)
+			return nil, unavailable("granting a rate slot's lease", err)
+		}
+		rateLease = rateGrant.ID
+	}
+
+	claim, err := c.take(ctx, req, lease.ID, granted, rateLease)
 	if err != nil {
 		// Including a decision that ran out of time: the transaction can commit after
 		// the client has stopped listening, so what was granted is given back rather
 		// than left to block the playbook for its whole expiry.
 		c.revoke(ctx, lease.ID)
+		if req.Rate != nil {
+			c.revoke(ctx, rateLease)
+		}
 		return nil, err
 	}
 	return claim, nil
@@ -140,50 +163,70 @@ func CheckGrant(asked, granted time.Duration) error {
 	return nil
 }
 
-// state is the claim and the last tick of one name, read together.
+// state is the claim, the last tick and the rate slots of one name, read together.
 type state struct {
 	holder  *holderValue
 	tick    *tickValue
 	tickRev int64
+	// slotFree is which of a declared limit's slots are free, len(slotFree) == req.Rate.Runs.
+	// Nil when req.Rate is nil.
+	slotFree []bool
 }
 
-func (c *Coordinator) read(ctx context.Context, name string, scheduled bool) (state, error) {
-	ops := []clientv3.Op{clientv3.OpGet(c.claimKey(name))}
-	if scheduled {
-		ops = append(ops, clientv3.OpGet(c.tickKey(name)))
+// ops is what one read of req.Name needs to decide it: the claim, the last tick for a
+// scheduled trigger, and every one of a declared limit's rate slots. Both the read below
+// and the failed transaction's Else branch use it, so a fresh read and a refused write
+// parse identically (stateOf).
+func (c *Coordinator) ops(req guard.AcquireRequest) []clientv3.Op {
+	ops := []clientv3.Op{clientv3.OpGet(c.claimKey(req.Name))}
+	if req.Trigger.Kind == guard.KindSchedule {
+		ops = append(ops, clientv3.OpGet(c.tickKey(req.Name)))
 	}
-	// One transaction with no condition: the two keys are read at one revision, so the
-	// tick revision compared below belongs to the same snapshot as the claim.
-	resp, err := c.client.Txn(ctx).Then(ops...).Commit()
+	if req.Rate != nil {
+		for i := range req.Rate.Runs {
+			ops = append(ops, clientv3.OpGet(c.rateKey(req.Name, i)))
+		}
+	}
+	return ops
+}
+
+func (c *Coordinator) read(ctx context.Context, req guard.AcquireRequest) (state, error) {
+	// One transaction with no condition: every key is read at one revision, so the tick
+	// revision compared below belongs to the same snapshot as the claim.
+	resp, err := c.client.Txn(ctx).Then(c.ops(req)...).Commit()
 	if err != nil {
 		return state{}, unavailable("reading the claim", err)
 	}
-	return stateOf(resp.Responses, scheduled)
+	return stateOf(resp.Responses, req)
 }
 
-func stateOf(responses []*etcdserverpb.ResponseOp, scheduled bool) (state, error) {
+func stateOf(responses []*etcdserverpb.ResponseOp, req guard.AcquireRequest) (state, error) {
 	var read state
-	for at, response := range responses {
-		kvs := response.GetResponseRange().Kvs
-		if len(kvs) == 0 {
-			continue
+	at := 0
+	if kvs := responses[at].GetResponseRange().Kvs; len(kvs) > 0 {
+		var holder holderValue
+		if err := json.Unmarshal(kvs[0].Value, &holder); err != nil {
+			return state{}, fmt.Errorf("reading the holder of a claim: %w", err)
 		}
-		if at == 0 {
-			var holder holderValue
-			if err := json.Unmarshal(kvs[0].Value, &holder); err != nil {
-				return state{}, fmt.Errorf("reading the holder of a claim: %w", err)
-			}
-			read.holder = &holder
-			continue
-		}
-		var tick tickValue
-		if err := json.Unmarshal(kvs[0].Value, &tick); err != nil {
-			return state{}, fmt.Errorf("reading a recorded tick: %w", err)
-		}
-		read.tick, read.tickRev = &tick, kvs[0].ModRevision
+		read.holder = &holder
 	}
-	if !scheduled {
-		read.tick, read.tickRev = nil, 0
+	at++
+	if req.Trigger.Kind == guard.KindSchedule {
+		if kvs := responses[at].GetResponseRange().Kvs; len(kvs) > 0 {
+			var tick tickValue
+			if err := json.Unmarshal(kvs[0].Value, &tick); err != nil {
+				return state{}, fmt.Errorf("reading a recorded tick: %w", err)
+			}
+			read.tick, read.tickRev = &tick, kvs[0].ModRevision
+		}
+		at++
+	}
+	if req.Rate != nil {
+		read.slotFree = make([]bool, req.Rate.Runs)
+		for i := range req.Rate.Runs {
+			read.slotFree[i] = len(responses[at].GetResponseRange().Kvs) == 0
+			at++
+		}
 	}
 	return read, nil
 }
@@ -197,9 +240,22 @@ func tickRan(req guard.AcquireRequest, recorded *tickValue) bool {
 	return !req.Trigger.DueAt.After(recorded.DueAt)
 }
 
-// take sends the transaction that makes the claim, the tick and their refusals one step.
+// freeSlot is the lowest-numbered rate slot not taken, or -1 when every one of them is
+// (FR-116).
+func freeSlot(slotFree []bool) int {
+	for i, free := range slotFree {
+		if free {
+			return i
+		}
+	}
+	return -1
+}
+
+// take sends the transaction that makes the claim, the tick, a rate slot and their
+// refusals one step (C8, C13).
 func (c *Coordinator) take(
 	ctx context.Context, req guard.AcquireRequest, lease clientv3.LeaseID, granted time.Duration,
+	rateLease clientv3.LeaseID,
 ) (guard.Claim, error) {
 	scheduled := req.Trigger.Kind == guard.KindSchedule
 	claimKey, tickKey := c.claimKey(req.Name), c.tickKey(req.Name)
@@ -223,18 +279,26 @@ func (c *Coordinator) take(
 		if err := ctx.Err(); err != nil {
 			return nil, unavailable("deciding", err)
 		}
-		read, err := c.read(ctx, req.Name, scheduled)
+		read, err := c.read(ctx, req)
 		if err != nil {
 			return nil, err
 		}
 		// A tick that has already run is refused before anything is sent, because the
 		// transaction below would otherwise take the claim for it. The holder is what is
-		// named when there is one: it is usually the run of that very tick.
+		// named when there is one: it is usually the run of that very tick. When the rate
+		// window is full as well, this is what is returned rather than the limit (C13):
+		// naming the limit would suggest raising it had let the tick run.
 		if tickRan(req, read.tick) {
 			if read.holder != nil {
 				return nil, guard.HeldBy(holderOf(read.holder))
 			}
 			return nil, guard.TickRanAs(read.tick.DueAt, read.tick.holder())
+		}
+		slot := -1
+		if req.Rate != nil {
+			if slot = freeSlot(read.slotFree); slot < 0 {
+				return nil, guard.RateLimitedBy(*req.Rate)
+			}
 		}
 
 		if scheduled && c.seam != nil {
@@ -247,10 +311,15 @@ func (c *Coordinator) take(
 			conditions = append(conditions, clientv3.Compare(clientv3.ModRevision(tickKey), "=", read.tickRev))
 			writes = append(writes, clientv3.OpPut(tickKey, string(tick)))
 		}
+		if req.Rate != nil {
+			slotKey := c.rateKey(req.Name, slot)
+			conditions = append(conditions, clientv3.Compare(clientv3.CreateRevision(slotKey), "=", 0))
+			writes = append(writes, clientv3.OpPut(slotKey, req.Holder.RunID, clientv3.WithLease(rateLease)))
+		}
 		committed, err := c.client.Txn(ctx).
 			If(conditions...).
 			Then(writes...).
-			Else(clientv3.OpGet(claimKey), clientv3.OpGet(tickKey)).
+			Else(c.ops(req)...).
 			Commit()
 		if err != nil {
 			return nil, unavailable("taking the claim", err)
@@ -266,7 +335,7 @@ func (c *Coordinator) take(
 
 		// A failed transaction does not say which comparison lost, so the refusal is
 		// decided from what it read back rather than from the failure.
-		fresh, err := stateOf(committed.Responses, scheduled)
+		fresh, err := stateOf(committed.Responses, req)
 		if err != nil {
 			return nil, err
 		}
@@ -276,8 +345,8 @@ func (c *Coordinator) take(
 		if tickRan(req, fresh.tick) {
 			return nil, guard.TickRanAs(fresh.tick.DueAt, fresh.tick.holder())
 		}
-		// Overtaken by a host that has since let go: read and decide again, inside the
-		// same deadline.
+		// Overtaken by a host that has since let go, or that took the rate slot this one
+		// was about to: read and decide again, inside the same deadline.
 	}
 }
 

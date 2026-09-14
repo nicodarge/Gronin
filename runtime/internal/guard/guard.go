@@ -108,7 +108,7 @@ func (g *Guard) Admit(
 	decide, cancel := bound(ctx, g.clock(), g.Config.DecisionBound)
 	defer cancel()
 
-	ask := g.ask(book.Name, req)
+	ask := g.ask(book, req)
 	// The instant the grant was sent, which the backend's countdown starts no earlier
 	// than, and where the stop deadline is anchored (R1).
 	sent := g.clock().Monotonic()
@@ -126,14 +126,36 @@ func (g *Guard) Admit(
 	}, nil
 }
 
-// ask is what the coordinator is asked for a trigger of the playbook name.
-func (g *Guard) ask(name string, req Request) AcquireRequest {
+// ask is what the coordinator is asked for a trigger of book. The playbook is book as it
+// stands right now — for a waiting trigger, the file as it was just read again (FR-121) —
+// so its rate limit is the one in force at the moment the claim is asked for, never the one
+// that stood when the trigger arrived.
+func (g *Guard) ask(book *playbook.Playbook, req Request) AcquireRequest {
 	return AcquireRequest{
-		Name:    name,
+		Name:    book.Name,
 		Holder:  Holder{Host: g.Host, Instance: g.Instance, RunID: req.RunID},
 		Expiry:  g.Config.ClaimExpiry,
+		Rate:    rateOf(book, req.Kind),
 		Trigger: TriggerRef{Kind: kindOf(req.Kind), DueAt: dueOf(req)},
 	}
+}
+
+// rateOf is the playbook's declared rate limit, evaluated before the claim is taken
+// (FR-115) for a scheduled or manual trigger; never for a replay or a resume, which take
+// no rate slot (data-model.md, "Replay and resume"). A limit that fails to parse here would
+// only mean the load gate missed it, so it is treated as none rather than refused again.
+func rateOf(book *playbook.Playbook, kind record.TriggerKind) *RateLimit {
+	if kind != record.TriggerSchedule && kind != record.TriggerManual {
+		return nil
+	}
+	if book.Guard == nil || book.Guard.Rate == nil {
+		return nil
+	}
+	per, err := book.Guard.Rate.PerDuration()
+	if err != nil {
+		return nil
+	}
+	return &RateLimit{Runs: book.Guard.Rate.Runs, Per: per}
 }
 
 // kindOf is what the coordinator is told. Only a scheduled trigger reads and advances a
@@ -200,6 +222,8 @@ func mechanismOf(err error) record.Mechanism {
 		return record.MechanismClaimHeld
 	case errors.Is(err, ErrTickRan):
 		return record.MechanismTickAlreadyRan
+	case errors.Is(err, ErrRateLimited):
+		return record.MechanismRateLimited
 	default:
 		return record.MechanismBackendUnavailable
 	}
