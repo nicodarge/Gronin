@@ -52,6 +52,17 @@ func newServeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// FR-305, ahead of the ingress this deployment does not yet have: a loaded
+			// webhook playbook refuses startup before anything is armed. T054 narrows
+			// this once --ingress-address exists, so it refuses only when that flag is
+			// absent rather than unconditionally.
+			if name, found := firstWebhookPlaybook(loaded); found {
+				err := fmt.Errorf(
+					"%s: its trigger is webhook, and this deployment has no ingress for it yet", name)
+				cmd.PrintErrln(err)
+				cmd.PrintErrln("Nothing was armed.")
+				return errSilent{err}
+			}
 
 			deployment, err := openDeployment(cmd, cfg, catalog)
 			if err != nil {
@@ -181,6 +192,18 @@ func newServeCommand() *cobra.Command {
 			return err
 		},
 	}
+}
+
+// firstWebhookPlaybook names the first loaded playbook, in load order, whose trigger is
+// webhook — enough to refuse startup by (FR-305); which one is first is not load-bearing,
+// only that refusing before anything is armed names at least one.
+func firstWebhookPlaybook(loaded playbook.Loaded) (string, bool) {
+	for _, book := range loaded.Playbooks {
+		if book.Trigger.Type == "webhook" {
+			return book.Name, true
+		}
+	}
+	return "", false
 }
 
 // fire is what the scheduler calls for one occurrence. It is a function of its own

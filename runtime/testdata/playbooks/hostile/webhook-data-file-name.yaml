@@ -1,0 +1,20 @@
+name: webhook-data-file-name
+trigger:
+  type: webhook
+  source: alerts
+  values:
+    alertname:
+      at: /alertname
+      pattern: "[a-z ]+"
+      max_length: 40
+gather:
+  - run: echo hi
+    as: trigger.json
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

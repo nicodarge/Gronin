@@ -250,7 +250,7 @@ test writes into the record.
 
 ### Tests for User Story 3
 
-- [ ] T017 [P] [US3] SC-315, the corpus, in `runtime/testdata/playbooks/hostile/`:
+- [x] T017 [P] [US3] SC-315, the corpus, in `runtime/testdata/playbooks/hostile/`:
       `webhook-prompt-reference.yaml` with its own `webhook-prompt.md` holding `${trigger.alertname}`,
       `webhook-sink-reference.yaml` (a discord webhook and a github repository each from
       `${trigger.x}`), `webhook-unconfigured-source.yaml`, `webhook-undeclared-gather-reference.yaml`,
@@ -262,12 +262,12 @@ test writes into the record.
       a pattern and one without a length, on typed playbooks the schema never reads — as
       `TestTheGateRefusesAReservedBlockThatReachesIt` does for the reserved blocks — so the gate's own
       copy of each rule is shown to hold
-- [ ] T018 [P] [US3] SC-315, the sink half, `TestASinkRefusesATriggerReferenceForAWebhookPlaybook` in
+- [x] T018 [P] [US3] SC-315, the sink half, `TestASinkRefusesATriggerReferenceForAWebhookPlaybook` in
       `runtime/internal/sink/sink_test.go`: with the build option T026 adds, a `${trigger.x}` in a
       discord webhook, a slack webhook, a github repository, token and label is each refused when the
       sink is built; the same declarations build for a manual playbook, which may still interpolate
       the trigger everywhere but the label, as today
-- [ ] T019 [P] [US3] SC-317 and SC-319, `TestDeclaredValues…` and `TestALeadingDash…` in
+- [x] T019 [P] [US3] SC-317 and SC-319, `TestDeclaredValues…` and `TestALeadingDash…` in
       `runtime/internal/playbook/values_test.go`: from a body, a value absent, `null`, an object, an
       array, one code point over its length, and matching its pattern only in part is each refused
       naming the playbook and the value; a value exactly its length in multi-byte code points, a
@@ -275,25 +275,25 @@ test writes into the record.
       (`9007199254740993` stays itself). A value beginning with `-` is refused when a gather step
       references it and accepted when none does. The same function on `--trigger` strings refuses the
       same values with the same message
-- [ ] T020 [P] [US3] SC-317 and SC-320, `TestAHandOff…` in `runtime/internal/ingress/handoff_test.go`:
+- [x] T020 [P] [US3] SC-317 and SC-320, `TestAHandOff…` in `runtime/internal/ingress/handoff_test.go`:
       a delivery written into the record for a source bound to two playbooks, a third loaded playbook
       bound to another source, and a recording dispatcher. A value the first playbook refuses leaves a
       delivery refusal naming the playbook and value and dispatches nothing for it, while the second is
       dispatched once with exactly its declared values; a body carrying `"playbook": "<the third>"`
       dispatches only the two bound ones
-- [ ] T021 [P] [US3] SC-318, `TestUndeclaredContentReachesNoRun` in `runtime/internal/ingress/reach_test.go`:
+- [x] T021 [P] [US3] SC-318, `TestUndeclaredContentReachesNoRun` in `runtime/internal/ingress/reach_test.go`:
       the hand-off, a real executor with the stub agent, and an `httptest` sink. The delivery declares
       one value, `marker-ok`, and carries the sentinel in an undeclared field. A gather step writes its
       environment and a listing of every file in the working directory, whole, into its output. The
       sentinel is found in the delivery's body blob and nowhere in the gathered inputs, the recorded
       prompt, the stub agent's receipt or the sink's received bodies; `marker-ok` is found in the
       `trigger.json` gathered input, which is what makes the absence mean something
-- [ ] T022 [P] [US3] SC-321, `TestAManualWebhookRunIsHeldToItsDeclarations` in
+- [x] T022 [P] [US3] SC-321, `TestAManualWebhookRunIsHeldToItsDeclarations` in
       `runtime/cmd/gronin/run_cmd_test.go`: through the built executable, `gronin run` of a webhook
       playbook with a value its pattern refuses exits non-zero, prints the message T019 asserts for the
       same value, and records no run; an undeclared `--trigger` name is refused naming it; a valid value
       runs and the run records `trigger.json`
-- [ ] T023 [P] [US3] `TestServeRefusesAWebhookPlaybookWithNoIngress` in
+- [x] T023 [P] [US3] `TestServeRefusesAWebhookPlaybookWithNoIngress` in
       `runtime/cmd/gronin/serve_webhook_test.go`: `gronin serve` with a webhook playbook exits non-zero
       before arming anything, naming the playbook and the missing `--ingress-address`; the same
       directory with that playbook removed arms and serves. FR-305's refusal, before there is an ingress
@@ -301,25 +301,25 @@ test writes into the record.
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] `runtime/internal/playbook/values.go`: `Extract(trigger, body)` reading each declared
+- [x] T024 [US3] `runtime/internal/playbook/values.go`: `Extract(trigger, body)` reading each declared
       pointer from a body decoded with number literals kept (`json.Decoder.UseNumber`), and
       `Check(book, values)`, applying FR-322's single value, length in code points and anchored pattern,
       and FR-326's leading dash for names a gather step references — both returning problems that name
       the playbook and the value. `runtime/internal/config/shell.go` exports `TriggerReferences(line)`,
       the names a gather line references, which `Check` and the gate both use
-- [ ] T025 [US3] `runtime/internal/playbook/validate.go`: `validateWebhook` — the source is in
+- [x] T025 [US3] `runtime/internal/playbook/validate.go`: `validateWebhook` — the source is in
       `Deployment.Sources`, naming the configured ones when not (FR-310); every value has its three
       fields, a pointer that parses and a pattern that compiles (FR-322); no `${trigger.` in the prompt
       body (FR-324) or in any sink field (FR-325); a gather step references only declared values; no
       gather step writes `trigger.json`
-- [ ] T026 [US3] `runtime/internal/sink/build.go`: `BuildOptions` gains the option that refuses any
+- [x] T026 [US3] `runtime/internal/sink/build.go`: `BuildOptions` gains the option that refuses any
       field holding `${trigger.` when the sink is built, set for every webhook playbook (FR-325)
-- [ ] T027 [US3] `runtime/internal/run/execute.go` and `runtime/internal/run/replay.go`: for a webhook
+- [x] T027 [US3] `runtime/internal/run/execute.go` and `runtime/internal/run/replay.go`: for a webhook
       playbook, `trigger.json` is written into the working directory before the gather steps and
       recorded as a gathered input (FR-324); the values reach `BindShell` and nothing else, the prompt is
       interpolated with no trigger values, and the sinks are built with T026's option on every path —
       run, replay and resume
-- [ ] T028 [US3] `runtime/internal/ingress/handoff.go`: the `Dispatcher` interface, and `HandOff`,
+- [x] T028 [US3] `runtime/internal/ingress/handoff.go`: the `Dispatcher` interface, and `HandOff`,
       which for each playbook bound to the delivery's source — found by the source in the loaded set,
       never by anything in the body (FR-321) — extracts and checks the values, records a refusal
       through T008 and marks the hand-off `refused` when they fail, and otherwise dispatches exactly the
@@ -327,11 +327,11 @@ test writes into the record.
       than `dropped` marks it `handed_off` or `refused`, and a wait the guard accepted marks it
       `waiting`, which is not a decision; the delivery follows its hand-offs — `waiting` while any of
       them is, `handed_off` once all are decided ([data-model.md](./data-model.md), *Hand-off*)
-- [ ] T029 [US3] `runtime/cmd/gronin/run_cmd.go`: for a webhook playbook, `--trigger` values go through
+- [x] T029 [US3] `runtime/cmd/gronin/run_cmd.go`: for a webhook playbook, `--trigger` values go through
       `Check` before anything runs, and an undeclared name is refused (FR-327)
-- [ ] T030 [US3] `runtime/cmd/gronin/serve_cmd.go`: a loaded webhook playbook refuses startup before
+- [x] T030 [US3] `runtime/cmd/gronin/serve_cmd.go`: a loaded webhook playbook refuses startup before
       anything is armed (FR-305, while no ingress exists)
-- [ ] T031 [US3] `runtime/internal/playbook/validate.go`: `validateTrigger` stops refusing
+- [x] T031 [US3] `runtime/internal/playbook/validate.go`: `validateTrigger` stops refusing
       `type: webhook`, and T015's table flips that row to accepted. T016's mutant `the gate lets a
       webhook trigger through before its rules exist` loses its target and is removed in the same change,
       replaced by `the gate refuses a webhook trigger that passes every rule`, command
@@ -340,7 +340,7 @@ test writes into the record.
 
 ### Mutants for User Story 3
 
-- [ ] T032 [US3] SC-315, in `internal/playbook/validate.go` with command
+- [x] T032 [US3] SC-315, in `internal/playbook/validate.go` with command
       `go test ./internal/playbook -count=1 -run TestTheHostileCorpusIsRefusedForItsOwnReason` unless
       named: `a webhook prompt may reference the payload`, `a webhook sink may reference the payload`,
       `a webhook trigger may name an unconfigured source`, `a gather step may reference an undeclared
@@ -352,7 +352,7 @@ test writes into the record.
       TestTheSchemaAcceptsAndRefusesTheProbeCorpus`; in `internal/sink/build.go`, `the sink resolves a
       trigger reference for a webhook playbook`, command
       `go test ./internal/sink -count=1 -run TestASinkRefusesATriggerReferenceForAWebhookPlaybook`
-- [ ] T033 [US3] SC-317, SC-319 and SC-320: in `internal/playbook/values.go`, command
+- [x] T033 [US3] SC-317, SC-319 and SC-320: in `internal/playbook/values.go`, command
       `go test ./internal/playbook -count=1 -run TestDeclaredValues`: `the pattern is matched
       unanchored`, `the length is counted in bytes`, `an object is taken as a single value`, `an absent
       value is taken as empty`; and `a leading dash is let into a gather step`, command
@@ -360,7 +360,7 @@ test writes into the record.
       command `go test ./internal/ingress -count=1 -run TestAHandOff`: `one refused value stops every
       playbook bound to the source`, and `the bound set is every loaded webhook playbook, whatever its
       source`
-- [ ] T034 [US3] SC-318, SC-321 and FR-305: in `internal/ingress/handoff.go`, `the hand-off passes the
+- [x] T034 [US3] SC-318, SC-321 and FR-305: in `internal/ingress/handoff.go`, `the hand-off passes the
       body's top-level fields as values`, and in `internal/run/execute.go`, `the data file is not recorded
       as a gathered input`, both with command
       `go test ./internal/ingress -count=1 -run TestUndeclaredContentReachesNoRun`; in

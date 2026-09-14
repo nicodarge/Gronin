@@ -241,8 +241,9 @@ func (e *Executor) Resume(
 	}()
 
 	sinks, refusals := sink.Build(declarationsOf(book), sink.BuildOptions{
-		Interpolate: func(text string) (string, error) { return e.Config.Interpolate(text, nil) },
-		Client:      e.Client,
+		Interpolate:            func(text string) (string, error) { return e.Config.Interpolate(text, nil) },
+		Client:                 e.Client,
+		RefusePayloadReference: book.Trigger.Type == "webhook",
 	})
 	if len(refusals) > 0 {
 		outcome.Status = record.StatusRefused
@@ -272,8 +273,9 @@ func (e *Executor) agentAndSinks(
 	prompt string, outcome *record.Run, incomplete *problems, trigger map[string]string,
 ) (record.Run, error) {
 	sinks, refusals := sink.Build(declarationsOf(book), sink.BuildOptions{
-		Interpolate: func(text string) (string, error) { return e.Config.Interpolate(text, trigger) },
-		Client:      e.Client,
+		Interpolate:            func(text string) (string, error) { return e.Config.Interpolate(text, trigger) },
+		Client:                 e.Client,
+		RefusePayloadReference: book.Trigger.Type == "webhook",
 	})
 	if len(refusals) > 0 {
 		outcome.Status = record.StatusRefused

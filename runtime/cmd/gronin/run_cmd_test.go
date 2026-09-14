@@ -84,6 +84,90 @@ func TestRunRefusesAPlaybookThatIsNotThere(t *testing.T) {
 	}
 }
 
+const webhookPlaybook = `
+name: alert-triage
+trigger:
+  type: webhook
+  source: alerts
+  values:
+    alertname:
+      at: /alertname
+      pattern: "[a-z ]+"
+      max_length: 40
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  tools: [Read]
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: http://127.0.0.1:9/unreachable
+`
+
+// deploymentWithSource is deploymentOnDisk plus a source configuration a webhook
+// playbook can bind to: sources.json naming "alerts", and its secret set the only way
+// the constitution allows — never on the command line.
+func deploymentWithSource(t *testing.T, playbookBody string) (stateDir, playbooksDir string) {
+	t.Helper()
+	stateDir, playbooksDir = deploymentOnDisk(t, playbookBody)
+	set := bintest.RunWithStdin(t, "shh", "--state-dir", stateDir, "config", "set", "--secret", "alerts_secret")
+	if set.ExitCode != 0 {
+		t.Fatalf("config set --secret failed: %q", set.Stderr)
+	}
+	document := `{"alerts": {"secret": "${config.alerts_secret}", "signature_header": "X-Test-Signature"}}`
+	if err := os.WriteFile(filepath.Join(stateDir, "sources.json"), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return stateDir, playbooksDir
+}
+
+// T022, SC-321 and FR-327: a manual invocation of a webhook playbook is held to the same
+// declared shapes as a delivery's — the same message, and no run recorded when a value
+// fails, an undeclared --trigger name refused by name, and a valid one runs and records
+// the data file FR-324 writes.
+func TestAManualWebhookRunIsHeldToItsDeclarations(t *testing.T) {
+	stateDir, _ := deploymentWithSource(t, webhookPlaybook)
+	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
+
+	badPattern := bintest.Run(t, "run", "alert-triage", "--trigger", "alertname=DISK FULL!!",
+		"--state-dir", stateDir, "--agent", fakeagent.Build(t))
+	if badPattern.ExitCode == 0 {
+		t.Fatalf("a value failing its pattern ran: %q", badPattern.Stdout)
+	}
+	if !strings.Contains(badPattern.Stderr, `does not wholly match its declared pattern`) {
+		t.Fatalf("stderr does not say why: %q", badPattern.Stderr)
+	}
+	if runsList := bintest.Run(t, "runs", "--state-dir", stateDir); strings.Contains(runsList.Stdout, "alert-triage") {
+		t.Fatalf("a run was recorded for a refused value: %q", runsList.Stdout)
+	}
+
+	undeclared := bintest.Run(t, "run", "alert-triage", "--trigger", "nonsense=x",
+		"--state-dir", stateDir, "--agent", fakeagent.Build(t))
+	if undeclared.ExitCode == 0 {
+		t.Fatalf("an undeclared --trigger name ran: %q", undeclared.Stdout)
+	}
+	if !strings.Contains(undeclared.Stderr, "nonsense") {
+		t.Fatalf("the refusal does not name it: %q", undeclared.Stderr)
+	}
+
+	good := bintest.Run(t, "run", "alert-triage", "--trigger", "alertname=disk full",
+		"--state-dir", stateDir, "--agent", fakeagent.Build(t))
+	fields := strings.Fields(good.Stdout)
+	if len(fields) == 0 {
+		t.Fatalf("no run id in stdout: %q, stderr: %q", good.Stdout, good.Stderr)
+	}
+	runID := fields[0]
+
+	shown := bintest.Run(t, "show", runID, "--state-dir", stateDir)
+	if shown.ExitCode != 0 {
+		t.Fatalf("show failed: %q", shown.Stderr)
+	}
+	if !strings.Contains(shown.Stdout, "gathered  trigger.json") {
+		t.Fatalf("the run's record does not hold trigger.json: %q", shown.Stdout)
+	}
+}
+
 // The load gate's headline: a refusal anywhere means nothing is armed, and the output
 // says so rather than leaving the operator to infer it.
 func TestOneRefusedPlaybookStopsEverything(t *testing.T) {
