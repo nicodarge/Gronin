@@ -172,3 +172,18 @@ func QuotedReferences(line string) []string {
 	}
 	return names
 }
+
+// TriggerReferences names the payload values a gather line references — every
+// ${trigger.x}, whether or not it sits inside quotes. The load gate uses it to refuse a
+// gather step naming an undeclared value (FR-321), and playbook.Check uses it to apply
+// FR-326's dash rule only to the values a gather step actually binds into a command.
+func TriggerReferences(line string) []string {
+	var names []string
+	for _, match := range reference.FindAllStringSubmatch(line, -1) {
+		namespace, key, found := strings.Cut(match[1], ".")
+		if found && namespace == "trigger" {
+			names = append(names, key)
+		}
+	}
+	return names
+}

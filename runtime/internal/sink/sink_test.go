@@ -301,6 +301,38 @@ func TestASinkThatNamesNoTypeIsRefusedByName(t *testing.T) {
 	}
 }
 
+// SC-315, the sink half. FR-325: a webhook playbook's sink may not reference the
+// payload, and the sink refuses it again when built rather than trusting the load gate
+// alone. The same declarations build for a manual playbook, which may still interpolate
+// the trigger everywhere but the label (the sink's pre-existing rule, unrelated to this
+// option).
+func TestASinkRefusesATriggerReferenceForAWebhookPlaybook(t *testing.T) {
+	declared := []sink.Declaration{
+		{Type: "discord", Config: map[string]any{"webhook": "${trigger.url}"}},
+		{Type: "slack", Config: map[string]any{"webhook": "${trigger.url}"}},
+		{Type: "github", Config: map[string]any{"repo": "${trigger.repo}", "cap": 3}},
+		{Type: "github", Config: map[string]any{"repo": "o/r", "token": "${trigger.tok}", "cap": 3}},
+	}
+
+	_, problems := sink.Build(declared, sink.BuildOptions{RefusePayloadReference: true})
+	if len(problems) != len(declared) {
+		t.Fatalf("problems = %v, want one per declaration", problems)
+	}
+	for at, problem := range problems {
+		if !strings.Contains(problem.Error(), "${trigger.") {
+			t.Errorf("declaration %d: refused for another reason: %v", at, problem)
+		}
+	}
+
+	// The option is what changes, not the deployment's interpolation: the same
+	// declarations build for a manual playbook.
+	interpolate := func(string) (string, error) { return "https://example.com/hook", nil }
+	sinks, problems := sink.Build(declared[:2], sink.BuildOptions{Interpolate: interpolate})
+	if len(problems) != 0 || len(sinks) != 2 {
+		t.Fatalf("sinks = %v, problems = %v", sinks, problems)
+	}
+}
+
 func TestASinkWhoseValueIsNotAMappingIsRefusedByShapeNotByField(t *testing.T) {
 	_, problems := sink.Build([]sink.Declaration{{Type: "discord", Config: nil}},
 		sink.BuildOptions{})

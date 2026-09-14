@@ -130,26 +130,139 @@ func Validate(book *Playbook, dep Deployment) []Problem {
 	problems = append(problems, validateSinks(book, dep)...)
 	problems = append(problems, validateRetrieve(book, dep)...)
 	problems = append(problems, validateGuard(book)...)
-	problems = append(problems, validateTrigger(book)...)
+	problems = append(problems, validateWebhook(book, dep)...)
 	problems = append(problems, validateInterpolation(book, dep)...)
 	return problems
 }
 
-// validateTrigger holds a webhook trigger at load until its own rules exist. The schema
-// already accepts the shape (specs/004-webhook/contracts/webhook-trigger.schema.json);
-// this refuses it by field, the way validateGuard refuses a declared key nothing applies
-// yet, until T031 lifts it and validateWebhook (T025) takes its place.
-func validateTrigger(book *Playbook) []Problem {
+// triggerReference matches a reference to a payload value wherever one may not appear:
+// a webhook playbook's prompt (FR-324) and its sinks (FR-325).
+var triggerReference = regexp.MustCompile(`\$\{trigger\.([^}]*)\}`)
+
+// triggerReferencesIn names every payload value a string references.
+func triggerReferencesIn(text string) []string {
+	var names []string
+	for _, match := range triggerReference.FindAllStringSubmatch(text, -1) {
+		names = append(names, match[1])
+	}
+	return names
+}
+
+// validateWebhook applies US3's rules to a webhook trigger: the source is configured
+// (FR-310); every declared value has its three fields, and a pattern that compiles
+// (FR-322 — the gate's own copy of what the schema already enforces, so a playbook built
+// directly rather than parsed is held to it too); no ${trigger.} in the prompt or in any
+// sink (FR-324, FR-325); a gather step references only declared values (FR-321's other
+// half); and no gather step writes the data file FR-324 itself writes.
+func validateWebhook(book *Playbook, dep Deployment) []Problem {
 	if book.Trigger.Type != "webhook" {
 		return nil
 	}
-	return []Problem{{
-		Field:    "trigger.type",
-		Found:    "webhook, and this runtime does not apply its rules yet",
-		Accepted: "cron or manual; webhook is held until its load-time rules land",
-	}}
+	var problems []Problem
+
+	if !contains(dep.Sources, book.Trigger.Source) {
+		problems = append(problems, Problem{
+			Field:    "trigger.source",
+			Found:    fmt.Sprintf("%q is not a source this deployment configures", book.Trigger.Source),
+			Accepted: provided(dep.Sources),
+		})
+	}
+
+	names := make([]string, 0, len(book.Trigger.Values))
+	for name := range book.Trigger.Values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		declared := book.Trigger.Values[name]
+		field := fmt.Sprintf("trigger.values.%s", name)
+		switch declared.Pattern {
+		case "":
+			problems = append(problems, Problem{
+				Field: field + ".pattern", Found: "missing",
+				Accepted: "an RE2 pattern the whole value must match",
+			})
+		default:
+			if _, err := regexp.Compile(declared.Pattern); err != nil {
+				problems = append(problems, Problem{
+					Field:    field + ".pattern",
+					Found:    fmt.Sprintf("%q does not compile: %v", declared.Pattern, err),
+					Accepted: "a valid RE2 pattern",
+				})
+			}
+		}
+		if declared.MaxLength <= 0 {
+			problems = append(problems, Problem{
+				Field: field + ".max_length", Found: "missing",
+				Accepted: "the most Unicode code points this value may hold",
+			})
+		}
+		if declared.At != "" && !strings.HasPrefix(declared.At, "/") {
+			problems = append(problems, Problem{
+				Field:    field + ".at",
+				Found:    fmt.Sprintf("%q is not a JSON Pointer", declared.At),
+				Accepted: "a JSON Pointer such as /alertname",
+			})
+		}
+	}
+
+	// FR-324's refusal is applied in validateAgent, where the prompt is already open
+	// for FR-039's own check — reading it again here would cost a second file read for
+	// nothing the first did not already have in hand.
+
+	for at, one := range book.Sinks {
+		name, config, ok := one.Type()
+		if !ok {
+			continue
+		}
+		for _, held := range walkValue(fmt.Sprintf("sinks[%d].%s", at, name), config) {
+			for _, ref := range triggerReferencesIn(held.text) {
+				problems = append(problems, Problem{
+					Field:    held.field,
+					Found:    fmt.Sprintf("references ${trigger.%s}", ref),
+					Accepted: "a destination, credential or cap bucket the deployment names, not the trigger",
+				})
+			}
+		}
+	}
+
+	for at, step := range book.Gather {
+		if step.As == "trigger.json" {
+			problems = append(problems, Problem{
+				Field:    fmt.Sprintf("gather[%d].as", at),
+				Found:    `"trigger.json" is the data file FR-324 writes`,
+				Accepted: "a name that does not collide with it",
+			})
+		}
+		for _, name := range config.TriggerReferences(step.Run) {
+			if _, declared := book.Trigger.Values[name]; !declared {
+				problems = append(problems, Problem{
+					Field:    fmt.Sprintf("gather[%d].run", at),
+					Found:    fmt.Sprintf("${trigger.%s} is not a declared value", name),
+					Accepted: declaredValueNames(book),
+				})
+			}
+		}
+	}
+
+	return problems
 }
 
+// declaredValueNames is what a gather step referencing a payload value may name.
+func declaredValueNames(book *Playbook) string {
+	if len(book.Trigger.Values) == 0 {
+		return "nothing; this trigger declares no values"
+	}
+	names := make([]string, 0, len(book.Trigger.Values))
+	for name := range book.Trigger.Values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// validateAgent only ever appends to problems and never returns early, which is what
+// keeps the webhook prompt-reference check below reached whatever earlier checks found.
 func validateAgent(book *Playbook, dep Deployment) []Problem {
 	var problems []Problem
 	agent := book.Agent
@@ -231,6 +344,18 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 			where := "agent.prompt_file (" + agent.PromptFile + ")"
 			problems = append(problems, bareReferences(where, string(body))...)
 			problems = append(problems, unconfigured(where, string(body), configured(dep))...)
+			// FR-324, read here rather than a second time in validateWebhook: the
+			// prompt is already open, and this is the string the runtime would
+			// interpolate against the payload if it were allowed to.
+			if book.Trigger.Type == "webhook" {
+				for _, name := range triggerReferencesIn(string(body)) {
+					problems = append(problems, Problem{
+						Field:    "agent.prompt_file",
+						Found:    fmt.Sprintf("references ${trigger.%s}", name),
+						Accepted: "no payload reference; declared values reach the agent only through the data file",
+					})
+				}
+			}
 		}
 	}
 

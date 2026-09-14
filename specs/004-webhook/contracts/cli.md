@@ -47,6 +47,9 @@ refused: alert-triage.yaml has a webhook trigger, and no --ingress-address is se
 Nothing was armed.
 ```
 
+Until `--ingress-address` exists (T054), there is no flag to name, so this ends "and no ingress
+exists yet" instead.
+
 ```text
 $ gronin serve --api-address 127.0.0.1:8443 --ingress-address 0.0.0.0:8443
 refused: the API (127.0.0.1:8443) and the ingress (0.0.0.0:8443) are on one port

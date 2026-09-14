@@ -27,6 +27,9 @@ func deployment() playbook.Deployment {
 			"audit_repo", "github_token", "kb_collection", "loft", "ops_channel",
 			"ops_webhook", "fleet", "w",
 		},
+		// T017's corpus is judged against one configured source, so the
+		// unconfigured-source fixture can be pinned to naming it.
+		Sources: []string{"alerts"},
 	}
 }
 
@@ -79,6 +82,21 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 		// same rule at an earlier layer. The gate's own version is tested below, against
 		// a document the schema never reads.
 		"guard-unknown-key.yaml": {"guard", "additional properties 'lock' not allowed"},
+
+		// T017's webhook corpus. Each is refused for its own rule, wherever the payload
+		// could otherwise steer the run.
+		"webhook-prompt-reference.yaml": {
+			"agent.prompt_file", "references ${trigger."},
+		"webhook-sink-reference.yaml": {
+			"sinks[0].discord.webhook", "references ${trigger."},
+		"webhook-unconfigured-source.yaml": {
+			"trigger.source", "not a source this deployment configures"},
+		"webhook-undeclared-gather-reference.yaml": {
+			"gather[0].run", "is not a declared value"},
+		"webhook-pattern-does-not-compile.yaml": {
+			"trigger.values.alertname.pattern", "does not compile"},
+		"webhook-data-file-name.yaml": {
+			"gather[0].as", "is the data file"},
 	}
 
 	paths := corpus(t, "../../testdata/playbooks/hostile")
@@ -119,6 +137,20 @@ func TestTheHostileCorpusIsRefusedForItsOwnReason(t *testing.T) {
 				t.Errorf("refused, but not for its reason.\n  want %s to say %q\n  got:", want.field, want.says)
 				for _, problem := range problems {
 					t.Errorf("    %s", problem.Error())
+				}
+			}
+			// The unconfigured-source refusal names what IS configured, not only what
+			// is not — an author fixing it needs to know which source names to pick
+			// from.
+			if name == "webhook-unconfigured-source.yaml" {
+				var namesConfigured bool
+				for _, problem := range problems {
+					if problem.Field == want.field && strings.Contains(problem.Accepted, "alerts") {
+						namesConfigured = true
+					}
+				}
+				if !namesConfigured {
+					t.Errorf("the refusal does not name the configured source: %v", problems)
 				}
 			}
 		})
@@ -387,11 +419,11 @@ func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
 	}
 }
 
-// T014's mutant target: a webhook trigger is held at the gate until its own rules exist
-// (T024 through T031), because a trigger accepted before its payload rules are checked is
-// the declared-but-unapplied state Principle I refuses. Asserted by field name, as
-// TestGuardBlockKeysAreRefusedUntilApplied is, so lifting the hold in T031 is a one-line
-// change to what this test expects rather than a rewrite of it.
+// T031 lifted the hold T014 put on a webhook trigger: a well-formed one, naming a source
+// this deployment configures and declaring no values, is now accepted rather than held.
+// T016's mutant "the gate lets a webhook trigger through before its rules exist" lost its
+// target when the hold came off, and is replaced here by its opposite: a mutant
+// reinstating the hold would refuse this book, which this test would then catch.
 func TestAWebhookTriggerIsHeld(t *testing.T) {
 	held := func(problems []playbook.Problem) bool {
 		for _, problem := range problems {
@@ -403,13 +435,89 @@ func TestAWebhookTriggerIsHeld(t *testing.T) {
 	}
 
 	book := &playbook.Playbook{Name: "p", Trigger: playbook.Trigger{Type: "webhook", Source: "alerts"}}
-	if problems := playbook.Validate(book, deployment()); !held(problems) {
-		t.Fatalf("a webhook trigger was not held: %v", problems)
+	if problems := playbook.Validate(book, deployment()); held(problems) || len(problems) != 0 {
+		t.Fatalf("a webhook trigger that passes every rule was refused: %v", problems)
 	}
 
 	manual := &playbook.Playbook{Name: "p", Trigger: playbook.Trigger{Type: "manual"}}
 	if problems := playbook.Validate(manual, deployment()); held(problems) {
 		t.Fatalf("a manual trigger was held as if it were a webhook: %v", problems)
+	}
+}
+
+// SC-315. The schema already refuses a value missing its pattern or its length
+// (webhook-value-without-pattern.yaml, webhook-value-without-max-length.yaml under
+// testdata/schema/refused); this is the gate's own copy of the same rule, on typed
+// playbooks the schema never reads — as TestGuardBlockKeysAreRefusedUntilApplied is for
+// the guard block's own keys — so a playbook built directly rather than parsed is held
+// to it too.
+func TestTheGateRefusesAWebhookValueTheSchemaWouldHave(t *testing.T) {
+	for name, value := range map[string]playbook.TriggerValue{
+		"no pattern":    {At: "/alertname", MaxLength: 80},
+		"no max_length": {At: "/alertname", Pattern: ".+"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			book := &playbook.Playbook{
+				Name: "p",
+				Trigger: playbook.Trigger{
+					Type: "webhook", Source: "alerts",
+					Values: map[string]playbook.TriggerValue{"alertname": value},
+				},
+			}
+			problems := playbook.Validate(book, deployment())
+			if len(problems) == 0 {
+				t.Fatal("a value missing a required field was accepted")
+			}
+			var found bool
+			for _, problem := range problems {
+				if strings.HasPrefix(problem.Field, "trigger.values.alertname") &&
+					strings.Contains(problem.Found, "missing") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("not refused for its reason: %v", problems)
+			}
+		})
+	}
+}
+
+// SC-315: the prompt and the sink checks report every offending reference, the way the
+// gather check already does — not only the first — so an author fixing one does not get
+// sent back for a second round trip over one this gate already saw.
+func TestEveryTriggerReferenceInAPromptOrSinkIsReported(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "prompt.md"),
+		[]byte("Report on ${trigger.alertname} and ${trigger.severity}."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book := &playbook.Playbook{
+		Name: "p", Path: filepath.Join(dir, "p.yaml"),
+		Trigger: playbook.Trigger{Type: "webhook", Source: "alerts"},
+		Agent: playbook.Agent{
+			PromptFile: "prompt.md", Model: "m", OutputSchema: map[string]any{"type": "object"},
+		},
+		Sinks: []playbook.Sink{
+			{"discord": map[string]any{"webhook": "${trigger.a} and ${trigger.b}"}},
+		},
+	}
+
+	problems := playbook.Validate(book, deployment())
+
+	var promptRefs, sinkRefs int
+	for _, problem := range problems {
+		switch problem.Field {
+		case "agent.prompt_file":
+			promptRefs++
+		case "sinks[0].discord.webhook":
+			sinkRefs++
+		}
+	}
+	if promptRefs != 2 {
+		t.Fatalf("the prompt's two references produced %d problems, want 2: %v", promptRefs, problems)
+	}
+	if sinkRefs != 2 {
+		t.Fatalf("the sink's two references produced %d problems, want 2: %v", sinkRefs, problems)
 	}
 }
 

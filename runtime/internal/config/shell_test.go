@@ -122,3 +122,35 @@ func TestKeysThatCollideAsVariablesAreRefused(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// TriggerReferences names only the payload values a line references, beside a
+// ${config.x} on the same line it must not be confused with, and reports a name twice
+// when the line reaches for it twice — Check applies FR-326's dash rule once per
+// declaration, not once per line, and a caller that deduplicated here would undercount.
+func TestTriggerReferencesNamesEveryPayloadReferenceOnTheLine(t *testing.T) {
+	for name, probe := range map[string]struct {
+		line string
+		want []string
+	}{
+		"none":                       {"echo hello", nil},
+		"only config":                {"echo ${config.b}", nil},
+		"one":                        {"echo ${trigger.a}", []string{"a"}},
+		"trigger beside config":      {"echo ${trigger.a} ${config.b}", []string{"a"}},
+		"config beside trigger":      {"echo ${config.b} ${trigger.a}", []string{"a"}},
+		"the same name twice":        {"echo ${trigger.a} ${trigger.a}", []string{"a", "a"}},
+		"two different names":        {"echo ${trigger.a} ${trigger.b}", []string{"a", "b"}},
+		"inside quotes, still named": {`echo "${trigger.a}"`, []string{"a"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := config.TriggerReferences(probe.line)
+			if len(got) != len(probe.want) {
+				t.Fatalf("got %v, want %v", got, probe.want)
+			}
+			for at, want := range probe.want {
+				if got[at] != want {
+					t.Fatalf("got %v, want %v", got, probe.want)
+				}
+			}
+		})
+	}
+}

@@ -1312,21 +1312,6 @@
       ]
     },
     {
-      "name": "the fake's renewal does not move the expiry",
-      "tree": "..",
-      "file": "internal/guard/guardtest/fake.go",
-      "find": "\tlive.expires = f.clock.Monotonic().Add(live.granted)\n\treturn nil",
-      "replace": "\t_ = live\n\treturn nil",
-      "command": [
-        "go",
-        "test",
-        "./internal/guard/guardtest",
-        "-count=1",
-        "-run",
-        "TestFakeContract"
-      ]
-    },
-    {
       "name": "a held fake call ignores its context",
       "tree": "..",
       "file": "internal/guard/guardtest/fake.go",
@@ -1429,21 +1414,6 @@
       "file": "internal/guard/etcd/etcd.go",
       "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
       "replace": "if _, err := c.coordinator.client.KeepAliveOnce(context.Background(), c.lease); err != nil {",
-      "command": [
-        "go",
-        "test",
-        "./internal/guard/etcd",
-        "-count=1",
-        "-run",
-        "TestEtcdContract"
-      ]
-    },
-    {
-      "name": "a renewal never reaches the etcd server",
-      "tree": "..",
-      "file": "internal/guard/etcd/etcd.go",
-      "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
-      "replace": "if _, err := c.coordinator.client.Get(ctx, c.coordinator.claimKey(c.name)); err != nil {",
       "command": [
         "go",
         "test",
@@ -2207,8 +2177,8 @@
       "name": "a refused configuration still arms",
       "tree": "..",
       "file": "cmd/gronin/serve_cmd.go",
-      "find": "\t\t\t\tcmd.PrintErrln(\"Nothing was armed.\")\n",
-      "replace": "",
+      "find": "\t\t\t\t// A coordination configuration whose durations cannot hold is refused\n\t\t\t\t// here, before a single schedule is armed (FR-123).\n\t\t\t\tcmd.PrintErrln(err)\n\t\t\t\tcmd.PrintErrln(\"Nothing was armed.\")\n",
+      "replace": "\t\t\t\t// A coordination configuration whose durations cannot hold is refused\n\t\t\t\t// here, before a single schedule is armed (FR-123).\n\t\t\t\tcmd.PrintErrln(err)\n",
       "command": [
         "go",
         "test",
@@ -4041,21 +4011,6 @@
       ]
     },
     {
-      "name": "the gate lets a webhook trigger through before its rules exist",
-      "tree": "..",
-      "file": "internal/playbook/validate.go",
-      "find": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" {\n\t\treturn nil\n\t}",
-      "replace": "func validateTrigger(book *Playbook) []Problem {\n\tif book.Trigger.Type != \"webhook\" || true {\n\t\treturn nil\n\t}",
-      "command": [
-        "go",
-        "test",
-        "./internal/playbook",
-        "-count=1",
-        "-run",
-        "TestAWebhookTriggerIsHeld"
-      ]
-    },
-    {
       "name": "a control character in the identity pointer is accepted",
       "tree": "..",
       "file": "internal/sources/sources.go",
@@ -4249,6 +4204,368 @@
         "-race",
         "-run",
         "TestFakeRateSlotIsAtomicWithTheClaimUnderConcurrency"
+      ]
+    },
+    {
+      "name": "a webhook prompt may reference the payload",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\t\tif book.Trigger.Type == \"webhook\" {\n\t\t\t\tfor _, name := range triggerReferencesIn(string(body)) {\n",
+      "replace": "\t\t\tif false {\n\t\t\t\tfor _, name := range triggerReferencesIn(string(body)) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a webhook sink may reference the payload",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tfor _, ref := range triggerReferencesIn(held.text) {\n",
+      "replace": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tfor _, ref := range triggerReferencesIn(\"\") {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a webhook trigger may name an unconfigured source",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tif !contains(dep.Sources, book.Trigger.Source) {\n",
+      "replace": "\tif false && !contains(dep.Sources, book.Trigger.Source) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a gather step may reference an undeclared value",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tfor _, name := range config.TriggerReferences(step.Run) {\n\t\t\tif _, declared := book.Trigger.Values[name]; !declared {\n",
+      "replace": "\t\tfor _, name := range config.TriggerReferences(step.Run) {\n\t\t\tif _, declared := book.Trigger.Values[name]; false && !declared {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a pattern that does not compile passes the gate",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tdefault:\n\t\t\tif _, err := regexp.Compile(declared.Pattern); err != nil {\n",
+      "replace": "\t\tdefault:\n\t\t\tif _, err := regexp.Compile(declared.Pattern); false && err != nil {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a gather step may write the data file's name",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif step.As == \"trigger.json\" {\n",
+      "replace": "\t\tif false && step.As == \"trigger.json\" {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheHostileCorpusIsRefusedForItsOwnReason"
+      ]
+    },
+    {
+      "name": "a value without a pattern passes the gate",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tswitch declared.Pattern {\n\t\tcase \"\":\n",
+      "replace": "\t\tswitch declared.Pattern {\n\t\tcase \"unreachable-sentinel\":\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheGateRefusesAWebhookValueTheSchemaWouldHave"
+      ]
+    },
+    {
+      "name": "a value without a length passes the gate",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\t\tif declared.MaxLength <= 0 {\n",
+      "replace": "\t\tif false && declared.MaxLength <= 0 {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheGateRefusesAWebhookValueTheSchemaWouldHave"
+      ]
+    },
+    {
+      "name": "the trigger schema lets a value omit its pattern",
+      "tree": "..",
+      "file": "internal/playbook/playbook.schema.json",
+      "find": "            \"required\": [\n              \"at\",\n              \"pattern\",\n              \"max_length\"\n            ],\n",
+      "replace": "            \"required\": [\n              \"at\",\n              \"max_length\"\n            ],\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestTheSchemaAcceptsAndRefusesTheProbeCorpus"
+      ]
+    },
+    {
+      "name": "the sink resolves a trigger reference for a webhook playbook",
+      "tree": "..",
+      "file": "internal/sink/build.go",
+      "find": "\t\tif opts.RefusePayloadReference {\n",
+      "replace": "\t\tif false && opts.RefusePayloadReference {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/sink",
+        "-count=1",
+        "-run",
+        "TestASinkRefusesATriggerReferenceForAWebhookPlaybook"
+      ]
+    },
+    {
+      "name": "the pattern is matched unanchored",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\tcompiled, err := regexp.Compile(`^(?:` + pattern + `)$`)\n",
+      "replace": "\tcompiled, err := regexp.Compile(pattern)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDeclaredValues"
+      ]
+    },
+    {
+      "name": "the length is counted in bytes",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\t\tif length := utf8.RuneCountInString(text); length > declared.MaxLength {\n",
+      "replace": "\t\tif length := len(text); length > declared.MaxLength {\n\t\t\t_ = utf8.RuneCountInString\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDeclaredValues"
+      ]
+    },
+    {
+      "name": "an object is taken as a single value",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\tcase bool:\n\t\tif typed {\n\t\t\treturn \"true\", true\n\t\t}\n\t\treturn \"false\", true\n\tdefault:\n\t\treturn \"\", false\n\t}\n}\n",
+      "replace": "\tcase bool:\n\t\tif typed {\n\t\t\treturn \"true\", true\n\t\t}\n\t\treturn \"false\", true\n\tdefault:\n\t\treturn \"\", true\n\t}\n}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDeclaredValues"
+      ]
+    },
+    {
+      "name": "an absent value is taken as empty",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\t\tif !present || raw == nil {\n\t\t\trefusals = append(refusals, ValueRefusal{Name: name, Kind: ValueAbsent, Problem: Problem{\n\t\t\t\tField: field, Found: \"absent\",\n\t\t\t\tAccepted: \"a single value at \" + declared.At,\n\t\t\t}})\n\t\t\tcontinue\n\t\t}\n",
+      "replace": "\t\tif !present || raw == nil {\n\t\t\tchecked[name] = \"\"\n\t\t\tcontinue\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestDeclaredValues"
+      ]
+    },
+    {
+      "name": "a leading dash is let into a gather step",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\t\tif referenced[name] && strings.HasPrefix(text, \"-\") {\n",
+      "replace": "\t\tif false && referenced[name] && strings.HasPrefix(text, \"-\") {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestALeadingDash"
+      ]
+    },
+    {
+      "name": "one refused value stops every playbook bound to the source",
+      "tree": "..",
+      "file": "internal/ingress/handoff.go",
+      "find": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n",
+      "replace": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn nil\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestAHandOff"
+      ]
+    },
+    {
+      "name": "the bound set is every loaded webhook playbook, whatever its source",
+      "tree": "..",
+      "file": "internal/ingress/handoff.go",
+      "find": "\t\tif book.Trigger.Type != \"webhook\" || book.Trigger.Source != delivery.Source {\n\t\t\tcontinue\n\t\t}\n",
+      "replace": "\t\tif book.Trigger.Type != \"webhook\" {\n\t\t\tcontinue\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestAHandOff"
+      ]
+    },
+    {
+      "name": "the hand-off passes the body's top-level fields as values",
+      "tree": "..",
+      "file": "internal/playbook/values.go",
+      "find": "\t\tvalues[name] = atPointer(decoded, declared.At)\n",
+      "replace": "\t\tvalues[name] = atPointer(decoded, \"/\"+name)\n\t\t_ = declared\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestUndeclaredContentReachesNoRun"
+      ]
+    },
+    {
+      "name": "the data file is not recorded as a gathered input",
+      "tree": "..",
+      "file": "internal/run/execute.go",
+      "find": "\tincomplete.note(e.Store.AddGatheredInput(ctx, started.ID, record.GatheredInput{\n\t\tName: TriggerDataFile, Bytes: int64(len(document)), BlobRef: ref,\n\t}))\n",
+      "replace": "\t_ = ref\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestUndeclaredContentReachesNoRun"
+      ]
+    },
+    {
+      "name": "a manual webhook run skips its declarations",
+      "tree": "..",
+      "file": "cmd/gronin/run_cmd.go",
+      "find": "\t\t\tif book.Trigger.Type == \"webhook\" {\n",
+      "replace": "\t\t\tif false {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestAManualWebhookRunIsHeldToItsDeclarations"
+      ]
+    },
+    {
+      "name": "serve arms a webhook playbook with no ingress",
+      "tree": "..",
+      "file": "cmd/gronin/serve_cmd.go",
+      "find": "\t\tif book.Trigger.Type == \"webhook\" {\n",
+      "replace": "\t\tif false {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestServeRefusesAWebhookPlaybookWithNoIngress",
+        "-timeout",
+        "20s"
+      ]
+    },
+    {
+      "name": "the gate refuses a webhook trigger that passes every rule",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "\tvar problems []Problem\n\n\tif !contains(dep.Sources, book.Trigger.Source) {\n",
+      "replace": "\tvar problems []Problem\n\tproblems = append(problems, Problem{Field: \"trigger.type\", Found: \"held unconditionally\"})\n\n\tif !contains(dep.Sources, book.Trigger.Source) {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestAWebhookTriggerIsHeld"
+      ]
+    },
+    {
+      "name": "the fake's renewal does not move the expiry",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tlive.expires = f.clock.Monotonic().Add(live.granted)\n\treturn nil",
+      "replace": "\t_ = live\n\treturn nil",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract"
+      ]
+    },
+    {
+      "name": "a renewal never reaches the etcd server",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "if _, err := c.coordinator.client.KeepAliveOnce(ctx, c.lease); err != nil {",
+      "replace": "if _, err := c.coordinator.client.Get(ctx, c.coordinator.claimKey(c.name)); err != nil {",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract"
       ]
     },
     {
