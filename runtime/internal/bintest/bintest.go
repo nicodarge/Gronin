@@ -178,9 +178,9 @@ func Start(t *testing.T, args ...string) *Process {
 // have ended it.
 //
 // The parent-death signal fires when the starting OS thread exits, and the runtime ends a
-// thread when a goroutine locked to it returns still locked. A new goroutine is never
-// locked, so the thread it starts from lives as long as the process whatever the caller
-// holds.
+// thread when a goroutine locked to it returns still locked. cmd.Start runs on a new,
+// never-locked goroutine, so the thread it runs on outlives this call whichever thread
+// the caller is locked to.
 func start(cmd *exec.Cmd) error {
 	dieWithThisProcess(cmd)
 	started := make(chan error, 1)
