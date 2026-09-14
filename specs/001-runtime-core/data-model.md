@@ -45,12 +45,16 @@ The central row. One per execution, including replays and resumes.
 | `resolved_playbook` | blob ref | The playbook as actually used |
 | `trigger_kind` | enum | `schedule`, `manual`, `replay`, `resume` |
 | `parent_run_id` | identifier, nullable | Set on a replay or a resume; names the run it derives from |
-| `status` | enum | `running`, `succeeded`, `failed`, `timed_out`, `capped`, `interrupted`, `refused` |
+| `status` | enum | `running`, `succeeded`, `failed`, `timed_out`, `capped`, `interrupted`, `refused`, `claim_lost` |
 | `started_at`, `ended_at` | timestamp | Host clock, UTC. Never a payload timestamp |
 | `cost_usd`, `tokens` | numeric | From the agent stage's terminal event |
 | `agent_session_id` | string | The agent process's own session identifier, for correlation |
 | `credential_source` | string | As reported by the agent process, not asserted |
 | `error` | text, nullable | Terminal failure, already redacted |
+| `waiting_trigger_id` | identifier, nullable | The waiting trigger this run started from, from the guard feature. Empty for a run that did not wait |
+| `waited_ms` | integer, nullable | From acceptance to the run's start, on the monotonic reading of the process that waited. Null for a run that did not wait |
+| `claim_reach` | enum, nullable | `cross-host` or `single-host` — which guarantee this run actually ran under, from the guard feature |
+| `claim_token` | integer, nullable | The fencing token the run held; null on a single-host deployment, which has none |
 
 `trigger_kind` deserves a note before `status` does. Its values are not the playbook's
 `trigger.type` values and are not meant to match them: a playbook is triggered by `cron` or
@@ -60,7 +64,10 @@ playbook can declare. Two axes, deliberately.
 `status` deserves one note. `refused` is not the same as `failed`: a refused run never started,
 because the bounds receipt did not match the declaration or a gather step failed. It costs nothing
 and it is not an incident — but it must be visible, because a playbook that is refused every night
-is broken in a way that silence would hide.
+is broken in a way that silence would hide. `claim_lost`, added by the guard feature
+([specs/002-guard/data-model.md](../002-guard/data-model.md)), is neither: the run was stopped
+because its claim could no longer be proven held, nothing in the run itself went wrong, and it is
+not `interrupted`, which is reserved for a run the next process finds still `running`.
 
 ### Gathered input
 

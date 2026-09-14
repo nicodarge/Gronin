@@ -37,6 +37,7 @@ func TestFakeContract(t *testing.T) {
 		},
 		Lapse:       func(_ *testing.T, claim guard.Claim) { fake.Expire(claim) },
 		Elapse:      func(_ *testing.T, d time.Duration) { backend.Advance(d) },
+		Backend:     backend.Monotonic,
 		StepRuntime: runtime.Advance,
 		ShortGrant: func(*testing.T) guard.Coordinator {
 			h := host(nil)

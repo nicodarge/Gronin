@@ -262,7 +262,7 @@ bounds a trigger source, and a replay is an operator acting on one recorded run.
 
 The runtime core's Run entity
 ([specs/001-runtime-core/data-model.md](../001-runtime-core/data-model.md)) gains four fields and one
-status. That document is updated when this feature's tasks land. It is recorded here so the
+status, recorded there now that this feature's tasks have landed. It is recorded here too so the
 change is not discovered in a migration.
 
 | Field | Type | Notes |

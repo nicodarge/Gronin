@@ -111,9 +111,17 @@ The file lock's equivalent is the holder's death: the kernel releases the lock, 
 `TestALockHeldByAKilledProcessIsAcquirable` already proves it.
 *Fails when*: the claim key is written without its lease, so it never lapses; or the expiry is sent
 in the wrong unit, so it lapses a thousand times late. Both break the second half. A claim that
-lapses while renewed breaks the first. The test waits with a deadline and polls; it never sleeps a
-fixed time and then asserts, because a sleep shorter than the expiry passes without the recovery
-ever happening (the SC-102 trap the plan names).
+lapses while renewed breaks the first, as when a renewal never reaches the backend. The test waits
+with a deadline and polls; it never sleeps a fixed time and then asserts, because a sleep shorter
+than the expiry passes without the recovery ever happening (the SC-102 trap the plan names).
+
+Renewed means renewed within the expiry on the backend's clock. The embedded etcd server's clock
+keeps running while the host running the suite is stalled, and a stall longer than the expiry lapses
+a claim nobody was able to renew — the backend is right to. So the first half judges a loss on the
+backend's clock against the instant the last renewal was sent, which is no later than the backend
+restarted its countdown: lost within the expiry, the clause fails; lost later, the attempt starts
+over, and a host that stalls that long in every one of a bounded number of attempts fails it too.
+C3's renewals are judged the same way.
 
 **C3 — No host clock judges a claim.** No timestamp sent to the backend or read back from it takes
 part in deciding whether a claim is held. The holder's "when taken" is written for a reader, and

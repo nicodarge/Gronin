@@ -39,8 +39,24 @@ woke it.
 
 ### `guard`
 
-Runs before any tokens are spent. Holds a lock so two runs of the same playbook
-do not overlap, applies a rate limit, and deduplicates.
+Runs before any tokens are spent. Takes a claim so two runs of the same playbook do not
+overlap, applies the playbook's `rate` limit, and lets one trigger that will not come
+again — a manual invocation, a webhook delivery — wait for the run ahead of it instead of
+being refused outright.
+
+A deployment with no coordination backend configured holds the claim as a file lock, which
+reaches one host: two hosts each enforce their own non-concurrency, and a rate limit or a
+waiting slot is likewise per host. A deployment naming an etcd backend in `coordination.json`
+holds the claim there instead, and the guarantee reaches across every host in the deployment —
+`serve` prints which reach a deployment runs under at startup
+([specs/002-guard/contracts/cli.md](../specs/002-guard/contracts/cli.md) has the output,
+[specs/002-guard/contracts/coordination.md](../specs/002-guard/contracts/coordination.md) the
+`coordination.json` fields).
+
+The waiting slot holds at most one trigger per playbook: it re-contends for the claim when the
+run ahead of it ends, up to the `guard.wait` the playbook declares, and gives up as a refusal —
+readable through `gronin refusals` — if the wait expires, the rate window is full when its turn
+comes, or the playbook file changed while it waited.
 
 Deduplication anchors on the runtime's own clock. An alerting system freezes an alert's
 start time at first activation and re-sends it unchanged on every
