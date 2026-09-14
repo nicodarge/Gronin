@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"text/tabwriter"
+
 	"github.com/spf13/cobra"
 )
 
@@ -32,12 +35,14 @@ func newSourcesCommand() *cobra.Command {
 				cmd.Printf("no sources configured in %s\n", stateDirOf(cmd))
 				return nil
 			}
-			// The name field is 9 wide, matching contracts/cli.md's example exactly;
-			// Summary's own fields carry the rest of the line's layout.
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
 			for _, name := range names {
-				cmd.Printf("%-9s%s\n", name, srcs.Summary(name))
+				cells, _ := srcs.Cells(name)
+				if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, cells[0], cells[1], cells[2]); err != nil {
+					return err
+				}
 			}
-			return nil
+			return w.Flush()
 		},
 	}
 

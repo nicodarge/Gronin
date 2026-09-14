@@ -198,9 +198,9 @@ func TestSourcesRefusesEachProbeForItsOwnReason(t *testing.T) {
 	}
 }
 
-// No Summary contains the sentinel set as a source's secret (SC-316's shape half): a
-// listing must not resolve what it prints.
-func TestSummaryNeverContainsTheSecret(t *testing.T) {
+// None of Cells' cells contain the sentinel set as a source's secret (SC-316's shape
+// half): a listing must not resolve what it prints.
+func TestCellsNeverContainTheSecret(t *testing.T) {
 	dir := write(t, `{"alerts": {
 	  "secret": "${config.alerts_hook_secret}",
 	  "signature_header": "X-Grafana-Alerting-Signature"
@@ -209,8 +209,12 @@ func TestSummaryNeverContainsTheSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(catalog.Summary("alerts"), testsecret.Value) {
-		t.Fatal("the summary holds the secret")
+	cells, ok := catalog.Cells("alerts")
+	if !ok {
+		t.Fatal("alerts is not in the catalogue")
+	}
+	if strings.Contains(strings.Join(cells, " "), testsecret.Value) {
+		t.Fatalf("a cell holds the secret: %v", cells)
 	}
 
 	secret, err := catalog.Secret("alerts")

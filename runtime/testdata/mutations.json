@@ -3969,8 +3969,8 @@
       "name": "the source summary resolves the secret",
       "tree": "..",
       "file": "internal/sources/sources.go",
-      "find": "return fmt.Sprintf(\"header %-30s identity %-20s window %s\",\n\t\tsource.SignatureHeader, identity, humanDuration(source.ReplayWindow))",
-      "replace": "secret, _ := c.Secret(sourceName)\n\treturn fmt.Sprintf(\"header %-30s identity %-20s window %s   secret %s\",\n\t\tsource.SignatureHeader, identity, humanDuration(source.ReplayWindow), secret)",
+      "find": "\treturn []string{\n\t\t\"header \" + source.SignatureHeader,\n\t\t\"identity \" + identity,\n\t\t\"window \" + humanDuration(source.ReplayWindow),\n\t}, true\n",
+      "replace": "\tsecret, _ := c.Secret(sourceName)\n\treturn []string{\n\t\t\"header \" + source.SignatureHeader,\n\t\t\"identity \" + identity,\n\t\t\"window \" + humanDuration(source.ReplayWindow) + \"   secret \" + secret,\n\t}, true\n",
       "command": [
         "go",
         "test",

@@ -203,29 +203,31 @@ func (c *Catalog) Get(sourceName string) (Source, bool) {
 	return source, ok
 }
 
-// Summary is what `gronin sources list` prints for one source, appended straight after
-// its name (FR-311): its header, its identity location, its replay window, and never its
-// secret. It never calls Secret, so it cannot print what that resolves. The field widths
-// are the layout contracts/cli.md documents, e.g.:
-//
-//	alerts   header X-Grafana-Alerting-Signature   identity digest of the body   window 10m
-func (c *Catalog) Summary(sourceName string) string {
+// Cells is what `gronin sources list` renders for one source (FR-311): its header, its
+// identity location and its replay window, as three cells meant for a tabwriter so a long
+// value in one row never glues into the next column — never its secret. It never calls
+// Secret, so it cannot return what that resolves.
+func (c *Catalog) Cells(sourceName string) ([]string, bool) {
 	source, ok := c.entries[sourceName]
 	if !ok {
-		return ""
+		return nil, false
 	}
 	identity := "digest of the body"
 	if source.Identity != "" {
 		identity = source.Identity
 	}
-	return fmt.Sprintf("header %-30s identity %-20s window %s",
-		source.SignatureHeader, identity, humanDuration(source.ReplayWindow))
+	return []string{
+		"header " + source.SignatureHeader,
+		"identity " + identity,
+		"window " + humanDuration(source.ReplayWindow),
+	}, true
 }
 
-// humanDuration mirrors internal/guard's HumanDuration exactly (contracts/cli.md's
-// layout, unit by unit, largest first, no zero unit) rather than importing internal/guard
-// here: this package stays a leaf catalogue beside internal/mcpcatalog, and plan.md's
-// project structure does not have it reach into the guard.
+// humanDuration mirrors internal/guard's HumanDuration (contracts/cli.md's layout, unit
+// by unit, largest first, no zero unit) rather than importing internal/guard here: this
+// package stays a leaf catalogue beside internal/mcpcatalog, and plan.md's project
+// structure does not have it reach into the guard. TestHumanDuration holds this copy to
+// the same cases guard's own test does.
 func humanDuration(d time.Duration) string {
 	d = d.Round(time.Second)
 	if d <= 0 {
