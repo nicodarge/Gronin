@@ -2,9 +2,15 @@
 
 The six-stage runtime. What is here: the load gate, the schedule, gather, one bounded
 agent stage with its receipt check, the sinks — two that deliver and one that creates,
-capped — and the record with replay and resume.
-The guard stage is refused rather than ignored — a declared bound nothing enforces reads as
-enforced in review.
+capped — the record with replay and resume, and the guard stage, which takes a claim on
+a playbook name, applies its rate limit and holds its one waiting slot before an agent
+run starts anything.
+
+The guard's non-concurrency and rate limit reach one host on their own — a file lock
+stands in for the claim. A deployment that wants the guarantee across hosts runs an
+etcd cluster beside the binary and names it in `coordination.json`; see
+[../specs/002-guard/contracts/cli.md](../specs/002-guard/contracts/cli.md) for its fields
+and what `gronin serve` and `gronin refusals` say about a guard decision.
 
 ## Running the tests
 
