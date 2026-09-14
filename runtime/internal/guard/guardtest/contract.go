@@ -3,6 +3,7 @@ package guardtest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -60,8 +61,7 @@ type Node struct {
 // for.
 var excusable = map[string]bool{"C2": true, "C3": true, "C5": true, "C6": true, "C12": true}
 
-// Contract runs every clause of specs/002-guard/contracts/coordination.md against subject,
-// except C8 and C9, which arrive with the rate slots.
+// Contract runs every clause of specs/002-guard/contracts/coordination.md against subject.
 func Contract(t *testing.T, subject Subject) {
 	for id := range subject.NotApplicable {
 		if !excusable[id] {
@@ -82,6 +82,8 @@ func Contract(t *testing.T, subject Subject) {
 		{"C5", lossIsDefinitive},
 		{"C6", fencing},
 		{"C7", release},
+		{"C8", theRateSlotAndTheClaimAreOneStep},
+		{"C9", theRateWindowIsTheBackends},
 		{"C10", released},
 		{"C10", releasedWaitsWhileHeld},
 		{"C11", unavailableIsNotHeld},
@@ -149,6 +151,12 @@ func manual(name, run string) guard.AcquireRequest {
 func scheduled(name, run string, due time.Time) guard.AcquireRequest {
 	req := manual(name, run)
 	req.Trigger = guard.TriggerRef{Kind: guard.KindSchedule, DueAt: due}
+	return req
+}
+
+// rated is req with a declared rate limit of runs per per.
+func rated(req guard.AcquireRequest, runs int, per time.Duration) guard.AcquireRequest {
+	req.Rate = &guard.RateLimit{Runs: runs, Per: per}
 	return req
 }
 
@@ -354,6 +362,38 @@ func release(t *testing.T, s Subject) {
 	_, err = try(t, s, a, manual("c7", "run-c"))
 	refusedAs(t, err, guard.ErrHeld, "acquiring after a stale release")
 	releaseClaim(t, second)
+}
+
+// C8. A refusal for rate leaves the claim exactly as it was: the slots fill, an
+// acquisition against the full window is refused, and the claim it would have taken is
+// still free for a contender that declares no limit.
+func theRateSlotAndTheClaimAreOneStep(t *testing.T, s Subject) {
+	node := s.New(t, nil)
+	const limit = 2
+	for i := range limit {
+		claim := acquire(t, s, node, rated(manual("c8", fmt.Sprintf("run-%d", i)), limit, s.Expiry))
+		releaseClaim(t, claim)
+	}
+	_, err := try(t, s, node, rated(manual("c8", "run-refused"), limit, s.Expiry))
+	refusedAs(t, err, guard.ErrRateLimited, "acquiring when every rate slot is full")
+
+	// The refusal above must have left the claim exactly as it was: with no limit
+	// declared, a contender still takes it.
+	after := acquire(t, s, s.New(t, nil), manual("c8", "run-after"))
+	releaseClaim(t, after)
+}
+
+// C9. A slot does not free when the claim it was taken beside is released: only the
+// window moving past it does, which none of these clauses waits long enough to see.
+func theRateWindowIsTheBackends(t *testing.T, s Subject) {
+	node := s.New(t, nil)
+	const limit = 2
+	for i := range limit {
+		claim := acquire(t, s, node, rated(manual("c9", fmt.Sprintf("run-%d", i)), limit, s.Expiry))
+		releaseClaim(t, claim)
+	}
+	_, err := try(t, s, node, rated(manual("c9", "run-refused"), limit, s.Expiry))
+	refusedAs(t, err, guard.ErrRateLimited, "acquiring when the rate window is full though every claim was released")
 }
 
 // C10. Released returns once the claim is released, well before its own deadline.

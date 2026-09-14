@@ -91,6 +91,16 @@ type Rate struct {
 	Per  string `yaml:"per"`
 }
 
+// PerDuration is Per as a duration. The schema restricts it to whole minutes or hours, so
+// an error here would only mean the load gate missed a shape it declares.
+func (r *Rate) PerDuration() (time.Duration, error) {
+	per, err := time.ParseDuration(r.Per)
+	if err != nil {
+		return 0, fmt.Errorf("guard.rate.per %q is not a duration: %w", r.Per, err)
+	}
+	return per, nil
+}
+
 // Retrieval is one search the runtime performs before the agent runs, written into the
 // working directory where the agent reads it as it reads gathered input.
 //

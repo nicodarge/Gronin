@@ -71,6 +71,10 @@ func (l *FileLock) Acquire(ctx context.Context, req guard.AcquireRequest) (guard
 			return nil, err
 		}
 	}
+	if err := l.rate(ctx, req); err != nil {
+		l.manager.unclaim(taken)
+		return nil, err
+	}
 	return &fileClaim{lock: l, held: taken}, nil
 }
 
@@ -124,6 +128,29 @@ func (l *FileLock) tick(ctx context.Context, req guard.AcquireRequest) error {
 		DueAt: req.Trigger.DueAt, Host: req.Holder.Host,
 		Instance: req.Holder.Instance, RunID: req.Holder.RunID,
 	}); err != nil {
+		return fmt.Errorf("%w: %w", guard.ErrUnavailable, err)
+	}
+	return nil
+}
+
+// rate is FR-114 on one host: the window is the record store's own count of runs of
+// req.Name started within req.Rate.Per, on this host clock's wall reading. It is checked
+// and, when it admits, taken in the same step as the claim — while the flock above is
+// held, which is what makes the two one step here (C8). Nothing ever frees a slot early
+// (C9): a run's own release does not touch rate_starts, only the window moving past it does.
+func (l *FileLock) rate(ctx context.Context, req guard.AcquireRequest) error {
+	if req.Rate == nil {
+		return nil
+	}
+	now := l.clock.Wall()
+	count, err := l.manager.store.CountRateStarts(ctx, req.Name, now.Add(-req.Rate.Per))
+	if err != nil {
+		return fmt.Errorf("%w: %w", guard.ErrUnavailable, err)
+	}
+	if count >= req.Rate.Runs {
+		return guard.RateLimitedBy(*req.Rate)
+	}
+	if err := l.manager.store.RecordRateStart(ctx, req.Name, req.Holder.RunID, now); err != nil {
 		return fmt.Errorf("%w: %w", guard.ErrUnavailable, err)
 	}
 	return nil

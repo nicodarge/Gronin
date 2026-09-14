@@ -471,6 +471,7 @@ func gatherNames(book *Playbook) string {
 // is refused here, by name, because accepting it would be a declared bound nothing
 // applies. A key is lifted by adding it.
 var appliedGuardKeys = map[string]bool{
+	"guard.rate": true,
 	"guard.wait": true,
 }
 

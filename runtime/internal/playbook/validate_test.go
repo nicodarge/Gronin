@@ -340,7 +340,7 @@ func refusedAs(problems []playbook.Problem, field, says string) bool {
 // block as a whole, which the runtime core already produced, cannot pass for this.
 func TestGuardBlockKeysAreRefusedUntilApplied(t *testing.T) {
 	applied := map[string]bool{
-		"guard.rate": false,
+		"guard.rate": true,
 		"guard.wait": true,
 	}
 	declaring := map[string]*playbook.Guard{
@@ -420,6 +420,34 @@ func TestGuardBlockWaitLoadsAndAnUnknownKeyDoesNot(t *testing.T) {
 		if waited, err := (&playbook.Playbook{Guard: guard}).WaitFor(); err != nil || waited != 30*time.Minute {
 			t.Fatalf("%s: wait = %s, err = %v, want 30m", name, waited, err)
 		}
+	}
+}
+
+// SC-109 for rate, through both layers: the schema and the gate. Loading is not the same
+// as accepting the shape — `per` in seconds is refused by the schema whether or not the
+// gate has lifted the key, so lifting `guard.rate` here must not have moved that refusal.
+func TestGuardBlockRateLoadsAndAPerInSecondsDoesNot(t *testing.T) {
+	document := func(guard string) []byte {
+		return []byte("name: drift-check\ntrigger: {type: manual}\n" + guard +
+			"agent: {model: m, prompt_file: p.md, output_schema: {type: object}}\n" +
+			"sinks: [{discord: {channel: \"#ops\"}}]\n")
+	}
+
+	book, err := playbook.Parse("rate.yaml", document("guard: {rate: {runs: 2, per: 1h}}\n"))
+	if err != nil {
+		t.Fatalf("a guard block declaring rate was refused by the schema: %v", err)
+	}
+	for _, problem := range playbook.Validate(book, deployment()) {
+		if strings.HasPrefix(problem.Field, "guard") {
+			t.Fatalf("a guard block declaring rate was refused by the gate: %v", problem)
+		}
+	}
+	if book.Guard.Rate.Runs != 2 || book.Guard.Rate.Per != "1h" {
+		t.Fatalf("rate = %+v, want the 2 runs per 1h declared", book.Guard.Rate)
+	}
+
+	if _, err := playbook.Parse("seconds.yaml", document("guard: {rate: {runs: 2, per: 30s}}\n")); err == nil {
+		t.Fatal("guard.rate.per in seconds was accepted by the schema")
 	}
 }
 

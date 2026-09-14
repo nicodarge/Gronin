@@ -3912,6 +3912,171 @@
         "-run",
         "TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughReadStored|TestAReaderBlockedAtItsFirstStatementIsStillReportedHeldThroughSearch"
       ]
+    },
+    {
+      "name": "the fake takes the claim before the rate slots are checked",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\t\tif err == nil && req.Rate != nil && f.rateFullLocked(req.Name, req.Rate) {\n",
+      "replace": "\t\tif err == nil && req.Rate != nil && f.rateFullLocked(req.Name, req.Rate) && false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract/C8"
+      ]
+    },
+    {
+      "name": "the claim is taken before the rate slots are checked",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\tslot := -1\n\t\tif req.Rate != nil {\n\t\t\tif slot = freeSlot(read.slotFree); slot < 0 {\n\t\t\t\treturn nil, guard.RateLimitedBy(*req.Rate)\n\t\t\t}\n\t\t}\n",
+      "replace": "\t\tslot := -1\n\t\tif req.Rate != nil {\n\t\t\tslot = freeSlot(read.slotFree)\n\t\t\tif slot < 0 {\n\t\t\t\tslot = req.Rate.Runs\n\t\t\t}\n\t\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract/C8"
+      ]
+    },
+    {
+      "name": "the fake's release frees the rate slot",
+      "tree": "..",
+      "file": "internal/guard/guardtest/fake.go",
+      "find": "\tif c.currentLocked() != nil {\n\t\tdelete(f.claims, c.name)\n\t\tf.notifyLocked()\n\t}\n",
+      "replace": "\tif c.currentLocked() != nil {\n\t\tdelete(f.claims, c.name)\n\t\tf.slots[c.name] = nil\n\t\tf.notifyLocked()\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/guardtest",
+        "-count=1",
+        "-run",
+        "TestFakeContract/C9"
+      ]
+    },
+    {
+      "name": "release frees the rate slot",
+      "tree": "..",
+      "file": "internal/guard/etcd/etcd.go",
+      "find": "\t\t\twrites = append(writes, clientv3.OpPut(slotKey, req.Holder.RunID, clientv3.WithLease(rateLease)))\n",
+      "replace": "\t\t\twrites = append(writes, clientv3.OpPut(slotKey, req.Holder.RunID, clientv3.WithLease(lease)))\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard/etcd",
+        "-count=1",
+        "-run",
+        "TestEtcdContract/C9"
+      ]
+    },
+    {
+      "name": "the single-host window counts only runs still in flight",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tcount, err := l.manager.store.CountRateStarts(ctx, req.Name, now.Add(-req.Rate.Per))\n\tif err != nil {\n\t\treturn fmt.Errorf(\"%w: %w\", guard.ErrUnavailable, err)\n\t}\n\tif count >= req.Rate.Runs {\n",
+      "replace": "\t_, err := l.manager.store.CountRateStarts(ctx, req.Name, now.Add(-req.Rate.Per))\n\tif err != nil {\n\t\treturn fmt.Errorf(\"%w: %w\", guard.ErrUnavailable, err)\n\t}\n\tcount := 0\n\tif l.manager.InFlight(req.Name) {\n\t\tcount = 1\n\t}\n\tif count >= req.Rate.Runs {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockContract/C9"
+      ]
+    },
+    {
+      "name": "a trigger refused for rate waits",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "func waits(kind record.TriggerKind, err error) bool {\n\treturn kind == record.TriggerManual && errors.Is(err, ErrHeld)\n}\n",
+      "replace": "func waits(kind record.TriggerKind, err error) bool {\n\treturn kind == record.TriggerManual && (errors.Is(err, ErrHeld) || errors.Is(err, ErrRateLimited))\n}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheRateLimit"
+      ]
+    },
+    {
+      "name": "a waiting trigger is not judged against the limit again",
+      "tree": "..",
+      "file": "internal/guard/wait.go",
+      "find": "\tclaim, err := g.Coordinator.Acquire(decide, g.ask(edited, req))\n",
+      "replace": "\task := g.ask(edited, req)\n\task.Rate = nil\n\tclaim, err := g.Coordinator.Acquire(decide, ask)\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheRateLimit"
+      ]
+    },
+    {
+      "name": "the window is counted on this host even with a backend",
+      "tree": "..",
+      "file": "internal/guard/guard.go",
+      "find": "\treturn &RateLimit{Runs: book.Guard.Rate.Runs, Per: per}\n",
+      "replace": "\t_ = per\n\treturn nil\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/guard",
+        "-count=1",
+        "-run",
+        "TestTheRateLimit"
+      ]
+    },
+    {
+      "name": "the single-host window ignores its duration",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "\tcount, err := l.manager.store.CountRateStarts(ctx, req.Name, now.Add(-req.Rate.Per))\n",
+      "replace": "\tcount, err := l.manager.store.CountRateStarts(ctx, req.Name, time.Time{})\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockRate"
+      ]
+    },
+    {
+      "name": "a replay takes a rate slot",
+      "tree": "..",
+      "file": "internal/run/filelock.go",
+      "find": "func (l *FileLock) rate(ctx context.Context, req guard.AcquireRequest) error {\n\tif req.Rate == nil {\n\t\treturn nil\n\t}\n",
+      "replace": "func (l *FileLock) rate(ctx context.Context, req guard.AcquireRequest) error {\n\tif req.Rate == nil && false {\n\t\treturn nil\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/run",
+        "-count=1",
+        "-run",
+        "TestFileLockRate"
+      ]
+    },
+    {
+      "name": "the guard block refuses rate",
+      "tree": "..",
+      "file": "internal/playbook/validate.go",
+      "find": "var appliedGuardKeys = map[string]bool{\n\t\"guard.rate\": true,\n\t\"guard.wait\": true,\n}\n",
+      "replace": "var appliedGuardKeys = map[string]bool{\n\t\"guard.rate\": false,\n\t\"guard.wait\": true,\n}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/playbook",
+        "-count=1",
+        "-run",
+        "TestGuardBlock"
+      ]
     }
   ]
 }
