@@ -75,7 +75,60 @@ takes a position:
 
 ## Quickstart
 
-Not yet. This section fills in when the runtime lands.
+Install the binary from the latest release, and make sure the agent it drives (`claude`
+by default, or name another with `--agent`) is on the `PATH`:
+
+```bash
+curl -sSLo gronin https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
+chmod +x gronin && sudo mv gronin /usr/local/bin/
+gronin version
+```
+
+`gronin version` also prints the agent version it found, and says so if it is missing or
+below the floor.
+
+From a clone of this repository, copy the shipped example into the state directory
+(`gronin state-dir` prints where that is):
+
+```bash
+mkdir -p "$(gronin state-dir)/playbooks"
+cp examples/doc-check.{yaml,prompt} "$(gronin state-dir)/playbooks/"
+```
+
+The example reads a repository and reports on a GitHub repository. Both are configuration
+values, not playbook fields, and each is read from standard input so it never lands in a
+shell history or a process listing:
+
+```bash
+printf '%s' "$HOME/some-repository" | gronin config set checkout
+printf '%s' 'owner/name' | gronin config set repo
+```
+
+Check it, run it once by hand, and look at what happened:
+
+```bash
+gronin validate              # the load gate; names every refusal and what would be accepted
+gronin run doc-check         # now, ignoring the schedule
+gronin runs
+gronin show <run-id>         # gathered inputs, tool calls, refusals, cost, what each sink did
+```
+
+Iterate on the prompt without paying for delivery twice, or on delivery without paying for
+the agent again:
+
+```bash
+gronin replay <run-id>       # re-runs the agent against the recorded inputs
+gronin resume <run-id>       # re-runs only the sinks against the recorded report
+```
+
+Then leave it running. `serve` validates every playbook and arms nothing if any is refused:
+
+```bash
+gronin serve
+```
+
+The longer walkthrough, including what each step refuses, is
+[specs/001-runtime-core/quickstart.md](specs/001-runtime-core/quickstart.md).
 
 ## Licence
 
