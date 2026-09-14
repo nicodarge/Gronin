@@ -27,11 +27,13 @@ func TestServeRefusesAWebhookPlaybookWithNoIngress(t *testing.T) {
 	if strings.Contains(got.Stdout, "armed") {
 		t.Fatalf("it reported arming something: %q", got.Stdout)
 	}
-	if !strings.Contains(got.Stderr, "alert-triage") {
-		t.Fatalf("the refusal does not name the playbook: %q", got.Stderr)
-	}
-	if !strings.Contains(got.Stderr, "ingress") {
-		t.Fatalf("the refusal does not say what is missing: %q", got.Stderr)
+	// The exact layout every other load-time refusal uses (e.g.
+	// internal/guard/config.go): "refused: " ahead of what and why, naming the
+	// playbook and the missing ingress.
+	want := "refused: alert-triage: its trigger is webhook, and this deployment has no ingress for it yet\n" +
+		"Nothing was armed.\n"
+	if got.Stderr != want {
+		t.Fatalf("stderr =\n%q\nwant:\n%q", got.Stderr, want)
 	}
 
 	// The same directory, the webhook playbook removed, arms and would serve — proving

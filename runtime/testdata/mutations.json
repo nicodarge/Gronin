@@ -4225,8 +4225,8 @@
       "name": "a webhook prompt may reference the payload",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\tif book.Agent.PromptFile != \"\" && book.Path != \"\" {\n\t\tif body, err := readPrompt(book.PromptPath()); err == nil {\n\t\t\tif refs := triggerReferencesIn(string(body)); len(refs) > 0 {\n",
-      "replace": "\tif book.Agent.PromptFile != \"\" && book.Path != \"\" {\n\t\tif body, err := readPrompt(book.PromptPath()); err == nil {\n\t\t\tif refs := triggerReferencesIn(string(body)); false && len(refs) > 0 {\n",
+      "find": "\t\t\tif book.Trigger.Type == \"webhook\" {\n\t\t\t\tfor _, name := range triggerReferencesIn(string(body)) {\n",
+      "replace": "\t\t\tif false {\n\t\t\t\tfor _, name := range triggerReferencesIn(string(body)) {\n",
       "command": [
         "go",
         "test",
@@ -4240,8 +4240,8 @@
       "name": "a webhook sink may reference the payload",
       "tree": "..",
       "file": "internal/playbook/validate.go",
-      "find": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tif refs := triggerReferencesIn(held.text); len(refs) > 0 {\n",
-      "replace": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tif refs := triggerReferencesIn(held.text); false && len(refs) > 0 {\n",
+      "find": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tfor _, ref := range triggerReferencesIn(held.text) {\n",
+      "replace": "\t\tfor _, held := range walkValue(fmt.Sprintf(\"sinks[%d].%s\", at, name), config) {\n\t\t\tfor _, ref := range triggerReferencesIn(\"\") {\n",
       "command": [
         "go",
         "test",

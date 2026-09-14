@@ -206,17 +206,9 @@ func validateWebhook(book *Playbook, dep Deployment) []Problem {
 		}
 	}
 
-	if book.Agent.PromptFile != "" && book.Path != "" {
-		if body, err := readPrompt(book.PromptPath()); err == nil {
-			if refs := triggerReferencesIn(string(body)); len(refs) > 0 {
-				problems = append(problems, Problem{
-					Field:    "agent.prompt_file",
-					Found:    fmt.Sprintf("references ${trigger.%s}", refs[0]),
-					Accepted: "no payload reference; declared values reach the agent only through the data file",
-				})
-			}
-		}
-	}
+	// FR-324's refusal is applied in validateAgent, where the prompt is already open
+	// for FR-039's own check — reading it again here would cost a second file read for
+	// nothing the first did not already have in hand.
 
 	for at, one := range book.Sinks {
 		name, config, ok := one.Type()
@@ -224,10 +216,10 @@ func validateWebhook(book *Playbook, dep Deployment) []Problem {
 			continue
 		}
 		for _, held := range walkValue(fmt.Sprintf("sinks[%d].%s", at, name), config) {
-			if refs := triggerReferencesIn(held.text); len(refs) > 0 {
+			for _, ref := range triggerReferencesIn(held.text) {
 				problems = append(problems, Problem{
 					Field:    held.field,
-					Found:    fmt.Sprintf("references ${trigger.%s}", refs[0]),
+					Found:    fmt.Sprintf("references ${trigger.%s}", ref),
 					Accepted: "a destination, credential or cap bucket the deployment names, not the trigger",
 				})
 			}
@@ -350,6 +342,18 @@ func validateAgent(book *Playbook, dep Deployment) []Problem {
 			where := "agent.prompt_file (" + agent.PromptFile + ")"
 			problems = append(problems, bareReferences(where, string(body))...)
 			problems = append(problems, unconfigured(where, string(body), configured(dep))...)
+			// FR-324, read here rather than a second time in validateWebhook: the
+			// prompt is already open, and this is the string the runtime would
+			// interpolate against the payload if it were allowed to.
+			if book.Trigger.Type == "webhook" {
+				for _, name := range triggerReferencesIn(string(body)) {
+					problems = append(problems, Problem{
+						Field:    "agent.prompt_file",
+						Found:    fmt.Sprintf("references ${trigger.%s}", name),
+						Accepted: "no payload reference; declared values reach the agent only through the data file",
+					})
+				}
+			}
 		}
 	}
 

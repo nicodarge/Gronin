@@ -58,7 +58,7 @@ func newServeCommand() *cobra.Command {
 			// absent rather than unconditionally.
 			if name, found := firstWebhookPlaybook(loaded); found {
 				err := fmt.Errorf(
-					"%s: its trigger is webhook, and this deployment has no ingress for it yet", name)
+					"refused: %s: its trigger is webhook, and this deployment has no ingress for it yet", name)
 				cmd.PrintErrln(err)
 				cmd.PrintErrln("Nothing was armed.")
 				return errSilent{err}

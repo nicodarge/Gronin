@@ -482,6 +482,45 @@ func TestTheGateRefusesAWebhookValueTheSchemaWouldHave(t *testing.T) {
 	}
 }
 
+// SC-315: the prompt and the sink checks report every offending reference, the way the
+// gather check already does — not only the first — so an author fixing one does not get
+// sent back for a second round trip over one this gate already saw.
+func TestEveryTriggerReferenceInAPromptOrSinkIsReported(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "prompt.md"),
+		[]byte("Report on ${trigger.alertname} and ${trigger.severity}."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	book := &playbook.Playbook{
+		Name: "p", Path: filepath.Join(dir, "p.yaml"),
+		Trigger: playbook.Trigger{Type: "webhook", Source: "alerts"},
+		Agent: playbook.Agent{
+			PromptFile: "prompt.md", Model: "m", OutputSchema: map[string]any{"type": "object"},
+		},
+		Sinks: []playbook.Sink{
+			{"discord": map[string]any{"webhook": "${trigger.a} and ${trigger.b}"}},
+		},
+	}
+
+	problems := playbook.Validate(book, deployment())
+
+	var promptRefs, sinkRefs int
+	for _, problem := range problems {
+		switch problem.Field {
+		case "agent.prompt_file":
+			promptRefs++
+		case "sinks[0].discord.webhook":
+			sinkRefs++
+		}
+	}
+	if promptRefs != 2 {
+		t.Fatalf("the prompt's two references produced %d problems, want 2: %v", promptRefs, problems)
+	}
+	if sinkRefs != 2 {
+		t.Fatalf("the sink's two references produced %d problems, want 2: %v", sinkRefs, problems)
+	}
+}
+
 // SC-109 for wait, through both layers a loaded playbook passes: the schema and the gate.
 // A key the runtime implements loads; one it does not is still refused beside it. Observing
 // a refusal alone would pass against the runtime core, which refused the whole block.

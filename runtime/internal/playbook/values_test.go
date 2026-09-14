@@ -1,7 +1,6 @@
 package playbook_test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -189,13 +188,5 @@ func TestExtractNeverFails(t *testing.T) {
 				t.Fatalf("%q did not read as absent: %v", body, refusals)
 			}
 		})
-	}
-
-	// json.Number's own encoding, exercised so a change reading it back through a
-	// generic float64 (the ordinary decoder's shape) is caught here rather than only in
-	// the corpus.
-	var probe any
-	if err := json.Unmarshal([]byte(`9007199254740993`), &probe); err != nil {
-		t.Fatal(err)
 	}
 }

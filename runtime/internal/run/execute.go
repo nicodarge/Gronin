@@ -105,6 +105,11 @@ type Trigger struct {
 
 // Execute runs one playbook. It returns the recorded run, whatever the outcome: a
 // refusal, a timeout and a failure are all runs that happened and are all worth reading.
+//
+// For a webhook trigger, trigger.Values is trusted to already be checked against the
+// playbook's declarations (playbook.Check) — by internal/ingress's HandOff for a
+// delivery, or by cmd/gronin's run command for a manual invocation. Execute does not
+// check them again.
 func (e *Executor) Execute(
 	ctx context.Context, book *playbook.Playbook, trigger Trigger,
 ) (record.Run, error) {
