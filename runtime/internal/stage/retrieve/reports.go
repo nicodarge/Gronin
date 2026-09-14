@@ -44,7 +44,7 @@ func ReportsOf(ctx context.Context, store *record.Store, playbooks []string) ([]
 		if err != nil {
 			return nil, fmt.Errorf("reading the report of run %s: %w", one.RunID, err)
 		}
-		reports = append(reports, index.Report{RunID: one.RunID, Content: content})
+		reports = append(reports, index.Report{Source: one.RunID, Content: content})
 	}
 	return reports, nil
 }

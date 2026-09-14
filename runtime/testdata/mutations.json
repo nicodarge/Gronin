@@ -4777,6 +4777,21 @@
         "-run",
         "TestReportPassages"
       ]
+    },
+    {
+      "name": "a directory collection opens the record store too",
+      "tree": "..",
+      "file": "cmd/gronin/collections_cmd.go",
+      "find": "func inspect(\n\tctx context.Context, stateDir string, reports *reportsStore, collection collections.Collection,\n) (inspection, error) {\n\tvar store *record.Store\n\tif collection.Directory == \"\" {\n",
+      "replace": "func inspect(\n\tctx context.Context, stateDir string, reports *reportsStore, collection collections.Collection,\n) (inspection, error) {\n\tvar store *record.Store\n\tif true {\n",
+      "command": [
+        "go",
+        "test",
+        "./cmd/gronin",
+        "-count=1",
+        "-run",
+        "TestADirectoryCollectionIgnoresAnUnreadableRecordStore"
+      ]
     }
   ]
 }

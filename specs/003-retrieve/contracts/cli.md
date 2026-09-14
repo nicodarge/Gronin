@@ -23,8 +23,14 @@ would receive (US3 scenario 5). `rebuild` is one of the two things that may inde
 retrieval is the other — and the one a collection too large to embed inside a run's bound is
 brought into service with.
 
-None of the three reads a run's record, so `list` and `show` work with no run history. All three
-work while `serve` is running, since the index is a database two processes can open, but not at the
+None of the three reads a run's record for a collection over a directory, so `list` and `show` work
+with no run history or no readable record store, and a `list` line or a `show` for one is unaffected
+by either. A collection over reports is the exception, since its documents are the record's own
+(FR-212, FR-214): the record store is opened once a report is asked for, never before, and a store
+that cannot be opened or read is that collection's own line — `cannot be listed: <cause>` for
+`list`, the command's non-zero exit for `show` and `rebuild` — the same as a directory that cannot
+be read. All three work while `serve` is running, since the index is a database two processes can
+open, but not at the
 instant another connection holds it: `list` and `show` wait at most 3 seconds behind the holder
 before saying `the index is held by another connection`, since a process stopped mid-update holds
 it until it is killed, and `rebuild` waits for as long as the writer takes.

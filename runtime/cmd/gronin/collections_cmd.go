@@ -16,8 +16,10 @@ import (
 )
 
 // newCollectionsCommand is the operator's view of what a playbook may retrieve from
-// (FR-215, FR-220). None of it reads a run's record, so it works with no run history, and
-// all of it works while `serve` runs: an index is a database two processes can open.
+// (FR-215, FR-220). None of it reads a run's record for a directory collection, so a
+// directory-only deployment works with no run history and no readable record store; a
+// reports collection is the exception, since its documents live there (reportsStore). All
+// of it works while `serve` runs: an index is a database two processes can open.
 func newCollectionsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "collections",
@@ -38,14 +40,11 @@ func newCollectionsCommand() *cobra.Command {
 				cmd.Printf("no collections declared in %s\n", stateDirOf(cmd))
 				return nil
 			}
-			store, err := openRecordStore(cmd)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = store.Close() }()
+			reports := &reportsStore{cmd: cmd}
+			defer reports.close()
 			for _, name := range names {
 				collection, _ := declared.Get(name)
-				cmd.Println(listLine(cmd.Context(), stateDirOf(cmd), store, collection))
+				cmd.Println(listLine(cmd.Context(), stateDirOf(cmd), reports, collection))
 			}
 			return nil
 		},
@@ -60,12 +59,9 @@ func newCollectionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store, err := openRecordStore(cmd)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = store.Close() }()
-			found, err := inspect(cmd.Context(), stateDirOf(cmd), store, collection)
+			reports := &reportsStore{cmd: cmd}
+			defer reports.close()
+			found, err := inspect(cmd.Context(), stateDirOf(cmd), reports, collection)
 			if err != nil {
 				return err
 			}
@@ -83,12 +79,9 @@ func newCollectionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			store, err := openRecordStore(cmd)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = store.Close() }()
-			generation, documents, err := rebuild(cmd.Context(), stateDirOf(cmd), store, collection)
+			reports := &reportsStore{cmd: cmd}
+			defer reports.close()
+			generation, documents, err := rebuild(cmd.Context(), stateDirOf(cmd), reports, collection)
 			if err != nil {
 				// The previous generation is still in place: a rebuild is one transaction.
 				return fmt.Errorf("rebuilding %s: %w", collection.Name, err)
@@ -127,11 +120,43 @@ type inspection struct {
 // holds it until it is killed.
 const listingWait = 3 * time.Second
 
+// reportsStore opens the record store at most once per command invocation, and only once
+// some collection actually needs it: a directory collection never does, so a missing or
+// corrupt record.db withholds nothing from it, the way a malformed collections.json
+// withholds nothing from a command that only reads run history (openResolvableCatalog).
+type reportsStore struct {
+	cmd    *cobra.Command
+	opened bool
+	store  *record.Store
+	err    error
+}
+
+func (r *reportsStore) open() (*record.Store, error) {
+	if !r.opened {
+		r.store, r.err = openRecordStore(r.cmd)
+		r.opened = true
+	}
+	return r.store, r.err
+}
+
+func (r *reportsStore) close() {
+	if r.store != nil {
+		_ = r.store.Close()
+	}
+}
+
 // inspect walks and compares, and writes nothing: listing a collection is not a request to
-// index it (FR-221).
+// index it (FR-221). The record store is opened only for a reports collection.
 func inspect(
-	ctx context.Context, stateDir string, store *record.Store, collection collections.Collection,
+	ctx context.Context, stateDir string, reports *reportsStore, collection collections.Collection,
 ) (inspection, error) {
+	var store *record.Store
+	if collection.Directory == "" {
+		var err error
+		if store, err = reports.open(); err != nil {
+			return inspection{}, err
+		}
+	}
 	walk, cfg, err := retrieve.SourceWalk(ctx, store, collection)
 	if err != nil {
 		return inspection{}, err
@@ -151,9 +176,9 @@ func inspect(
 	}, nil
 }
 
-func listLine(ctx context.Context, stateDir string, store *record.Store, collection collections.Collection) string {
+func listLine(ctx context.Context, stateDir string, reports *reportsStore, collection collections.Collection) string {
 	line := fmt.Sprintf("%-15s %-9s %-25s ", collection.Name, collection.Mode(), collection.Source())
-	found, err := inspect(ctx, stateDir, store, collection)
+	found, err := inspect(ctx, stateDir, reports, collection)
 	switch {
 	case err != nil:
 		return line + "cannot be listed: " + err.Error()
@@ -207,9 +232,17 @@ func printInspection(cmd *cobra.Command, found inspection) {
 }
 
 // rebuild replaces a collection's index with a walk of its sources, in one transaction.
+// The record store is opened only for a reports collection.
 func rebuild(
-	ctx context.Context, stateDir string, store *record.Store, collection collections.Collection,
+	ctx context.Context, stateDir string, reports *reportsStore, collection collections.Collection,
 ) (index.Generation, int, error) {
+	var store *record.Store
+	if collection.Directory == "" {
+		var err error
+		if store, err = reports.open(); err != nil {
+			return index.Generation{}, 0, err
+		}
+	}
 	walk, cfg, err := retrieve.SourceWalk(ctx, store, collection)
 	if err != nil {
 		return index.Generation{}, 0, err

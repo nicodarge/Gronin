@@ -6,12 +6,13 @@ import (
 	"encoding/hex"
 )
 
-// Report is one run's report, handed to the index as a document: its run identifier and
-// its content exactly as recorded. The index knows nothing of runs beyond this — the
-// caller is what reads a record store and a playbook's name (data-model.md's Source
-// document, and research.md §8 for what of it is indexed).
+// Report is one document of a reports source, handed to the index the way a directory's
+// files are: Source identifies it — a run, for the only caller there is — and Content is
+// exactly what was recorded. The index knows nothing of runs; the caller is what reads a
+// record store and a playbook's name (data-model.md's Source document, and research.md
+// §8 for what of it is indexed).
 type Report struct {
-	RunID   string
+	Source  string
 	Content []byte
 }
 
@@ -34,9 +35,9 @@ func reportsWalkOf(reports []Report, fetch func(ctx context.Context) ([]Report, 
 	for _, report := range reports {
 		sum := sha256.Sum256(report.Content)
 		documents = append(documents, Document{
-			Source: report.RunID, Digest: hex.EncodeToString(sum[:]), Bytes: int64(len(report.Content)),
+			Source: report.Source, Digest: hex.EncodeToString(sum[:]), Bytes: int64(len(report.Content)),
 		})
-		held[report.RunID] = report.Content
+		held[report.Source] = report.Content
 	}
 	return Walk{
 		Documents: documents,

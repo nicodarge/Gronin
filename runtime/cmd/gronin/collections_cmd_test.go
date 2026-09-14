@@ -234,6 +234,94 @@ func TestAReportsCollectionListsItsRuns(t *testing.T) {
 	}
 }
 
+// corruptRecordStore puts a file at stateDir/record/record.db that is not a SQLite
+// database, so opening it fails the way an operator's damaged disk would.
+func corruptRecordStore(t *testing.T, stateDir string) {
+	t.Helper()
+	recordDir := filepath.Join(stateDir, "record")
+	if err := os.MkdirAll(recordDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(recordDir, "record.db"), []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The review's critical finding: a directory collection never reads a run's record
+// (contracts/cli.md), so a record store nothing can open withholds nothing from `list`,
+// `show` or `rebuild` of it.
+func TestADirectoryCollectionIgnoresAnUnreadableRecordStore(t *testing.T) {
+	state := t.TempDir()
+	directory := filepath.Join(state, "runbooks")
+	writeDocuments(t, directory, map[string]string{"disk-full.md": "disk full on /var\n"})
+	catalogue, err := json.Marshal(map[string]any{"runbooks": map[string]any{"directory": directory}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "collections.json"), catalogue, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corruptRecordStore(t, state)
+
+	list := bintest.Run(t, "collections", "list", "--state-dir", state)
+	if list.ExitCode != 0 {
+		t.Fatalf("gronin collections list exited %d: %s", list.ExitCode, list.Stderr)
+	}
+	if !strings.Contains(list.Stdout, "runbooks") || strings.Contains(list.Stdout, "cannot be listed") {
+		t.Errorf("the directory collection was not listed normally:\n%s", list.Stdout)
+	}
+
+	show := bintest.Run(t, "collections", "show", "runbooks", "--state-dir", state)
+	if show.ExitCode != 0 {
+		t.Fatalf("gronin collections show exited %d: %s", show.ExitCode, show.Stderr)
+	}
+
+	rebuilt := bintest.Run(t, "collections", "rebuild", "runbooks", "--state-dir", state)
+	if rebuilt.ExitCode != 0 {
+		t.Fatalf("gronin collections rebuild exited %d: %s", rebuilt.ExitCode, rebuilt.Stderr)
+	}
+}
+
+// A deployment holding both kinds of collection: the directory one is unaffected by a
+// record store nothing can open, and only the reports one names that as its own cause —
+// on its own line, which is what lets the rest of `list` still exit zero (contracts/cli.md).
+func TestAReportsCollectionAloneIsAffectedByAnUnreadableRecordStore(t *testing.T) {
+	state := t.TempDir()
+	directory := filepath.Join(state, "runbooks")
+	writeDocuments(t, directory, map[string]string{"disk-full.md": "disk full on /var\n"})
+	catalogue, err := json.Marshal(map[string]any{
+		"runbooks":    map[string]any{"directory": directory},
+		"conclusions": map[string]any{"reports": []string{"digest-check"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "collections.json"), catalogue, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corruptRecordStore(t, state)
+
+	list := bintest.Run(t, "collections", "list", "--state-dir", state)
+	if list.ExitCode != 0 {
+		t.Fatalf("gronin collections list exited %d: %s", list.ExitCode, list.Stderr)
+	}
+	var runbooksLine, conclusionsLine string
+	for _, line := range strings.Split(strings.TrimRight(list.Stdout, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(line, "runbooks"):
+			runbooksLine = line
+		case strings.HasPrefix(line, "conclusions"):
+			conclusionsLine = line
+		}
+	}
+	if runbooksLine == "" || strings.Contains(runbooksLine, "cannot be listed") {
+		t.Errorf("the directory collection's line was affected by the unreadable store: %q", runbooksLine)
+	}
+	if !strings.Contains(conclusionsLine, "cannot be listed:") {
+		t.Errorf("the reports collection's line does not name its own cause: %q", conclusionsLine)
+	}
+}
+
 // The rule openResolvableCatalog states for the MCP catalogue: a malformed catalogue
 // refuses every command that loads playbooks, and none that only reads run history —
 // which is what is most wanted right after something broke.

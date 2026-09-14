@@ -617,9 +617,6 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 			if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {
 				return Generation{}, fmt.Errorf("%w again on each of %d walks", err, rewalks)
 			}
-			if walk.rewalk == nil {
-				return fail(fmt.Errorf("%w, and this walk cannot be repeated", err))
-			}
 			if walk, err = walk.rewalk(ctx); err != nil {
 				return fail(err)
 			}

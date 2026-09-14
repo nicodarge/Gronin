@@ -79,7 +79,7 @@ func TestReportPassagesFollowTheReportRules(t *testing.T) {
 // actual line break, which the tokenizer splits on like any other.
 func TestReportPassagesQueryDoesNotJoinAnEscapedNewline(t *testing.T) {
 	report := []byte(`{"detail": "root partition\nThe disk is full"}`)
-	ix := openReportsIndex(t, t.TempDir(), []index.Report{{RunID: "run-1", Content: report}})
+	ix := openReportsIndex(t, t.TempDir(), []index.Report{{Source: "run-1", Content: report}})
 
 	found, err := ix.Search(t.Context(), "nthe", 50)
 	if err != nil {
@@ -104,7 +104,7 @@ func openReportsIndex(t *testing.T, dir string, reports []index.Report) *index.I
 	t.Helper()
 	names := make([]string, len(reports))
 	for at, one := range reports {
-		names[at] = one.RunID
+		names[at] = one.Source
 	}
 	ix, err := index.Open(t.Context(), dir, "conclusions", index.ReportsConfiguration(names))
 	if err != nil {
