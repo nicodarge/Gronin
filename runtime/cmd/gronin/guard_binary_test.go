@@ -103,14 +103,24 @@ func writeCoordinationFile(t *testing.T, stateDir string, document map[string]an
 	}
 }
 
+// armWithin is how long a host is given to arm its schedules once started.
+const armWithin = 60 * time.Second
+
 // serve starts one host and waits until its schedules are armed.
 func (c *cluster) serve(t *testing.T, at int) *bintest.Process {
+	t.Helper()
+	process := c.start(t, at)
+	process.Expect(t, "armed 1 schedule", armWithin)
+	return process
+}
+
+// start starts one host and returns at once, before its schedules are armed.
+func (c *cluster) start(t *testing.T, at int) *bintest.Process {
 	t.Helper()
 	host := c.hosts[at]
 	host.process = bintest.Start(t, "serve",
 		"--state-dir", host.stateDir, "--agent", fakeagent.Build(t),
 		"--api-address", "127.0.0.1:0")
-	host.process.Expect(t, "armed 1 schedule", 60*time.Second)
 	return host.process
 }
 
