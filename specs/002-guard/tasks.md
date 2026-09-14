@@ -702,13 +702,13 @@ through `gronin refusals`.
 
 ## Phase 6: Polish
 
-- [ ] T098 [P] `specs/001-runtime-core/data-model.md`: the Run gains `waiting_trigger_id`,
+- [x] T098 [P] `specs/001-runtime-core/data-model.md`: the Run gains `waiting_trigger_id`,
       `waited_ms`, `claim_reach`, `claim_token` and the status `claim_lost`, as this feature's
       data-model.md records it will when these tasks land
-- [ ] T099 [P] `docs/playbook-format.md` documents the `guard` block, and `docs/architecture.md`'s guard
+- [x] T099 [P] `docs/playbook-format.md` documents the `guard` block, and `docs/architecture.md`'s guard
       section describes the stage as built — the coordinator, the file lock's single-host reach, the
       waiting slot — rather than as planned
-- [ ] T100 [P] `README.md` and `runtime/README.md`: the guard is no longer refused, and a deployment
+- [x] T100 [P] `README.md` and `runtime/README.md`: the guard is no longer refused, and a deployment
       wanting the cross-host guarantee runs etcd beside the binary — stated as plainly as the plan's
       complexity table states it, with `coordination.json` pointing at contracts/cli.md rather than
       restating it

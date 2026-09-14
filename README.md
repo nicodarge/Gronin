@@ -2,11 +2,14 @@
 
 A runtime that turns infrastructure signals into bounded agent runs.
 
-> **Status: the runtime core runs.** A playbook on a schedule gathers its inputs,
-> drives one bounded agent, and delivers a report; unsafe playbooks are refused
-> before anything is armed; every run is recorded, replayable and resumable. Not
-> yet: the issue sink, semantic retrieval, the guard stage and webhook triggers —
-> see [docs/roadmap.md](docs/roadmap.md).
+> **Status: the runtime core runs, and the guard stage is enforced.** A playbook on a
+> schedule gathers its inputs, drives one bounded agent, and delivers a report; unsafe
+> playbooks are refused before anything is armed; every run is recorded, replayable and
+> resumable. A playbook's rate limit and non-concurrency are held on one host by default,
+> and across every host in the deployment when `coordination.json` names an etcd backend —
+> see [specs/002-guard/contracts/cli.md](specs/002-guard/contracts/cli.md) — trading the "one
+> static binary, nothing beside it" distribution story for that guarantee only where a
+> deployment asks for it. See [docs/roadmap.md](docs/roadmap.md) for what is left.
 
 ## Running it in a container
 
@@ -39,7 +42,7 @@ trigger → guard → gather → retrieve → agent → sink
 | Stage | What it does |
 | ----- | ------------ |
 | `trigger` | Webhook, cron or manual invocation |
-| `guard` | Lock, rate limit, deduplication — before anything is spent |
+| `guard` | Claim, rate limit and a waiting slot — before anything is spent |
 | `gather` | Commands and HTTP calls that build the input the agent reads |
 | `retrieve` | Semantic search over past incidents and documentation |
 | `agent` | One agent run, on a declared model, with a declared and enforced tool set |
