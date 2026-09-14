@@ -2,6 +2,6 @@
 // becomes a run. It holds the Coordinator interface every claim backend is held to
 // (specs/002-guard/contracts/coordination.md), and the runtime's side of holding a claim.
 //
-// It will import record and playbook as the stage lands; it must never import run, which
-// fences through it before every side effect, and would be a cycle the other way.
+// It imports record and playbook; it must never import run, which fences through it before
+// every side effect, and would be a cycle the other way.
 package guard
