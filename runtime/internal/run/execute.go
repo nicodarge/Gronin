@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -104,6 +105,11 @@ type Trigger struct {
 
 // Execute runs one playbook. It returns the recorded run, whatever the outcome: a
 // refusal, a timeout and a failure are all runs that happened and are all worth reading.
+//
+// For a webhook trigger, trigger.Values is trusted to already be checked against the
+// playbook's declarations (playbook.Check) — by internal/ingress's HandOff for a
+// delivery, or by cmd/gronin's run command for a manual invocation. Execute does not
+// check them again.
 func (e *Executor) Execute(
 	ctx context.Context, book *playbook.Playbook, trigger Trigger,
 ) (record.Run, error) {
@@ -171,7 +177,15 @@ func (e *Executor) Execute(
 		return e.finished(started.ID, &outcome, incomplete)
 	}
 
-	prompt, err := e.prompt(started, book, trigger.Values)
+	// FR-324: a webhook playbook's prompt is interpolated with no trigger values at all
+	// — the load gate already refuses one that references any (validateWebhook), and
+	// this is the same rule held here too, so a playbook that reached this point some
+	// other way still cannot have the payload reach its prompt.
+	promptTrigger := trigger.Values
+	if book.Trigger.Type == "webhook" {
+		promptTrigger = nil
+	}
+	prompt, err := e.prompt(started, book, promptTrigger)
 	if err != nil {
 		outcome.Status = record.StatusRefused
 		outcome.Error = err.Error()
@@ -313,6 +327,12 @@ func (e *Executor) prompt(
 	return resolvedPrompt{text: text, ref: ref}, nil
 }
 
+// TriggerDataFile is the data file FR-324 writes for a webhook playbook: its declared
+// values, and nothing else the payload carried, reaching the agent only as a gathered
+// input rather than through the prompt. validateWebhook refuses a gather step that would
+// collide with its name.
+const TriggerDataFile = "trigger.json"
+
 // gather runs the steps and copies what they produced into the record. The copy happens
 // here, while the working directory still exists — the record is empty without it, and
 // the ordering is the whole of this function.
@@ -320,6 +340,10 @@ func (e *Executor) gather(
 	ctx context.Context, started *Run, book *playbook.Playbook, incomplete *problems,
 	trigger map[string]string,
 ) error {
+	if book.Trigger.Type == "webhook" {
+		e.writeTriggerData(ctx, started, incomplete, trigger)
+	}
+
 	steps := make([]gather.Step, 0, len(book.Gather))
 	// A step's references resolve through its environment rather than into its text.
 	// Substituting a value into a shell line is command injection by construction, and
@@ -358,6 +382,27 @@ func (e *Executor) gather(
 		incomplete.note(e.Store.AddGatheredInput(ctx, started.ID, input))
 	}
 	return runErr
+}
+
+// writeTriggerData writes FR-324's data file into the working directory, before any
+// gather step runs, and records it as a gathered input like any other — the same path a
+// replay restores it through, so TestAWebhookRunReplays needs no writer of its own.
+func (e *Executor) writeTriggerData(
+	ctx context.Context, started *Run, incomplete *problems, trigger map[string]string,
+) {
+	document, err := json.MarshalIndent(trigger, "", "  ")
+	if err != nil {
+		incomplete.note(fmt.Errorf("encoding %s: %w", TriggerDataFile, err))
+		return
+	}
+	path := filepath.Join(started.WorkDir, TriggerDataFile)
+	incomplete.note(os.WriteFile(path, document, 0o600))
+
+	ref, err := e.Store.Blobs().Put(started.ID, TriggerDataFile, document)
+	incomplete.note(err)
+	incomplete.note(e.Store.AddGatheredInput(ctx, started.ID, record.GatheredInput{
+		Name: TriggerDataFile, Bytes: int64(len(document)), BlobRef: ref,
+	}))
 }
 
 func (e *Executor) recordStage(

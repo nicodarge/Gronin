@@ -1,0 +1,17 @@
+name: webhook-pattern-does-not-compile
+trigger:
+  type: webhook
+  source: alerts
+  values:
+    alertname:
+      at: /alertname
+      pattern: "("
+      max_length: 40
+agent:
+  model: claude-sonnet-5
+  prompt_file: prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}

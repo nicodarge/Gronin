@@ -23,6 +23,12 @@ type BuildOptions struct {
 	Interpolate func(string) (string, error)
 	// Client, when set, is the HTTP client the messaging sinks use. Tests supply one.
 	Client *http.Client
+	// RefusePayloadReference refuses any field of a declaration holding ${trigger. when
+	// set — set for every webhook playbook (FR-325). A sink field is a destination, a
+	// credential, or the bucket a cap counts, and a sender choosing any of the three
+	// chooses where the report goes or how much it may create. Checked before
+	// interpolation, which would otherwise resolve the reference and hide it.
+	RefusePayloadReference bool
 }
 
 // Build turns declarations into sinks, refusing a type this deployment does not
@@ -49,6 +55,16 @@ func Build(declared []Declaration, opts BuildOptions) ([]Sink, []error) {
 					"that sink, e.g. webhook: ${config.%s_webhook}",
 				at, decl.Type, decl.Type))
 			continue
+		}
+		if opts.RefusePayloadReference {
+			if field, name, found := triggerReferenceIn(decl.Type, decl.Config); found {
+				problems = append(problems, fmt.Errorf(
+					"sinks[%d].%s: references ${trigger.%s}, and a webhook playbook's "+
+						"sinks may not; accepted: a destination, credential or cap "+
+						"bucket the deployment names, not the trigger",
+					at, field, name))
+				continue
+			}
 		}
 		built, err := buildOne(decl, opts)
 		if err != nil {
@@ -251,4 +267,37 @@ func (o BuildOptions) interpolate(raw string) (string, error) {
 func stringAt(decl Declaration, key string) string {
 	text, _ := decl.Config[key].(string)
 	return text
+}
+
+// triggerReference matches a payload reference wherever a sink's declaration may not
+// carry one (FR-325).
+var triggerReference = regexp.MustCompile(`\$\{trigger\.([^}]*)\}`)
+
+// triggerReferenceIn walks a declaration's configuration for the first field holding a
+// payload reference, returning the field path and the value name it names.
+func triggerReferenceIn(field string, value any) (string, string, bool) {
+	switch typed := value.(type) {
+	case string:
+		if match := triggerReference.FindStringSubmatch(typed); match != nil {
+			return field, match[1], true
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if f, name, found := triggerReferenceIn(field+"."+key, typed[key]); found {
+				return f, name, true
+			}
+		}
+	case []any:
+		for at, item := range typed {
+			if f, name, found := triggerReferenceIn(fmt.Sprintf("%s[%d]", field, at), item); found {
+				return f, name, true
+			}
+		}
+	}
+	return "", "", false
 }

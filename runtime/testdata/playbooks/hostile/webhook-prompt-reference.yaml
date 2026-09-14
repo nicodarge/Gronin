@@ -1,0 +1,17 @@
+name: webhook-prompt-reference
+trigger:
+  type: webhook
+  source: alerts
+  values:
+    alertname:
+      at: /alertname
+      pattern: "[a-z ]+"
+      max_length: 40
+agent:
+  model: claude-sonnet-5
+  prompt_file: webhook-prompt.md
+  output_schema:
+    type: object
+sinks:
+  - discord:
+      webhook: ${config.ops_webhook}
