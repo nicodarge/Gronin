@@ -64,8 +64,13 @@ func HandOff(
 	if err != nil {
 		return err
 	}
+	// states starts as what is already on record and is updated in place as this loop
+	// decides each pending one, so finishDelivery reads the outcome from here rather
+	// than asking the store the same question a second time.
 	pending := make(map[string]bool, len(handoffs))
+	states := make(map[string]record.HandOffState, len(handoffs))
 	for _, handoff := range handoffs {
+		states[handoff.PlaybookName] = handoff.State
 		if handoff.State == record.HandOffPending {
 			pending[handoff.PlaybookName] = true
 		}
@@ -97,6 +102,7 @@ func HandOff(
 			if err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {
 				return err
 			}
+			states[book.Name] = record.HandOffRefused
 			continue
 		}
 
@@ -110,27 +116,26 @@ func HandOff(
 		if err := store.SetHandOffState(ctx, delivery.ID, book.Name, state, decidedAt); err != nil {
 			return err
 		}
+		states[book.Name] = state
 	}
 
-	return finishDelivery(ctx, store, delivery.ID, len(handoffs) > 0)
+	return finishDelivery(ctx, store, delivery.ID, states)
 }
 
-// finishDelivery writes a delivery's own state from its hand-offs (data-model.md,
-// *Hand-off*): unbound when it has none — nothing was bound to its source at
+// finishDelivery writes a delivery's own state from its hand-offs' states (data-model.md,
+// *Hand-off*): unbound when there are none — nothing was bound to its source at
 // acceptance — otherwise dropped once any hand-off is, waiting while any is undecided,
 // and handed off once every one is decided.
-func finishDelivery(ctx context.Context, store *record.Store, deliveryID string, bound bool) error {
-	if !bound {
+func finishDelivery(
+	ctx context.Context, store *record.Store, deliveryID string, states map[string]record.HandOffState,
+) error {
+	if len(states) == 0 {
 		return store.SetDeliveryState(ctx, deliveryID, record.DeliveryUnbound)
-	}
-	handoffs, err := store.HandOffsOf(ctx, deliveryID)
-	if err != nil {
-		return err
 	}
 
 	state := record.DeliveryHandedOff
-	for _, handoff := range handoffs {
-		switch handoff.State {
+	for _, handoffState := range states {
+		switch handoffState {
 		case record.HandOffDropped:
 			state = record.DeliveryDropped
 		case record.HandOffHandedOff, record.HandOffRefused:
