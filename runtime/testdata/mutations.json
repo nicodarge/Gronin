@@ -4435,8 +4435,8 @@
       "name": "one refused value stops every playbook bound to the source",
       "tree": "..",
       "file": "internal/ingress/handoff.go",
-      "find": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n",
-      "replace": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn nil\n\t\t}\n",
+      "find": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tstates[book.Name] = record.HandOffRefused\n\t\t\tcontinue\n\t\t}\n",
+      "replace": "\t\t\tif err := store.SetHandOffState(ctx, delivery.ID, book.Name, record.HandOffRefused, now()); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tstates[book.Name] = record.HandOffRefused\n\t\t\treturn nil\n\t\t}\n",
       "command": [
         "go",
         "test",
@@ -4986,6 +4986,36 @@
         "-count=1",
         "-run",
         "TestAHandOffDispatchesOnlyTheRecordedSubset"
+      ]
+    },
+    {
+      "name": "boundPlaybookNames does not filter by source",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "if book.Trigger.Type == \"webhook\" && book.Trigger.Source == sourceName {\n",
+      "replace": "if book.Trigger.Type == \"webhook\" {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestASourceIsHandedOnlyToItsOwnPlaybooks"
+      ]
+    },
+    {
+      "name": "the identity refusal is written on the request's context",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\t\trefusalCtx := context.WithoutCancel(r.Context())\n",
+      "replace": "\t\trefusalCtx := r.Context()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestALateIdentityRefusalStillLands"
       ]
     }
   ]
