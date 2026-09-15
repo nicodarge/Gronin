@@ -359,7 +359,11 @@ test writes into the record.
       `go test ./internal/playbook -count=1 -run TestALeadingDash`. In `internal/ingress/handoff.go`,
       command `go test ./internal/ingress -count=1 -run TestAHandOff`: `one refused value stops every
       playbook bound to the source`, and `the bound set is every loaded webhook playbook, whatever its
-      source`
+      source` — T050's hand-off fix retires this one: `HandOff` dispatches only the rows `Accept`
+      recorded, not every loaded playbook bound to the source, so the loop's own source check has
+      nothing left a mutation of it can get wrong. Replaced by `boundPlaybookNames does not filter by
+      source`, in `internal/ingress/ingress.go`, command
+      `go test ./internal/ingress -count=1 -run TestASourceIsHandedOnlyToItsOwnPlaybooks`
 - [x] T034 [US3] SC-318, SC-321 and FR-305: in `internal/ingress/handoff.go`, `the hand-off passes the
       body's top-level fields as values`, and in `internal/run/execute.go`, `the data file is not recorded
       as a gathered input`, both with command
