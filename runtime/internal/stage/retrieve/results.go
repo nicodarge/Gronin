@@ -29,6 +29,10 @@ type heading struct {
 	mode       record.RetrievalMode
 	generation string
 	query      string
+	// reports is whether this collection's source is recorded reports rather than a
+	// directory: FR-214 wants each of its results to name the run it came from, which
+	// index.Hit.Source already is, so this only changes how it is introduced.
+	reports bool
 }
 
 // written is one result as the file holds it: cut, when the byte bound cut it.
@@ -66,9 +70,13 @@ func render(head heading, hits []index.Hit, maxBytes int, redactor *record.Redac
 	}
 	for at := range hits {
 		hit := &hits[at]
+		source := Printable(redactor.Redact(hit.Source))
+		if head.reports {
+			source = "run " + source
+		}
 		pieces = append(pieces, piece{
 			head: fmt.Sprintf("\n## %d. %s, passage %d (score %.4f)\n\n",
-				at+1, Printable(redactor.Redact(hit.Source)), hit.Ordinal, hit.Score),
+				at+1, source, hit.Ordinal, hit.Score),
 			body: redactor.Redact(hit.Text) + "\n",
 			rank: at + 1,
 			hit:  hit,

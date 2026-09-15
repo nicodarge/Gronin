@@ -1,6 +1,8 @@
 package index
 
 import (
+	"bytes"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"unicode"
@@ -42,6 +44,14 @@ type span struct {
 // character boundary when it has none.
 func TextPassages(source string, content []byte) []Passage {
 	text := string(content)
+	return pack(source, text, blocks(text))
+}
+
+// pack packs a document's blocks into passages: blocks fill a passage in order while
+// they fit the cap, a heading opens a new one, and a block longer than the cap is cut
+// first (research.md §8). Shared by TextPassages and ReportPassages, which differ only
+// in how a document's blocks are found.
+func pack(source, text string, spans []span) []Passage {
 	var passages []Passage
 	emit := func(start, end int) {
 		passages = append(passages, Passage{
@@ -51,7 +61,7 @@ func TextPassages(source string, content []byte) []Passage {
 
 	open := false
 	var start, end int
-	for _, block := range blocks(text) {
+	for _, block := range spans {
 		for _, piece := range cut(text, block) {
 			switch {
 			case !open:
@@ -68,6 +78,89 @@ func TextPassages(source string, content []byte) []Passage {
 		emit(start, end)
 	}
 	return passages
+}
+
+// ReportPassages cuts a run's report by research.md §8's rules for a report: its string
+// and number values, in the order the document holds them, read from the decoder's token
+// stream rather than decoded into a map, which would lose that order. Keys, booleans and
+// nulls are not indexed. Each value is a block, in the same sense TextPassages packs
+// blocks into passages, and each object that is an element of an array opens a new
+// passage, so a finding's title and body stay together whenever they fit. A report
+// holding no values contributes no document.
+//
+// Offset is into the values as this joins them, not into report's own bytes: nothing
+// asks for a report's raw JSON back the way a directory's listing rereads a file.
+func ReportPassages(source string, report []byte) []Passage {
+	var joined strings.Builder
+	var spans []span
+	headsNext := false
+	value := func(literal string) {
+		if joined.Len() > 0 {
+			joined.WriteString("\n\n")
+		}
+		start := joined.Len()
+		joined.WriteString(literal)
+		spans = append(spans, span{start: start, end: joined.Len(), heading: headsNext})
+		headsNext = false
+	}
+
+	// frame is one open object or array. expectingKey is only meaningful for an object:
+	// its keys and values alternate, and only a value that is itself a container needs
+	// the parent told it was filled, once the container this pushed closes again.
+	type frame struct {
+		array        bool
+		expectingKey bool
+	}
+	var stack []frame
+	filledValueSlot := func() {
+		if n := len(stack); n > 0 && !stack[n-1].array {
+			stack[n-1].expectingKey = true
+		}
+	}
+	isKey := func() bool {
+		n := len(stack)
+		return n > 0 && !stack[n-1].array && stack[n-1].expectingKey
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(report))
+	decoder.UseNumber()
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break // io.EOF ends a well-formed report; anything else leaves what was read
+		}
+		switch t := token.(type) {
+		case json.Delim:
+			if t == '{' || t == '[' {
+				parentIsArray := len(stack) > 0 && stack[len(stack)-1].array
+				filledValueSlot()
+				if t == '{' && parentIsArray {
+					headsNext = true
+				}
+				stack = append(stack, frame{array: t == '[', expectingKey: t == '{'})
+				continue
+			}
+			stack = stack[:len(stack)-1]
+			filledValueSlot()
+		case string:
+			if isKey() {
+				stack[len(stack)-1].expectingKey = false
+				continue
+			}
+			filledValueSlot()
+			value(t)
+		case json.Number:
+			filledValueSlot()
+			value(t.String())
+		default: // bool or nil
+			if isKey() {
+				stack[len(stack)-1].expectingKey = false
+				continue
+			}
+			filledValueSlot()
+		}
+	}
+	return pack(source, joined.String(), spans)
 }
 
 // blocks splits text at blank lines and before every ATX heading. A block starts at its

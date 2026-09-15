@@ -71,12 +71,36 @@ func TestCollectionsAcceptsADirectoryWithItsDefaults(t *testing.T) {
 	}
 }
 
+// A collection over reports is the other source (FR-212, FR-214): still lexical, since
+// mode is derived from an embeddings block, not from the source.
+func TestCollectionsAcceptsReportsWithItsDefaults(t *testing.T) {
+	dir := write(t, `{"disk-history": {"reports": ["disk-space", "disk-check"]}}`)
+
+	catalog, err := collections.Load(dir)
+	if err != nil {
+		t.Fatalf("a well-formed reports collection was refused: %v", err)
+	}
+	history, found := catalog.Get("disk-history")
+	if !found {
+		t.Fatal("a declared reports collection cannot be found by name")
+	}
+	if history.Mode() != collections.Lexical {
+		t.Errorf("a reports collection with no embeddings block is %q", history.Mode())
+	}
+	if history.Source() != "reports disk-space, disk-check" {
+		t.Errorf("its source reads %q", history.Source())
+	}
+	if len(history.Reports) != 2 || history.Reports[0] != "disk-space" || history.Reports[1] != "disk-check" {
+		t.Errorf("its reports read back as %v", history.Reports)
+	}
+}
+
 // Each refusal is pinned to what it is about. Asserting only that a catalogue was refused
 // would let one drift into being refused for an unrelated reason while the table stayed
 // green.
 //
-// The last two rows are the sources whose mechanism has not landed. They are refused
-// rather than accepted and left unsearchable, and lifting each is one line of this table.
+// The last row is the one source whose mechanism has not landed yet. It is refused rather
+// than accepted and left unsearchable, and lifting it is one line of this table.
 func TestCollectionsRefusesEachForItsOwnReason(t *testing.T) {
 	for name, probe := range map[string]struct{ body, says string }{
 		"an unknown key": {
@@ -107,9 +131,13 @@ func TestCollectionsRefusesEachForItsOwnReason(t *testing.T) {
 			`{"runbooks": {"directory": "/srv/runbooks", "retrieval_timeout": "0s"}}`,
 			`retrieval_timeout "0s" is not positive`,
 		},
-		"reports, which nothing searches yet": {
-			`{"disk-history": {"reports": ["disk-space"]}}`,
-			"reports is declared, and this runtime does not search it yet",
+		"an empty reports list": {
+			`{"disk-history": {"reports": []}}`,
+			"reports is empty",
+		},
+		"a report name that is not a slug": {
+			`{"disk-history": {"reports": ["Disk Space"]}}`,
+			`reports[0] "Disk Space" is not the shape of a playbook name`,
 		},
 		"embeddings, which nothing searches yet": {
 			`{"by-meaning": {"directory": "/srv/runbooks", "embeddings": {

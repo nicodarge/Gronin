@@ -45,11 +45,23 @@ type Skipped struct {
 	Reason string
 }
 
-// Walk is what a directory holds, as the index sees it.
+// Walk is what a source holds, as the index sees it: a directory (this file) or recorded
+// reports (reports.go). The index itself knows nothing of runs — a reports source is
+// handed to it as documents, the way a directory's are handed to it as files.
 type Walk struct {
 	Documents []Document
 	Skipped   []Skipped
 	root      string
+	// held is a reports source's content, already in hand from the walk that found it:
+	// nothing needs rereading from a run's record. Nil for a directory walk, whose
+	// contentOf rereads from root instead.
+	held map[string][]byte
+	// passages cuts one of this walk's documents into what the index stores, text for a
+	// directory and a report's values for reports.
+	passages func(source string, content []byte) []Passage
+	// rewalk repeats this walk from the same source, for an update that has to work its
+	// difference out again because another update committed a generation meanwhile.
+	rewalk func(ctx context.Context) (Walk, error)
 }
 
 // WalkDirectory reads every text file under dir, in lexical order.
@@ -75,7 +87,8 @@ func WalkDirectory(ctx context.Context, dir string) (Walk, error) {
 		return Walk{}, fmt.Errorf("the collection's directory %s is not a directory", dir)
 	}
 
-	walk := Walk{root: root}
+	walk := Walk{root: root, passages: TextPassages}
+	walk.rewalk = func(ctx context.Context) (Walk, error) { return WalkDirectory(ctx, root) }
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", path, err)
@@ -149,6 +162,20 @@ var errNoRoot = errors.New("this walk was not made by WalkDirectory, so its docu
 //
 // read, when not nil, is called after each document's text is read.
 func (w Walk) contentOf(document Document, read func(source string)) ([]byte, error) {
+	if w.held != nil {
+		content, found := w.held[document.Source]
+		if !found {
+			return nil, fmt.Errorf("%s is not among this walk's documents", document.Source)
+		}
+		if read != nil {
+			read(document.Source)
+		}
+		sum := sha256.Sum256(content)
+		if hex.EncodeToString(sum[:]) != document.Digest {
+			return nil, &changedError{source: document.Source}
+		}
+		return content, nil
+	}
 	if w.root == "" {
 		return nil, errNoRoot
 	}

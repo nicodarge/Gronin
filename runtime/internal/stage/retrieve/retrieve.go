@@ -25,6 +25,9 @@ type Stage struct {
 	// Redactor is the record store's own, applied to the results file before the agent
 	// reads it, so the agent and the record hold one text.
 	Redactor *record.Redactor
+	// Store is read for a reports collection's documents (FR-212, FR-214). Nil refuses a
+	// retrieval from one, the way a nil Catalog refuses a retrieval from any collection.
+	Store *record.Store
 }
 
 // Retrieved is what one retrieval did, as the record needs it: the row, the results file
@@ -117,6 +120,7 @@ func (s *Stage) retrieve(
 	file, items, bytesTruncated := render(heading{
 		collection: collection.Name, mode: row.Mode,
 		generation: found.Generation.Short(), query: query,
+		reports: collection.Directory == "",
 	}, hits, declared.ByteBound(), s.Redactor)
 	if err := os.WriteFile(filepath.Join(workDir, filepath.Base(declared.As)), file, 0o600); err != nil {
 		return refuse(fmt.Errorf("writing the results into the working directory: %w", err))
@@ -152,22 +156,22 @@ func (s *Stage) collection(name string) (collections.Collection, error) {
 	if !found {
 		return collections.Collection{}, fmt.Errorf("%q is not a collection this deployment declares", name)
 	}
-	if collection.Mode() != collections.Lexical || collection.Directory == "" {
-		return collection, fmt.Errorf("%q is not a lexical collection over a directory, "+
-			"the only kind this runtime searches", name)
+	if collection.Mode() != collections.Lexical {
+		return collection, fmt.Errorf("%q is not a lexical collection, "+
+			"the only mode this runtime searches", name)
 	}
 	return collection, nil
 }
 
-// search brings the collection's index up to date with its directory and searches it.
+// search brings the collection's index up to date with its sources and searches it.
 func (s *Stage) search(
 	ctx context.Context, collection collections.Collection, query string, limit int,
 ) (index.Found, error) {
-	walk, err := index.WalkDirectory(ctx, collection.Directory)
+	walk, cfg, err := SourceWalk(ctx, s.Store, collection)
 	if err != nil {
 		return index.Found{}, err
 	}
-	ix, err := index.Open(ctx, s.IndexDir, collection.Name, index.DirectoryConfiguration(collection.Directory))
+	ix, err := index.Open(ctx, s.IndexDir, collection.Name, cfg)
 	if err != nil {
 		return index.Found{}, err
 	}

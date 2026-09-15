@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +41,12 @@ type Configuration struct {
 // DirectoryConfiguration is the configuration of a collection over a directory.
 func DirectoryConfiguration(dir string) Configuration {
 	return Configuration{SourceKind: "directory", Source: dir}
+}
+
+// ReportsConfiguration is the configuration of a collection over the recorded reports of
+// the named playbooks.
+func ReportsConfiguration(playbooks []string) Configuration {
+	return Configuration{SourceKind: "reports", Source: strings.Join(playbooks, ",")}
 }
 
 // Identity is a SHA-256 over a canonical encoding of the configuration, the passage rule
@@ -610,7 +617,7 @@ func (ix *Index) write(ctx context.Context, walk Walk, rebuild bool) (Generation
 			if _, bounded := ctx.Deadline(); !bounded && rewalks >= maxRewalks {
 				return Generation{}, fmt.Errorf("%w again on each of %d walks", err, rewalks)
 			}
-			if walk, err = WalkDirectory(ctx, walk.root); err != nil {
+			if walk, err = walk.rewalk(ctx); err != nil {
 				return fail(err)
 			}
 		case errors.Is(err, errMoved):
@@ -690,7 +697,7 @@ func (c change) apply(ctx context.Context, tx *sql.Tx, read func(source string))
 			document.Source, document.Digest, document.Bytes); err != nil {
 			return fmt.Errorf("indexing %s: %w", document.Source, err)
 		}
-		for _, passage := range TextPassages(document.Source, content) {
+		for _, passage := range c.walk.passages(document.Source, content) {
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO passages (text, source, ordinal, start) VALUES (?, ?, ?, ?)`,
 				passage.Text, passage.Source, passage.Ordinal, passage.Offset); err != nil {
