@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +30,11 @@ func rawDB(t *testing.T, dir string) *sql.DB {
 
 // recordingDispatcher is ingress.Dispatcher for a test: it never reaches a guard or an
 // executor, only records what it was asked to dispatch and returns HandOffHandedOff.
+// Its own mutex is what makes it safe to read from the test goroutine while the
+// handler's hand-off runs from one of its own (T050): a synchronous caller never
+// notices it.
 type recordingDispatcher struct {
+	mu    sync.Mutex
 	calls []dispatched
 }
 
@@ -41,8 +46,17 @@ type dispatched struct {
 func (d *recordingDispatcher) Dispatch(
 	_ context.Context, book *playbook.Playbook, _ record.Delivery, values map[string]string,
 ) record.HandOffState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.calls = append(d.calls, dispatched{playbook: book.Name, values: values})
 	return record.HandOffHandedOff
+}
+
+// Calls is a snapshot of every dispatch seen so far.
+func (d *recordingDispatcher) Calls() []dispatched {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]dispatched(nil), d.calls...)
 }
 
 // seedDelivery writes a delivery's body through the blob store, and the delivery and its
@@ -122,14 +136,15 @@ func TestAHandOffChecksEveryBoundPlaybookOnItsOwn(t *testing.T) {
 
 	// The refused playbook dispatches nothing and leaves a refusal naming it and the
 	// value.
-	if len(dispatcher.calls) != 1 {
-		t.Fatalf("dispatched %d times, want 1: %+v", len(dispatcher.calls), dispatcher.calls)
+	calls := dispatcher.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("dispatched %d times, want 1: %+v", len(calls), calls)
 	}
-	if dispatcher.calls[0].playbook != "alert-triage" {
-		t.Fatalf("dispatched %q, want alert-triage", dispatcher.calls[0].playbook)
+	if calls[0].playbook != "alert-triage" {
+		t.Fatalf("dispatched %q, want alert-triage", calls[0].playbook)
 	}
-	if len(dispatcher.calls[0].values) != 1 || dispatcher.calls[0].values["sev"] != "critical" {
-		t.Fatalf("values = %+v, want exactly {sev: critical}", dispatcher.calls[0].values)
+	if len(calls[0].values) != 1 || calls[0].values["sev"] != "critical" {
+		t.Fatalf("values = %+v, want exactly {sev: critical}", calls[0].values)
 	}
 
 	refusals, err := store.ListDeliveryRefusals(t.Context(), 10)
@@ -182,11 +197,92 @@ func TestAnUnboundDeliveryIsRecordedUnbound(t *testing.T) {
 	if err := ingress.HandOff(t.Context(), store, dispatcher, loaded, delivery, time.Now); err != nil {
 		t.Fatal(err)
 	}
-	if len(dispatcher.calls) != 0 {
-		t.Fatalf("dispatched %v for a delivery bound to nothing", dispatcher.calls)
+	if calls := dispatcher.Calls(); len(calls) != 0 {
+		t.Fatalf("dispatched %v for a delivery bound to nothing", calls)
 	}
 	again, err := store.GetDelivery(t.Context(), "delivery-2")
 	if err != nil || again.State != record.DeliveryUnbound {
 		t.Fatalf("delivery = %+v, err = %v", again, err)
+	}
+}
+
+// A pre-PR review finding: record.Accept's retry of a dropped delivery creates a
+// hand-off row only for the bound playbooks no earlier delivery in its chain decided
+// (data-model.md, *Delivery identity*), so HandOff must dispatch exactly the rows
+// recorded for the delivery it is handed — never every playbook the source is bound
+// to — or it hits SetHandOffState's refusal for the one with no row and never reaches
+// the rest.
+func TestAHandOffDispatchesOnlyTheRecordedSubset(t *testing.T) {
+	dir := t.TempDir()
+	store, err := record.Open(t.Context(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	loaded := playbook.Loaded{Playbooks: []*playbook.Playbook{
+		webhookBook("alert-page", "alerts", nil),
+		webhookBook("alert-triage", "alerts", nil),
+	}}
+
+	received := time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
+	old, isNew, err := record.Accept(t.Context(), store, record.AcceptParams{
+		Source: "alerts", Identity: "X", IdentityKind: record.IdentityDeclared,
+		Body: []byte(`{}`), Peer: "192.0.2.10", ReceivedAt: received,
+		Instance: "instance-old", ReplayWindow: 10 * time.Minute,
+		Playbooks: []string{"alert-page", "alert-triage"},
+	}, nil)
+	if err != nil || !isNew {
+		t.Fatalf("accepting the first delivery: new=%v err=%v", isNew, err)
+	}
+
+	// alert-page ran; alert-triage never was decided before the accepting process
+	// died. Written directly: T051, which would normally find this and mark it so,
+	// is not built yet.
+	decidedAt := received.Add(time.Second)
+	if err := store.SetHandOffState(t.Context(), old.ID, "alert-page", record.HandOffHandedOff, decidedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetHandOffState(t.Context(), old.ID, "alert-triage", record.HandOffDropped, decidedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDeliveryState(t.Context(), old.ID, record.DeliveryDropped); err != nil {
+		t.Fatal(err)
+	}
+
+	// The retry, inside the window: new, superseding the dropped delivery, and
+	// handed only to alert-triage — the one playbook the chain never decided.
+	retriedAt := received.Add(30 * time.Second)
+	delivery, isNew, err := record.Accept(t.Context(), store, record.AcceptParams{
+		Source: "alerts", Identity: "X", IdentityKind: record.IdentityDeclared,
+		Body: []byte(`{}`), Peer: "192.0.2.10", ReceivedAt: retriedAt,
+		Instance: "instance-new", ReplayWindow: 10 * time.Minute,
+		Playbooks: []string{"alert-page", "alert-triage"},
+	}, func(instance string) bool { return instance != "instance-old" })
+	if err != nil || !isNew {
+		t.Fatalf("accepting the retry: new=%v err=%v", isNew, err)
+	}
+	if delivery.Supersedes != old.ID {
+		t.Fatalf("the retry supersedes %q, want %q", delivery.Supersedes, old.ID)
+	}
+	handoffs, err := store.HandOffsOf(t.Context(), delivery.ID)
+	if err != nil || len(handoffs) != 1 || handoffs[0].PlaybookName != "alert-triage" {
+		t.Fatalf("the retry's hand-offs = %+v, err = %v; want exactly one, alert-triage", handoffs, err)
+	}
+
+	dispatcher := &recordingDispatcher{}
+	if err := ingress.HandOff(t.Context(), store, dispatcher, loaded, delivery,
+		func() time.Time { return retriedAt }); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := dispatcher.Calls()
+	if len(calls) != 1 || calls[0].playbook != "alert-triage" {
+		t.Fatalf("dispatched %+v, want exactly one call to alert-triage", calls)
+	}
+
+	again, err := store.GetDelivery(t.Context(), delivery.ID)
+	if err != nil || again.State != record.DeliveryHandedOff {
+		t.Fatalf("delivery = %+v, err = %v, want handed_off", again, err)
 	}
 }
