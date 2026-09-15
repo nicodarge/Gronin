@@ -4792,6 +4792,21 @@
         "-run",
         "TestADirectoryCollectionIgnoresAnUnreadableRecordStore"
       ]
+    },
+    {
+      "name": "a report's held content is not checked against its digest",
+      "tree": "..",
+      "file": "internal/index/walk.go",
+      "find": "\t\tsum := sha256.Sum256(content)\n\t\tif hex.EncodeToString(sum[:]) != document.Digest {\n\t\t\treturn nil, &changedError{source: document.Source}\n\t\t}\n\t\treturn content, nil\n\t}\n\tif w.root == \"\" {\n",
+      "replace": "\t\tsum := sha256.Sum256(content)\n\t\tif hex.EncodeToString(sum[:]) != document.Digest && false {\n\t\t\treturn nil, &changedError{source: document.Source}\n\t\t}\n\t\treturn content, nil\n\t}\n\tif w.root == \"\" {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/index",
+        "-count=1",
+        "-run",
+        "TestContentOfRefusesHeldContentThatDoesNotMatchItsDigest"
+      ]
     }
   ]
 }
