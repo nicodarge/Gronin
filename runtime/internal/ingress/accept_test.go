@@ -217,3 +217,114 @@ func TestALateWriteStillRuns(t *testing.T) {
 		t.Fatalf("deliveries = %+v, err = %v; want one delivery with one repeat", deliveries, err)
 	}
 }
+
+// A pre-PR review finding: nothing had gone through Handler.ServeHTTP itself with
+// playbooks loaded for two different sources to prove boundPlaybookNames (T050), which
+// decides the Playbooks Accept records a delivery's hand-offs for, filters by source —
+// TestAHandOffChecksEveryBoundPlaybookOnItsOwn and TestAnUnboundDeliveryIsRecordedUnbound
+// both call HandOff directly, past that decision. A delivery for "alerts" must be handed
+// only to the playbook bound to "alerts": never the one bound to "other", in the row
+// Accept records or the dispatch HandOff runs.
+func TestASourceIsHandedOnlyToItsOwnPlaybooks(t *testing.T) {
+	dir := t.TempDir()
+	store, err := record.Open(t.Context(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	const secret = "s3cr3t-source"
+	catalog := testCatalog(t, testSource{name: "alerts", secret: secret, window: 10 * time.Minute})
+	loaded := playbook.Loaded{Playbooks: []*playbook.Playbook{
+		webhookBook("alert-triage", "alerts", nil),
+		webhookBook("other-playbook", "other", nil),
+	}}
+	dispatcher := &recordingDispatcher{}
+	h := &ingress.Handler{
+		Store: store, Sources: catalog, Secret: catalog.Secret, Loaded: loaded,
+		Dispatcher: dispatcher, Clock: guard.SystemClock(), Instance: "instance-a",
+		Options: ingress.DefaultOptions(),
+	}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, sign("alerts", secret, []byte(`{"id":"one"}`)))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+
+	pollUntil(t, time.Second, func() bool { return len(dispatcher.Calls()) == 1 })
+	calls := dispatcher.Calls()
+	if len(calls) != 1 || calls[0].playbook != "alert-triage" {
+		t.Fatalf("dispatched %+v, want exactly one call to alert-triage", calls)
+	}
+
+	deliveries, err := store.ListDeliveries(t.Context(), 10)
+	if err != nil || len(deliveries) != 1 {
+		t.Fatalf("deliveries = %+v, err = %v", deliveries, err)
+	}
+
+	// The row assertion, not the dispatch one, is what catches a boundPlaybookNames
+	// that stopped filtering by source: HandOff's own source check would still refuse
+	// to dispatch other-playbook, but Accept would have recorded a row for it anyway.
+	handoffs, err := store.HandOffsOf(t.Context(), deliveries[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(handoffs) != 1 || handoffs[0].PlaybookName != "alert-triage" {
+		t.Fatalf("hand-offs = %+v, want exactly one, for alert-triage", handoffs)
+	}
+}
+
+// A pre-PR review finding: the identity-refusal write (step 6) runs on a context
+// detached from the request, like the acceptance (step 7), so that a client
+// disconnecting cannot lose the refusal record the 400 answer names — untested until
+// now. The request's own context is cancelled before it is ever sent, as it would be for
+// a client already gone by the time this handler runs, while the write lock is held; the
+// refusal still lands once the lock is released.
+func TestALateIdentityRefusalStillLands(t *testing.T) {
+	dir := t.TempDir()
+	store, err := record.Open(t.Context(), dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	const secret = "s3cr3t-refusal"
+	catalog := testCatalog(t, testSource{name: "alerts", secret: secret, identity: "/id", window: 10 * time.Minute})
+	h := &ingress.Handler{
+		Store: store, Sources: catalog, Secret: catalog.Secret,
+		Loaded: playbook.Loaded{}, Dispatcher: &recordingDispatcher{},
+		Clock: guard.SystemClock(), Instance: "instance-a", Options: ingress.DefaultOptions(),
+	}
+
+	release := ingresstest.HoldWrites(t, dir)
+
+	reqCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	body := []byte(`{"note":"no id in this body"}`)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(w, sign("alerts", secret, body).WithContext(reqCtx))
+		close(done)
+	}()
+
+	// Deliberately late, not absent (contracts/ingress.md, A3's reasoning applied to
+	// step 6): the hold outlives however long ServeHTTP takes to reach the write, but
+	// not the store's own busy timeout.
+	time.Sleep(200 * time.Millisecond)
+	release()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("ServeHTTP never returned after the lock was released")
+	}
+
+	refusals, err := store.ListDeliveryRefusals(t.Context(), 10)
+	if err != nil || len(refusals) != 1 || refusals[0].Reason != record.ReasonIdentityAbsent {
+		t.Fatalf("refusals = %+v, err = %v; want exactly one, identity_absent, despite the "+
+			"cancelled request", refusals, err)
+	}
+}
