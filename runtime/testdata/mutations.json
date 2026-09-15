@@ -4807,6 +4807,186 @@
         "-run",
         "TestContentOfRefusesHeldContentThatDoesNotMatchItsDigest"
       ]
+    },
+    {
+      "name": "the acceptance is answered before the write",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\tselect {\n\tcase result := <-done:\n",
+      "replace": "\tselect {\n\tdefault:\n\t\twriteAccepted(w)\n\t\treturn\n\tcase result := <-done:\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheAnswerWaitsForTheRecord"
+      ]
+    },
+    {
+      "name": "a write past its bound is answered as accepted",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\tcase <-timer.C:\n\t\twriteNotAccepted(w)\n\t}\n",
+      "replace": "\tcase <-timer.C:\n\t\twriteAccepted(w)\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheAnswerWaitsForTheRecord"
+      ]
+    },
+    {
+      "name": "the hand-off follows the answer rather than the write",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\t\tdone <- acceptance{delivery: delivery, isNew: isNew, err: err}\n\t\tif err == nil && isNew {\n\t\t\t_ = HandOff(context.Background(), h.Store, h.Dispatcher, h.Loaded, delivery, h.Clock.Wall)\n\t\t}\n",
+      "replace": "\t\tdone <- acceptance{delivery: delivery, isNew: isNew, err: err}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestALateWriteStillRuns"
+      ]
+    },
+    {
+      "name": "the write runs on the request's context",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\tacceptCtx := context.WithoutCancel(r.Context())\n",
+      "replace": "\tacceptCtx := r.Context()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestALateWriteStillRuns"
+      ]
+    },
+    {
+      "name": "an acceptance exactly one window old is a repeat",
+      "tree": "..",
+      "file": "internal/record/accept.go",
+      "find": "\tif params.ReceivedAt.Sub(existing.ReceivedAt) >= params.ReplayWindow {\n",
+      "replace": "\tif params.ReceivedAt.Sub(existing.ReceivedAt) > params.ReplayWindow {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheReplayWindow"
+      ]
+    },
+    {
+      "name": "the window is never applied",
+      "tree": "..",
+      "file": "internal/record/accept.go",
+      "find": "\tif params.ReceivedAt.Sub(existing.ReceivedAt) >= params.ReplayWindow {\n",
+      "replace": "\tif false {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheReplayWindow"
+      ]
+    },
+    {
+      "name": "the acceptance is dated by the request's Date header",
+      "tree": "..",
+      "file": "internal/ingress/ingress.go",
+      "find": "\tnow := h.Clock.Wall()\n",
+      "replace": "\tnow := h.Clock.Wall()\n\tif skew, err := http.ParseTime(r.Header.Get(\"Date\")); err == nil {\n\t\tnow = skew\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheReplayWindow"
+      ]
+    },
+    {
+      "name": "the identity is read before the write transaction",
+      "tree": "..",
+      "file": "internal/record/accept.go",
+      "find": "\tif _, err := conn.ExecContext(ctx, \"BEGIN IMMEDIATE\"); err != nil {\n\t\treturn Delivery{}, false, fmt.Errorf(\"taking the write lock to accept a delivery: %w\", err)\n\t}\n\tcommitted := false\n\tdefer func() {\n\t\tif !committed {\n\t\t\t_, _ = conn.ExecContext(ctx, \"ROLLBACK\")\n\t\t}\n\t}()\n\n\texisting, found, err := existingDelivery(ctx, conn, source, identity)\n\tif err != nil {\n\t\treturn Delivery{}, false, err\n\t}\n",
+      "replace": "\texisting, found, err := existingDelivery(ctx, conn, source, identity)\n\tif err != nil {\n\t\treturn Delivery{}, false, err\n\t}\n\n\tif _, err := conn.ExecContext(ctx, \"BEGIN IMMEDIATE\"); err != nil {\n\t\treturn Delivery{}, false, fmt.Errorf(\"taking the write lock to accept a delivery: %w\", err)\n\t}\n\tcommitted := false\n\tdefer func() {\n\t\tif !committed {\n\t\t\t_, _ = conn.ExecContext(ctx, \"ROLLBACK\")\n\t\t}\n\t}()\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/record",
+        "-count=1",
+        "-run",
+        "TestOneIdentityIsNewOnce"
+      ]
+    },
+    {
+      "name": "the declared identity location is ignored",
+      "tree": "..",
+      "file": "internal/ingress/identity.go",
+      "find": "\tif source.Identity == \"\" {\n",
+      "replace": "\tif true {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestADeclaredIdentity"
+      ]
+    },
+    {
+      "name": "a missing identity falls back to the digest",
+      "tree": "..",
+      "file": "internal/ingress/identity.go",
+      "find": "\tvalue := atPointer(decoded, source.Identity)\n\tif value == nil {\n\t\treturn \"\", \"\", IdentityMissing\n\t}\n",
+      "replace": "\tvalue := atPointer(decoded, source.Identity)\n\tif value == nil {\n\t\tdigest := sha256.Sum256(body)\n\t\treturn hex.EncodeToString(digest[:]), record.IdentityDigest, IdentityFound\n\t}\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestADeclaredIdentity"
+      ]
+    },
+    {
+      "name": "a number identity is decoded as a float",
+      "tree": "..",
+      "file": "internal/ingress/identity.go",
+      "find": "\tcase json.Number:\n\t\treturn typed.String(), true\n",
+      "replace": "\tcase json.Number:\n\t\tf, _ := typed.Float64()\n\t\treturn strconv.FormatFloat(f, 'f', -1, 64), true\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestADeclaredIdentity"
+      ]
+    },
+    {
+      "name": "the answer's write limit is shorter than the durable step",
+      "tree": "..",
+      "file": "internal/ingress/limits.go",
+      "find": "\tDefaultAnswerTimeout = 25 * time.Second\n",
+      "replace": "\tDefaultAnswerTimeout = 3 * time.Second\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestTheDurableStepFitsInsideTheWriteLimit"
+      ]
     }
   ]
 }
