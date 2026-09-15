@@ -100,7 +100,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if outcome == IdentityNotSingle {
 			reason = record.ReasonIdentityNotSingle
 		}
-		if _, err := h.Store.AddDeliveryRefusal(r.Context(), record.DeliveryRefusal{
+		// Detached from the request, like step 7's acceptance (research.md §3): a client
+		// disconnecting while this write is still in flight must not lose the refusal
+		// record the answer names.
+		refusalCtx := context.WithoutCancel(r.Context())
+		if _, err := h.Store.AddDeliveryRefusal(refusalCtx, record.DeliveryRefusal{
 			Source: sourceName, Reason: reason, ReceivedAt: now, Peer: peer,
 		}, body); err != nil {
 			writeNotAccepted(w)
