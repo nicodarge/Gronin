@@ -29,15 +29,17 @@ func Extract(trigger Trigger, body []byte) map[string]any {
 
 	values := make(map[string]any, len(trigger.Values))
 	for name, declared := range trigger.Values {
-		values[name] = atPointer(decoded, declared.At)
+		values[name] = AtPointer(decoded, declared.At)
 	}
 	return values
 }
 
-// atPointer resolves an RFC 6901 JSON Pointer against an already-decoded document. A
+// AtPointer resolves an RFC 6901 JSON Pointer against an already-decoded document. A
 // segment that does not resolve, on any shape it meets, returns nil — the same value a
-// resolved JSON null decodes to, which is what Check reads as absent either way.
-func atPointer(document any, pointer string) any {
+// resolved JSON null decodes to, which is what Check reads as absent either way. The one
+// path every caller resolves a body pointer through (plan.md, *Path Conventions*): a
+// declared trigger value here, and a delivery's identity in internal/ingress/identity.go.
+func AtPointer(document any, pointer string) any {
 	if pointer == "" {
 		return document
 	}
@@ -122,7 +124,7 @@ func Check(book *Playbook, values map[string]any) (map[string]string, []ValueRef
 			continue
 		}
 
-		text, single := singleValue(raw)
+		text, single := SingleValue(raw)
 		if !single {
 			refusals = append(refusals, ValueRefusal{Name: name, Kind: ValueNotSingle, Problem: Problem{
 				Field:    field,
@@ -178,11 +180,12 @@ func Check(book *Playbook, values map[string]any) (map[string]string, []ValueRef
 	return checked, nil
 }
 
-// singleValue reads FR-316's single value out of a decoded JSON value: a string, a
+// SingleValue reads FR-316's single value out of a decoded JSON value: a string, a
 // number kept as the literal text it was written as, or a boolean. Anything else —
 // an object, an array, or nil, which stands for both a missing pointer and a JSON
-// null — is not one.
-func singleValue(raw any) (string, bool) {
+// null — is not one. The one path every caller reads a single value through, a
+// delivery's identity included (internal/ingress/identity.go).
+func SingleValue(raw any) (string, bool) {
 	switch typed := raw.(type) {
 	case string:
 		return typed, true
