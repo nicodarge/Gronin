@@ -35,15 +35,16 @@ type cluster struct {
 	hosts  []*servingHost
 }
 
-// tickPlaybook runs on the given schedule, and its gather step sleeps before leaving its
-// mark so that both hosts' ticks land inside the same run.
+// tickPlaybook runs on the given schedule, and its gather step runs `before` before
+// leaving its mark, so a test can control what has to happen before both hosts' ticks
+// land inside the same run.
 const tickPlaybook = `
 name: drift-check
 trigger:
   type: cron
   schedule: "%s"
 gather:
-  - run: sleep %s; printf 'ran\n' >> %s
+  - run: %s; printf 'ran\n' >> %s
     as: facts.json
 agent:
   model: claude-sonnet-5
@@ -57,7 +58,7 @@ sinks:
 `
 
 // newCluster lays out both hosts and the backend, and starts nothing.
-func newCluster(t *testing.T, schedule, gatherSleep string) *cluster {
+func newCluster(t *testing.T, schedule, before string) *cluster {
 	t.Helper()
 	server := guardtest.StartServer(t)
 	shared := t.TempDir()
@@ -71,7 +72,7 @@ func newCluster(t *testing.T, schedule, gatherSleep string) *cluster {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(books, "book.yaml"),
-			[]byte(fmt.Sprintf(tickPlaybook, schedule, gatherSleep, lines)), 0o600); err != nil {
+			[]byte(fmt.Sprintf(tickPlaybook, schedule, before, lines)), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(books, "prompt.md"), []byte("report"), 0o600); err != nil {
@@ -158,20 +159,31 @@ func (c *cluster) refusals(t *testing.T, at int) string {
 	return got.Stdout
 }
 
+// shellSingleQuote quotes s for a POSIX shell: wrapped in single quotes, with any
+// embedded single quote closed, escaped, and reopened. It is the only quoting a `run:`
+// line's own arguments need, since nothing inside single quotes is expanded.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // SC-101, FR-101: two processes sharing one backend, one tick, exactly one run. The
 // effect counted is the line the run appends, never a line claiming a claim was held.
 //
 // Both hosts are started concurrently and armed against one shared deadline, and the
 // schedule is pinned to a single instant computed from it — the same fix #56 gave
-// TestADelayedHostDoesNotRunATickAgain. Starting them one after another (c.serve, then
-// c.serve again) let a loaded runner arm B after the wildcard schedule's tick had
-// already been taken by A; B's next occurrence was then a minute away and nothing ever
+// TestADelayedHostDoesNotRunATickAgain. Starting them one after another let a loaded
+// runner arm the second host after the wildcard schedule's tick had already been taken
+// by the first; the second's next occurrence was then a minute away and nothing ever
 // collided, which is exactly "neither host recorded a claim_held refusal" from CI run
 // 34925617933.
 //
-// Pinning the instant alone is not enough: the loser's request also has to land while
-// the winner's claim is still held, or it is refused as tick_already_ran instead. The
-// gather step's sleep is what holds the claim open for that.
+// Pinning the instant is not enough by itself: the loser's request also has to land
+// while the winner's claim is still held, or internal/guard/etcd's Acquire reads the
+// claim gone and refuses it as tick_already_ran instead — its tickRan check cannot tell
+// the two apart once the claim key is gone. So the winning host's gather step does not
+// leave its mark on its own timing: it waits for a file the test creates, and the test
+// creates it only once a claim_held refusal is on record, which makes that refusal a
+// precondition of the claim ever being released rather than a race against it.
 func TestTwoServesRunOneTickOnce(t *testing.T) {
 	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
 	// Built before the deadline is taken, so that compiling is not charged to arming.
@@ -180,22 +192,19 @@ func TestTwoServesRunOneTickOnce(t *testing.T) {
 
 	armedBy := time.Now().UTC().Add(armWithin)
 	// Both hosts must be armed, with margin, before the tick they will race for falls
-	// due (#56's minute computation, including its boundary guard).
+	// due (#56's minute computation).
 	at := armedBy.Add(10 * time.Second).Truncate(time.Minute).Add(time.Minute)
-	if at.Minute() == 59 {
-		at = at.Add(time.Minute)
-	}
-	// raceHold is how long the winning host holds its claim once it takes the tick,
-	// which is the window the loser's own request has to land in to see the claim held
-	// rather than already released. guard.DefaultConfig's DecisionBound (5s, and this
-	// deployment's coordination.json declares none, so the default applies) bounds how
-	// long a single Acquire decision is ever allowed to take; twice that, plus the same
-	// 10s margin already given to arming above, comfortably exceeds the scheduling skew
-	// two independently-woken processes can pick up reaching the same due instant under
-	// load, without depending on how long a run or a poll takes relative to a cron period.
-	const raceHold = 2*5*time.Second + 10*time.Second
-	c := newCluster(t, fmt.Sprintf("%d %d %d %d *", at.Minute(), at.Hour(), at.Day(), int(at.Month())),
-		fmt.Sprintf("%d", int(raceHold.Seconds())))
+
+	release := filepath.Join(t.TempDir(), "release")
+	// maxReleaseWait bounds the wait in tenths of a second (30s), so a run whose test
+	// never creates the release file fails on its own rather than riding gather's own
+	// two-minute step timeout.
+	const maxReleaseWait = 300
+	before := fmt.Sprintf(
+		`i=0; while [ ! -e %s ]; do i=$((i+1)); [ "$i" -ge %d ] && exit 1; sleep 0.1; done`,
+		shellSingleQuote(release), maxReleaseWait)
+	c := newCluster(t,
+		fmt.Sprintf("%d %d %d %d *", at.Minute(), at.Hour(), at.Day(), int(at.Month())), before)
 
 	host0 := c.start(t, 0)
 	host1 := c.start(t, 1)
@@ -205,23 +214,28 @@ func TestTwoServesRunOneTickOnce(t *testing.T) {
 		t.Fatalf("both hosts were armed at %s, after the tick %s fell due", now, at)
 	}
 
-	// The tick falls due at `at`, and the run that takes it holds its claim for
-	// raceHold, so waitForRuns has to cover both.
-	c.waitForRuns(t, 1, time.Until(at)+raceHold+30*time.Second)
-	// And stays one: the host that was refused must not run it a moment later.
-	time.Sleep(5 * time.Second)
-	if ran := c.ran(t); ran != 1 {
-		t.Fatalf("%d runs of one tick", ran)
-	}
-
-	refused := c.refusals(t, 0) + c.refusals(t, 1)
-	if !strings.Contains(refused, string(record.MechanismClaimHeld)) {
-		t.Fatalf("neither host recorded a claim_held refusal:\n%s", refused)
-	}
+	var refused string
+	waitFor(t, time.Until(at)+30*time.Second, func() bool {
+		refused = c.refusals(t, 0) + c.refusals(t, 1)
+		return strings.Contains(refused, string(record.MechanismClaimHeld))
+	}, func() string {
+		return "neither host recorded a claim_held refusal:\n" + refused
+	})
 	// Naming the run that holds the claim is what makes the refusal actionable: an
 	// identifier an operator can look up with `gronin show`.
 	if !strings.Contains(refused, "run 20") {
 		t.Fatalf("the refusal does not name the run holding the claim:\n%s", refused)
+	}
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c.waitForRuns(t, 1, 30*time.Second)
+	// And stays one: the host that was refused must not run it a moment later.
+	time.Sleep(5 * time.Second)
+	if ran := c.ran(t); ran != 1 {
+		t.Fatalf("%d runs of one tick", ran)
 	}
 }
 
