@@ -41,11 +41,16 @@ func reasonOf(kind playbook.ValueRefusalKind) record.DeliveryRefusalReason {
 	}
 }
 
-// HandOff decides one delivery against every loaded playbook bound to its source
-// (FR-321): nothing in the body, the headers or the query selects among them — only the
-// source the acceptance already recorded. Each bound playbook's declared values are
-// extracted and checked independently (FR-322, FR-326), so one playbook's refusal never
-// touches another's hand-off.
+// HandOff decides one delivery against the hand-off rows Accept recorded for it, one per
+// bound playbook still pending (FR-321): nothing in the body, the headers or the query
+// selects among them — only the source the acceptance already recorded. The record is
+// the truth, not every playbook currently loaded and bound to the source: a retry of a
+// dropped delivery (record.Accept, *Delivery identity*) creates a row only for the bound
+// playbooks no earlier delivery in its chain decided, so a playbook with no row here was
+// already decided there and must be neither dispatched again nor treated as missing —
+// SetHandOffState refuses a hand-off no row names. Each pending playbook's declared
+// values are extracted and checked independently (FR-322, FR-326), so one playbook's
+// refusal never touches another's hand-off.
 func HandOff(
 	ctx context.Context, store *record.Store, dispatcher Dispatcher, loaded playbook.Loaded,
 	delivery record.Delivery, now func() time.Time,
@@ -55,12 +60,24 @@ func HandOff(
 		return err
 	}
 
-	var bound bool
+	handoffs, err := store.HandOffsOf(ctx, delivery.ID)
+	if err != nil {
+		return err
+	}
+	pending := make(map[string]bool, len(handoffs))
+	for _, handoff := range handoffs {
+		if handoff.State == record.HandOffPending {
+			pending[handoff.PlaybookName] = true
+		}
+	}
+
 	for _, book := range loaded.Playbooks {
 		if book.Trigger.Type != "webhook" || book.Trigger.Source != delivery.Source {
 			continue
 		}
-		bound = true
+		if !pending[book.Name] {
+			continue
+		}
 
 		values := playbook.Extract(book.Trigger, body)
 		checked, refusals := playbook.Check(book, values)
@@ -95,12 +112,13 @@ func HandOff(
 		}
 	}
 
-	return finishDelivery(ctx, store, delivery.ID, bound)
+	return finishDelivery(ctx, store, delivery.ID, len(handoffs) > 0)
 }
 
 // finishDelivery writes a delivery's own state from its hand-offs (data-model.md,
-// *Hand-off*): unbound when nothing was bound to its source; otherwise dropped once any
-// hand-off is, waiting while any is undecided, and handed off once every one is decided.
+// *Hand-off*): unbound when it has none — nothing was bound to its source at
+// acceptance — otherwise dropped once any hand-off is, waiting while any is undecided,
+// and handed off once every one is decided.
 func finishDelivery(ctx context.Context, store *record.Store, deliveryID string, bound bool) error {
 	if !bound {
 		return store.SetDeliveryState(ctx, deliveryID, record.DeliveryUnbound)
