@@ -403,7 +403,7 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       `TestADeliveryIsARepeatAcrossARestart`: `serve` stopped after the first delivery and started
       again on the same state directory; its startup line says repeat detection reaches this host only,
       and the same body is `202` with no second line
-- [ ] T036 [P] [US1] SC-302 and SC-303, in `runtime/internal/ingress/accept_test.go`, against the handler
+- [x] T036 [P] [US1] SC-302 and SC-303, in `runtime/internal/ingress/accept_test.go`, against the handler
       with no socket, a durable-step bound of 200 ms and the write lock held by `ingresstest.HoldWrites`.
       `TestTheAnswerWaitsForTheRecord`: while the lock is held no answer is written, and at the bound the
       answer is `503` — checked from the test's own watchdog against the bound plus slack.
@@ -420,21 +420,21 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       started on the state directory, after the live child is killed in turn: no run comes from the
       first delivery, and resending its body produces exactly one run. The positive assertions are what
       give this test a mutant; the absence alone is satisfied by a runtime that never started
-- [ ] T038 [P] [US1] SC-305, `TestTheReplayWindow…` in `runtime/internal/ingress/window_test.go`: the
+- [x] T038 [P] [US1] SC-305, `TestTheReplayWindow…` in `runtime/internal/ingress/window_test.go`: the
       guard's fake clock (G013) injected, a source with a 10-minute window. The same body twice inside it
       is one hand-off and a repeat count of one; the clock moved to one second past the window, the same
       body is a second hand-off; and the clock moved to exactly one window after an acceptance, new
       (research.md §5). Every body carries a `timestamp` field and every request a `Date` header set an
       hour past the window, and a second set an hour before the first acceptance: none of them changes
       an outcome, because the window is judged on the injected clock's wall reading alone
-- [ ] T039 [P] [US1] SC-306, `TestOneIdentityIsNewOnce` in `runtime/internal/record/accept_test.go`: a
+- [x] T039 [P] [US1] SC-306, `TestOneIdentityIsNewOnce` in `runtime/internal/record/accept_test.go`: a
       re-execution of the test binary opens the store on the test's state directory and stops inside
       its acceptance of identity X at the seam T049 adds, after its decision and before its commit, and
       says so. The test then issues its own acceptance of X with a bound longer than the hold, and tells
       the child to commit. Exactly one of the two is new, and the delivery has exactly one set of
       hand-offs. Forced, not raced: an implementation that reads the identity before its write
       transaction passes every race it happens to win
-- [ ] T040 [P] [US1] SC-308, `TestADeclaredIdentity…` in `runtime/internal/ingress/identity_test.go`: a
+- [x] T040 [P] [US1] SC-308, `TestADeclaredIdentity…` in `runtime/internal/ingress/identity_test.go`: a
       source declaring `/id`. Two bodies differing only outside `/id` are one hand-off; a body with no
       `id` is `400` and a delivery refusal with its body; `/id` holding an object is refused likewise;
       and two bodies whose `id` are the integers `9007199254740993` and `9007199254740992` are two
@@ -449,7 +449,7 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       webhook run executed with the stub agent, then `Replay`. The replay succeeds, its gathered inputs
       include `trigger.json` with the original values, no delivery or hand-off is written, and no
       dispatcher is called
-- [ ] T043 [P] [US1] FR-313, `TestTheDurableStepFitsInsideTheWriteLimit` in
+- [x] T043 [P] [US1] FR-313, `TestTheDurableStepFitsInsideTheWriteLimit` in
       `runtime/internal/ingress/limits_test.go`: the default bounds are the plan's, and the time to read a
       whole request plus the durable step is less than the answer-write limit — the relation research.md
       §3 found an answer vanishes without
@@ -475,17 +475,17 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
 
 ### Implementation for User Story 1
 
-- [ ] T046 [US1] `runtime/internal/ingress/limits.go`: the bounds as options with the plan's defaults,
+- [x] T046 [US1] `runtime/internal/ingress/limits.go`: the bounds as options with the plan's defaults,
       and the `http.Server` built from them — header read timeout, read timeout, write timeout, header
       size. US4 adds the body and in-progress bounds to the same options
-- [ ] T047 [US1] `runtime/internal/ingress/signature.go`: one MAC and one `hmac.Equal` per request, the
+- [x] T047 [US1] `runtime/internal/ingress/signature.go`: one MAC and one `hmac.Equal` per request, the
       header read only when it appears once and starts with the declared prefix, the remainder decoded
       from hexadecimal only when it is 32 bytes, and a buffer no MAC equals compared otherwise
       ([contracts/ingress.md](./contracts/ingress.md), *Step 5*)
-- [ ] T048 [US1] `runtime/internal/ingress/identity.go`: the body parsed as JSON with number literals
+- [x] T048 [US1] `runtime/internal/ingress/identity.go`: the body parsed as JSON with number literals
       kept, the identity read at the source's pointer as a single value in `values.go`'s sense, or the
       SHA-256 of the exact bytes when the source declares none (FR-316)
-- [ ] T049 [US1] `runtime/internal/record/accept.go`: `Accept`, one write transaction holding the write
+- [x] T049 [US1] `runtime/internal/record/accept.go`: `Accept`, one write transaction holding the write
       lock from its first statement, deciding newness and writing the delivery, the identity and the
       hand-offs or the repeat together ([data-model.md](./data-model.md), *Delivery identity*); a dropped
       delivery's identity is new, and its retry's hand-offs are the bound playbooks no delivery in the
@@ -496,7 +496,7 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       judged, so a retry reaching a process that outlived the accepting one runs (FR-315). The liveness
       probe is passed in, since `record` does not import `guard`. A seam between the decision and the
       commit, nil outside tests, for T039
-- [ ] T050 [US1] `runtime/internal/ingress/ingress.go`: the handler, in contracts/ingress.md's order — the
+- [x] T050 [US1] `runtime/internal/ingress/ingress.go`: the handler, in contracts/ingress.md's order — the
       route matched on the path and the method checked in the handler, the signature, the identity; the
       acceptance on a context detached from the request, bounded by the durable step, the answer `503`
       when the bound passes first; and the hand-off started by the acceptance completing, whichever of
@@ -549,7 +549,7 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       `the identity lookup sees only this process's acceptances`, and in `cmd/gronin/serve_cmd.go`,
       `serve does not state the reach of repeat detection`, both with command
       `go test ./cmd/gronin -count=1 -run TestADeliveryIsARepeatAcrossARestart`
-- [ ] T057 [US1] SC-302 and SC-303, in `internal/ingress/ingress.go`: `the acceptance is answered before
+- [x] T057 [US1] SC-302 and SC-303, in `internal/ingress/ingress.go`: `the acceptance is answered before
       the write` and `a write past its bound is answered as accepted`, command
       `go test ./internal/ingress -count=1 -run TestTheAnswerWaitsForTheRecord`; `the hand-off follows
       the answer rather than the write` and `the write runs on the request's context`, command
@@ -558,13 +558,13 @@ the instance lock, the wait and its reconciliation), and G088, G093 and G094 (th
       in `internal/ingress/reconcile.go`, `an undecided hand-off is dispatched on restart`, `an undecided
       hand-off is left accepted` and `a live process's delivery is dropped`; in
       `internal/record/accept.go`, `a dropped delivery's retry is a repeat`
-- [ ] T059 [US1] SC-305, all with command `go test ./internal/ingress -count=1 -run TestTheReplayWindow`:
+- [x] T059 [US1] SC-305, all with command `go test ./internal/ingress -count=1 -run TestTheReplayWindow`:
       in `internal/record/accept.go`, `an acceptance exactly one window old is a repeat` and `the window
       is never applied`; in `internal/ingress/ingress.go`, `the acceptance is dated by the request's Date
       header`
-- [ ] T060 [US1] SC-306, in `internal/record/accept.go`: `the identity is read before the write
+- [x] T060 [US1] SC-306, in `internal/record/accept.go`: `the identity is read before the write
       transaction`, command `go test ./internal/record -count=1 -run TestOneIdentityIsNewOnce`
-- [ ] T061 [US1] SC-308, in `internal/ingress/identity.go`, command
+- [x] T061 [US1] SC-308, in `internal/ingress/identity.go`, command
       `go test ./internal/ingress -count=1 -run TestADeclaredIdentity`: `the declared identity location
       is ignored`, `a missing identity falls back to the digest`, `a number identity is decoded as a
       float`
