@@ -106,14 +106,6 @@ func writeCoordinationFile(t *testing.T, stateDir string, document map[string]an
 // armWithin is how long a host is given to arm its schedules once started.
 const armWithin = 60 * time.Second
 
-// serve starts one host and waits until its schedules are armed.
-func (c *cluster) serve(t *testing.T, at int) *bintest.Process {
-	t.Helper()
-	process := c.start(t, at)
-	process.Expect(t, "armed 1 schedule", armWithin)
-	return process
-}
-
 // start starts one host and returns at once, before its schedules are armed.
 func (c *cluster) start(t *testing.T, at int) *bintest.Process {
 	t.Helper()
@@ -168,16 +160,54 @@ func (c *cluster) refusals(t *testing.T, at int) string {
 
 // SC-101, FR-101: two processes sharing one backend, one tick, exactly one run. The
 // effect counted is the line the run appends, never a line claiming a claim was held.
+//
+// Both hosts are started concurrently and armed against one shared deadline, and the
+// schedule is pinned to a single instant computed from it — the same fix #56 gave
+// TestADelayedHostDoesNotRunATickAgain. Starting them one after another (c.serve, then
+// c.serve again) let a loaded runner arm B after the wildcard schedule's tick had
+// already been taken by A; B's next occurrence was then a minute away and nothing ever
+// collided, which is exactly "neither host recorded a claim_held refusal" from CI run
+// 34925617933.
+//
+// Pinning the instant alone is not enough: the loser's request also has to land while
+// the winner's claim is still held, or it is refused as tick_already_ran instead. The
+// gather step's sleep is what holds the claim open for that.
 func TestTwoServesRunOneTickOnce(t *testing.T) {
 	t.Setenv(fakeagent.ModeVar, fakeagent.ModeSuccess)
-	c := newCluster(t, "* * * * *", "3")
+	// Built before the deadline is taken, so that compiling is not charged to arming.
+	bintest.Build(t)
+	fakeagent.Build(t)
 
-	c.serve(t, 0)
-	c.serve(t, 1)
+	armedBy := time.Now().UTC().Add(armWithin)
+	// Both hosts must be armed, with margin, before the tick they will race for falls
+	// due (#56's minute computation, including its boundary guard).
+	at := armedBy.Add(10 * time.Second).Truncate(time.Minute).Add(time.Minute)
+	if at.Minute() == 59 {
+		at = at.Add(time.Minute)
+	}
+	// raceHold is how long the winning host holds its claim once it takes the tick,
+	// which is the window the loser's own request has to land in to see the claim held
+	// rather than already released. guard.DefaultConfig's DecisionBound (5s, and this
+	// deployment's coordination.json declares none, so the default applies) bounds how
+	// long a single Acquire decision is ever allowed to take; twice that, plus the same
+	// 10s margin already given to arming above, comfortably exceeds the scheduling skew
+	// two independently-woken processes can pick up reaching the same due instant under
+	// load, without depending on how long a run or a poll takes relative to a cron period.
+	const raceHold = 2*5*time.Second + 10*time.Second
+	c := newCluster(t, fmt.Sprintf("%d %d %d %d *", at.Minute(), at.Hour(), at.Day(), int(at.Month())),
+		fmt.Sprintf("%d", int(raceHold.Seconds())))
 
-	// One tick is at most a minute away, and the run that takes it sleeps three seconds,
-	// so both hosts' ticks fall inside it.
-	c.waitForRuns(t, 1, 100*time.Second)
+	host0 := c.start(t, 0)
+	host1 := c.start(t, 1)
+	host0.Expect(t, "armed 1 schedule", time.Until(armedBy))
+	host1.Expect(t, "armed 1 schedule", time.Until(armedBy))
+	if now := time.Now().UTC(); !now.Before(at) {
+		t.Fatalf("both hosts were armed at %s, after the tick %s fell due", now, at)
+	}
+
+	// The tick falls due at `at`, and the run that takes it holds its claim for
+	// raceHold, so waitForRuns has to cover both.
+	c.waitForRuns(t, 1, time.Until(at)+raceHold+30*time.Second)
 	// And stays one: the host that was refused must not run it a moment later.
 	time.Sleep(5 * time.Second)
 	if ran := c.ran(t); ran != 1 {
