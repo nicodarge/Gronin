@@ -2,13 +2,14 @@ package record
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/nicodarge/Gronin/runtime/internal/idgen"
 )
 
 // AcceptParams is everything one authenticated request offers Accept about a delivery,
@@ -136,7 +137,7 @@ func Accept(ctx context.Context, s *Store, params AcceptParams, alive Alive) (De
 		playbooks = filtered
 	}
 
-	deliveryID, err := newDeliveryID(params.ReceivedAt)
+	deliveryID, err := idgen.New(params.ReceivedAt)
 	if err != nil {
 		return Delivery{}, false, err
 	}
@@ -431,16 +432,4 @@ func decidedInChain(ctx context.Context, tx txlike, deliveryID string) (map[stri
 		deliveryID = supersedes.String
 	}
 	return decided, nil
-}
-
-// newDeliveryID mints a delivery identifier in the run identifier's shape (data-model.md,
-// *Delivery*), so the blob store files its body the way a run's artifacts are filed.
-// Duplicated from internal/run's own generator rather than imported: internal/run imports
-// internal/record, so importing it back here would cycle.
-func newDeliveryID(at time.Time) (string, error) {
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
-		return "", fmt.Errorf("generating a delivery identifier: %w", err)
-	}
-	return at.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(suffix), nil
 }

@@ -4,8 +4,6 @@ package run
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nicodarge/Gronin/runtime/internal/guard"
+	"github.com/nicodarge/Gronin/runtime/internal/idgen"
 	"github.com/nicodarge/Gronin/runtime/internal/record"
 )
 
@@ -74,7 +73,7 @@ var playbookNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
 // NewRunID mints a run identifier. It is minted before the guard decides, so that the
 // claim it takes names the run that will hold it.
-func NewRunID() (string, error) { return newID(time.Now().UTC()) }
+func NewRunID() (string, error) { return idgen.New(time.Now().UTC()) }
 
 // Begin creates the working directory and records the run as running, under a claim
 // already taken for it. Nothing is created before the claim, so two triggers racing
@@ -206,18 +205,4 @@ func (m *Manager) InFlight(playbookName string) bool {
 	}
 	m.releaseLock(file)
 	return false
-}
-
-// newID returns a run identifier that sorts by time and cannot collide.
-//
-// The timestamp is the readable half: an operator reading `gronin runs` should be able
-// to tell which run is which without a lookup. The random half is what makes it an
-// identifier — two runs starting in the same nanosecond is not a scenario worth a
-// coordination protocol, but it is one worth six bytes.
-func newID(at time.Time) (string, error) {
-	suffix := make([]byte, 6)
-	if _, err := rand.Read(suffix); err != nil {
-		return "", fmt.Errorf("generating a run identifier: %w", err)
-	}
-	return at.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(suffix), nil
 }

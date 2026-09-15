@@ -1,4 +1,4 @@
-package run
+package idgen
 
 import (
 	"strings"
@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// The ordering half, which the manager-level test could not reach: fifty runs begun
-// back to back all land in the same second, so comparing their prefixes never crosses a
+// The ordering half, which a manager-level test could not reach: fifty runs begun back
+// to back all land in the same second, so comparing their prefixes never crosses a
 // boundary and the assertion holds for a format that is wrong. These are fixed times,
 // chosen to move each component of the stamp in turn.
 func TestIdentifiersSortByTheTimeTheyCarry(t *testing.T) {
@@ -24,7 +24,7 @@ func TestIdentifiersSortByTheTimeTheyCarry(t *testing.T) {
 
 	var previous string
 	for _, moment := range moments {
-		id, err := newID(moment)
+		id, err := New(moment)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +39,7 @@ func TestIdentifiersSortByTheTimeTheyCarry(t *testing.T) {
 // ordering test above would not notice a component in the wrong place as long as it
 // still increased.
 func TestTheIdentifierCarriesTheTimeItWasGiven(t *testing.T) {
-	id, err := newID(time.Date(2026, 9, 5, 14, 22, 33, 0, time.UTC))
+	id, err := New(time.Date(2026, 9, 5, 14, 22, 33, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestIdentifiersDoNotCollideAtTheSameInstant(t *testing.T) {
 
 	seen := map[string]bool{}
 	for range 2000 {
-		id, err := newID(moment)
+		id, err := New(moment)
 		if err != nil {
 			t.Fatal(err)
 		}
