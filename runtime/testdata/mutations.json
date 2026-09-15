@@ -4447,26 +4447,11 @@
       ]
     },
     {
-      "name": "the bound set is every loaded webhook playbook, whatever its source",
-      "tree": "..",
-      "file": "internal/ingress/handoff.go",
-      "find": "\t\tif book.Trigger.Type != \"webhook\" || book.Trigger.Source != delivery.Source {\n\t\t\tcontinue\n\t\t}\n",
-      "replace": "\t\tif book.Trigger.Type != \"webhook\" {\n\t\t\tcontinue\n\t\t}\n",
-      "command": [
-        "go",
-        "test",
-        "./internal/ingress",
-        "-count=1",
-        "-run",
-        "TestAHandOff"
-      ]
-    },
-    {
       "name": "the hand-off passes the body's top-level fields as values",
       "tree": "..",
       "file": "internal/playbook/values.go",
-      "find": "\t\tvalues[name] = atPointer(decoded, declared.At)\n",
-      "replace": "\t\tvalues[name] = atPointer(decoded, \"/\"+name)\n\t\t_ = declared\n",
+      "find": "\t\tvalues[name] = AtPointer(decoded, declared.At)\n",
+      "replace": "\t\tvalues[name] = AtPointer(decoded, \"/\"+name)\n\t\t_ = declared\n",
       "command": [
         "go",
         "test",
@@ -4947,8 +4932,8 @@
       "name": "a missing identity falls back to the digest",
       "tree": "..",
       "file": "internal/ingress/identity.go",
-      "find": "\tvalue := atPointer(decoded, source.Identity)\n\tif value == nil {\n\t\treturn \"\", \"\", IdentityMissing\n\t}\n",
-      "replace": "\tvalue := atPointer(decoded, source.Identity)\n\tif value == nil {\n\t\tdigest := sha256.Sum256(body)\n\t\treturn hex.EncodeToString(digest[:]), record.IdentityDigest, IdentityFound\n\t}\n",
+      "find": "\tvalue := playbook.AtPointer(decoded, source.Identity)\n\tif value == nil {\n\t\treturn \"\", \"\", IdentityMissing\n\t}\n",
+      "replace": "\tvalue := playbook.AtPointer(decoded, source.Identity)\n\tif value == nil {\n\t\tdigest := sha256.Sum256(body)\n\t\treturn hex.EncodeToString(digest[:]), record.IdentityDigest, IdentityFound\n\t}\n",
       "command": [
         "go",
         "test",
@@ -4961,7 +4946,7 @@
     {
       "name": "a number identity is decoded as a float",
       "tree": "..",
-      "file": "internal/ingress/identity.go",
+      "file": "internal/playbook/values.go",
       "find": "\tcase json.Number:\n\t\treturn typed.String(), true\n",
       "replace": "\tcase json.Number:\n\t\tf, _ := typed.Float64()\n\t\treturn strconv.FormatFloat(f, 'f', -1, 64), true\n",
       "command": [
@@ -4986,6 +4971,21 @@
         "-count=1",
         "-run",
         "TestTheDurableStepFitsInsideTheWriteLimit"
+      ]
+    },
+    {
+      "name": "the hand-off dispatches every playbook bound to the source",
+      "tree": "..",
+      "file": "internal/ingress/handoff.go",
+      "find": "\t\tif !pending[book.Name] {\n",
+      "replace": "\t\tif false && !pending[book.Name] {\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/ingress",
+        "-count=1",
+        "-run",
+        "TestAHandOffDispatchesOnlyTheRecordedSubset"
       ]
     }
   ]
