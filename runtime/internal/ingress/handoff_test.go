@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +30,11 @@ func rawDB(t *testing.T, dir string) *sql.DB {
 
 // recordingDispatcher is ingress.Dispatcher for a test: it never reaches a guard or an
 // executor, only records what it was asked to dispatch and returns HandOffHandedOff.
+// Its own mutex is what makes it safe to read from the test goroutine while the
+// handler's hand-off runs from one of its own (T050): a synchronous caller never
+// notices it.
 type recordingDispatcher struct {
+	mu    sync.Mutex
 	calls []dispatched
 }
 
@@ -41,8 +46,17 @@ type dispatched struct {
 func (d *recordingDispatcher) Dispatch(
 	_ context.Context, book *playbook.Playbook, _ record.Delivery, values map[string]string,
 ) record.HandOffState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.calls = append(d.calls, dispatched{playbook: book.Name, values: values})
 	return record.HandOffHandedOff
+}
+
+// Calls is a snapshot of every dispatch seen so far.
+func (d *recordingDispatcher) Calls() []dispatched {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]dispatched(nil), d.calls...)
 }
 
 // seedDelivery writes a delivery's body through the blob store, and the delivery and its
@@ -122,14 +136,15 @@ func TestAHandOffChecksEveryBoundPlaybookOnItsOwn(t *testing.T) {
 
 	// The refused playbook dispatches nothing and leaves a refusal naming it and the
 	// value.
-	if len(dispatcher.calls) != 1 {
-		t.Fatalf("dispatched %d times, want 1: %+v", len(dispatcher.calls), dispatcher.calls)
+	calls := dispatcher.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("dispatched %d times, want 1: %+v", len(calls), calls)
 	}
-	if dispatcher.calls[0].playbook != "alert-triage" {
-		t.Fatalf("dispatched %q, want alert-triage", dispatcher.calls[0].playbook)
+	if calls[0].playbook != "alert-triage" {
+		t.Fatalf("dispatched %q, want alert-triage", calls[0].playbook)
 	}
-	if len(dispatcher.calls[0].values) != 1 || dispatcher.calls[0].values["sev"] != "critical" {
-		t.Fatalf("values = %+v, want exactly {sev: critical}", dispatcher.calls[0].values)
+	if len(calls[0].values) != 1 || calls[0].values["sev"] != "critical" {
+		t.Fatalf("values = %+v, want exactly {sev: critical}", calls[0].values)
 	}
 
 	refusals, err := store.ListDeliveryRefusals(t.Context(), 10)
@@ -182,8 +197,8 @@ func TestAnUnboundDeliveryIsRecordedUnbound(t *testing.T) {
 	if err := ingress.HandOff(t.Context(), store, dispatcher, loaded, delivery, time.Now); err != nil {
 		t.Fatal(err)
 	}
-	if len(dispatcher.calls) != 0 {
-		t.Fatalf("dispatched %v for a delivery bound to nothing", dispatcher.calls)
+	if calls := dispatcher.Calls(); len(calls) != 0 {
+		t.Fatalf("dispatched %v for a delivery bound to nothing", calls)
 	}
 	again, err := store.GetDelivery(t.Context(), "delivery-2")
 	if err != nil || again.State != record.DeliveryUnbound {
