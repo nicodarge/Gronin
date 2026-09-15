@@ -40,7 +40,7 @@ func TestADelayedHostDoesNotRunATickAgain(t *testing.T) {
 	}
 	second := first.Add(time.Minute)
 	c := newCluster(t, fmt.Sprintf("%d,%d %d %d %d *",
-		first.Minute(), second.Minute(), first.Hour(), first.Day(), int(first.Month())), "0")
+		first.Minute(), second.Minute(), first.Hour(), first.Day(), int(first.Month())), "sleep 0")
 
 	host := c.start(t, 0)
 	delayed := c.start(t, 1)
