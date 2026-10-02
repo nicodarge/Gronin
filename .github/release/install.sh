@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Install the pinned release toolchain outside the workspace, without install scripts.
-# release.yaml and release-toolchain.yaml both run this, so the check exercises what ships.
+# One install for release.yaml and release-toolchain.yaml, so the pull request check runs what ships.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"

@@ -1,9 +1,7 @@
 ---
 name: Release toolchain
 
-# No `paths` filter: a path-filtered check that never reports blocks every other pull
-# request once it is required. It runs freshly resolved registry code before any review, so
-# it stays on a hosted runner and holds no secret.
+# No `paths` filter, and a hosted runner with no secret: it runs freshly resolved registry code before review.
 on:
   pull_request:
 
@@ -29,6 +27,5 @@ jobs:
 
       - name: Load semantic-release and every plugin .releaserc names, and audit the tree
         run: |
-          cp .github/release/check-toolchain.mjs "${RUNNER_TEMP}/semantic-release/"
           cd "${RUNNER_TEMP}/semantic-release"
-          node check-toolchain.mjs "${GITHUB_WORKSPACE}/.releaserc"
+          node "${GITHUB_WORKSPACE}/.github/release/check-toolchain.mjs" "${GITHUB_WORKSPACE}/.releaserc"
