@@ -117,8 +117,9 @@ markdownlint because it is written by semantic-release.
   definition are the tool's own, and it runs `npm audit` in the prefix. It is stricter than
   the tool on purpose: it fails a load that is cut short, one that writes to stderr, a process
   that does not end by itself and a load that reports no plugin, and it checks itself first
-  against throwaway configurations. What it does not check, and its time limits, are in the
-  script's comments. The script and its tests are shared byte for byte with the other release
+  against throwaway configurations. It does not validate the rest of the configuration or the
+  repository state, runs no plugin step, and a plugin can forge a pass; its time limits are
+  `LOAD_LIMIT_MS` and `AUDIT_LIMIT_MS`. The script and its tests are shared byte for byte with the other release
   repositories: change them everywhere or nowhere. The workflow has no `paths` filter, so it
   can be a required status check without blocking unrelated pull requests; making it one is a
   setting of the `production: gate green before merge` ruleset, outside the files of this
