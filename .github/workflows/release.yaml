@@ -31,7 +31,7 @@ jobs:
       && github.event.workflow_run.head_repository.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/production')
     runs-on: ubuntu-latest
-    # Lifetime strictly above the timeout (1800 s): a key expiring between the two pushes strands a changelog.
+    # The key lifetime must stay strictly above this timeout: expiring between the two pushes strands a changelog.
     timeout-minutes: 30
     env:
       KEY_LIFETIME_SECONDS: '2100'
@@ -114,7 +114,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           printf '%s\n' "$RELEASE_SSH_KEY" | ssh-add -q -t "${KEY_LIFETIME_SECONDS}" -
 
-      # The dry-run push fails on a missing key here, not by falling back to an HTTPS URL with the job token.
+      # The dry-run push fails here on a key GitHub does not accept, not by falling back to an HTTPS URL with the job token.
       - name: Run semantic-release
         if: steps.tip.outputs.current == 'true'
         env:
