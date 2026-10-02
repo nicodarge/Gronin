@@ -25,6 +25,8 @@ jobs:
       - name: Install semantic-release
         run: .github/release/install.sh
 
-      - name: Load semantic-release and every plugin .releaserc names, and audit the tree
-        run: |
-          node .github/release/check-toolchain.mjs "${RUNNER_TEMP}/semantic-release" .releaserc
+      - name: Load the release configuration and audit the install
+        run: node .github/release/check-toolchain.mjs "${RUNNER_TEMP}/semantic-release" .
+
+      - name: Run the tests of the check
+        run: TOOLCHAIN_PREFIX="${RUNNER_TEMP}/semantic-release" node --test .github/release/check-toolchain.test.mjs

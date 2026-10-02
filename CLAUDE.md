@@ -109,21 +109,20 @@ markdownlint because it is written by semantic-release.
   Both workflows that install it ask `actions/setup-node` for a range that satisfies the
   plugins' `engines` and run `npm ci --engine-strict`: keep the two ranges equal.
 - The workflow `release-toolchain.yaml` checks the toolchain on every pull request, on a
-  hosted runner, with no secret: it installs it as the release job does, then runs
-  `.github/release/check-toolchain.mjs` and `npm audit` in the install prefix. The script
-  loads `semantic-release` and every plugin `.releaserc` names in `plugins` or under a step
-  key, one child process each, through the installed semantic-release's own plugin loader and
-  validators, so resolution, the shape a plugin entry may have and what a loaded plugin must
-  export are the tool's own rules. It is deliberately stricter than the tool in these ways
-  only: a missing or empty `plugins`, or one that names no plugin by module name, is refused
-  (the tool would use its defaults); a plugin that exits, writes to stderr or does not settle
-  while loading fails, and so does any `npm audit` finding; the loads share one time limit
-  (`LOAD_LIMIT_MS` in the script, well under the job's `timeout-minutes`). It does not follow
-  `extends`. Every failure is one line naming the plugin and the reason. The script is shared
-  byte for byte with the other release repositories: change it everywhere or nowhere. It has
-  no `paths` filter, so it can be a required status check without blocking unrelated pull
-  requests; making it one is a setting of the `production: gate green before merge` ruleset,
-  outside the files of this repository.
+  hosted runner, with no secret: it installs it as the release job does, runs
+  `.github/release/check-toolchain.mjs` with the install prefix and the repository root, then
+  the script's own tests (`check-toolchain.test.mjs`, `node --test`, with `TOOLCHAIN_PREFIX`).
+  The script asks the installed semantic-release for this repository's configuration with the
+  tool's own loader, so the configuration file, `extends`, the defaults and every plugin
+  definition are the tool's own, and it runs `npm audit` in the prefix. It is stricter than
+  the tool on purpose: it fails a load that is cut short, one that writes to stderr, a process
+  that does not end by itself and a load that reports no plugin, and it checks itself first
+  against throwaway configurations. What it does not check, and its time limits, are in the
+  script's comments. The script and its tests are shared byte for byte with the other release
+  repositories: change them everywhere or nowhere. The workflow has no `paths` filter, so it
+  can be a required status check without blocking unrelated pull requests; making it one is a
+  setting of the `production: gate green before merge` ruleset, outside the files of this
+  repository.
 - `scripts/release-guard.sh` holds the release job's decisions about commits and tags (the
   tip, the repair of a tag, whether a tag is the newest release). A release commit is
   recognised by its subject and by touching nothing but `CHANGELOG.md`, never by its author.
