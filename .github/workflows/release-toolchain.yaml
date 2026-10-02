@@ -27,5 +27,4 @@ jobs:
 
       - name: Load semantic-release and every plugin .releaserc names, and audit the tree
         run: |
-          cd "${RUNNER_TEMP}/semantic-release"
-          node "${GITHUB_WORKSPACE}/.github/release/check-toolchain.mjs" "${GITHUB_WORKSPACE}/.releaserc"
+          node .github/release/check-toolchain.mjs "${RUNNER_TEMP}/semantic-release" .releaserc
