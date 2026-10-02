@@ -81,9 +81,9 @@ and signature, and verify before installing:
 
 ```bash
 base=https://github.com/nicodarge/Gronin/releases/latest/download
-curl -sSLO "$base/gronin-linux-amd64"
-curl -sSLO "$base/SHA256SUMS"
-curl -sSLO "$base/SHA256SUMS.bundle"
+curl -fsSLO "$base/gronin-linux-amd64"
+curl -fsSLO "$base/SHA256SUMS"
+curl -fsSLO "$base/SHA256SUMS.bundle"
 sha256sum --ignore-missing -c SHA256SUMS
 cosign verify-blob \
   --bundle SHA256SUMS.bundle \
@@ -108,8 +108,8 @@ its identity ends `@refs/tags/v0.1.0`. To install it, set `base` to
 files and verify it: replace the `curl` line for the bundle and the `cosign` command with
 
 ```bash
-curl -sSLO "$base/SHA256SUMS.sig"
-curl -sSLO "$base/SHA256SUMS.pem"
+curl -fsSLO "$base/SHA256SUMS.sig"
+curl -fsSLO "$base/SHA256SUMS.pem"
 cosign bundle create --artifact SHA256SUMS --signature SHA256SUMS.sig \
   --certificate SHA256SUMS.pem --out SHA256SUMS.bundle
 cosign verify-blob \

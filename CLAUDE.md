@@ -49,13 +49,16 @@ on that commit. The squash commit's whole message decides the version, as the re
 
 - The subject's type: `fix:` and `perf:` give a patch, `feat:` a minor, `!` after the type a
   major; `ci:`, `docs:`, `chore:`, `test:`, `refactor:`, `build:` and `style:` release
-  nothing.
-- A body line that STARTS with `BREAKING CHANGE` (any case) followed on the same line by `:`
-  or whitespace and more text gives a major. Behind a star bullet or indentation it still
-  counts, as in a pull request description pasted into a squash body; behind a dash or a plus
-  bullet it does not, and neither do `BREAKING-CHANGE` and `BREAKING CHANGES`.
-- A squash titled `Revert "..."` whose body says `This reverts commit ...` gives a patch,
-  whatever the type it reverts.
+  nothing. Conventional subjects in the body do not count: a `ci:` title over `fix:` bullets
+  releases nothing.
+- A body line that starts, after optional whitespace, `*` or `|`, with `BREAKING CHANGE` (any
+  case) followed by `:` or whitespace gives a major, even when nothing follows on the line, as
+  in a pull request description pasted into a squash body. The keyword alone at the end of the
+  line does not count, and neither do a `-`, `+`, `>` or `1.` prefix, `BREAKING-CHANGE`,
+  `BREAKING CHANGES` and a mention in the middle of a line.
+- A squash whose subject starts with `Revert "` and whose body says `This reverts commit`
+  followed by at least seven characters gives a patch whatever the type it reverts; without
+  that sentence it releases what its type says.
 
 When a release is cut, the same run builds the binaries from the tag, signs them, attaches
 them to the GitHub release and pushes the image (`gronin:<tag>` and `gronin:latest`). The
@@ -74,15 +77,15 @@ markdownlint because it is written by semantic-release.
   deployment branches are limited to `production`, and only the `release` job names that
   environment. A repository secret on a public repository is readable by a workflow on any
   branch; an environment secret is released only to a run on a permitted branch.
-- The key is loaded into an ssh-agent by the step `Load the release deploy key`, which runs
-  no npm. The step that runs semantic-release and its npm tree never had the key in its
+- The key is loaded into an ssh-agent by the step `Load the release deploy key`, which runs no
+  npm. The step that runs semantic-release and its npm tree never had the key in its
   environment or in `/proc/<pid>/environ`: it is given the agent socket, so it can push while
   the job runs but an unprivileged process cannot read the key (a hosted runner grants
-  passwordless sudo, so the confinement does not hold against root). `actions/checkout`
-  never gets the key and it never touches the disk. The key's lifetime is set next to the
-  job's timeout in `release.yaml` and equals it. The agent's identities are removed through
-  its socket and the agent is stopped right after semantic-release. The workflow fails
-  before releasing anything when the secret is empty, and a dry-run push right before
+  passwordless sudo, so the confinement does not hold against root). `actions/checkout` never
+  gets the key and it never touches the disk. The key's lifetime is set next to the job's
+  timeout in `release.yaml` and is longer than it. The agent's identities are removed through
+  its socket and the agent is stopped right after semantic-release. The workflow fails before
+  releasing anything when the secret is empty, and a dry-run push right before
   semantic-release makes a deleted or read-only key fail with the SSH error rather than
   semantic-release falling back to an HTTPS URL built from the job token; a missing ruleset
   bypass is not caught there and shows when the changelog commit is pushed. Losing the key
@@ -103,7 +106,9 @@ markdownlint because it is written by semantic-release.
 - The workflow `release-toolchain.yaml` checks the toolchain on every pull request, on a
   hosted runner, with no secret: it installs it as the release job does, loads
   semantic-release and every plugin `.releaserc` names, and runs `npm audit`. It has no
-  `paths` filter so it can be made a required check without blocking unrelated pull requests.
+  `paths` filter, so it can be a required status check without blocking unrelated pull
+  requests; making it one is a setting of the `production: gate green before merge` ruleset,
+  outside the files of this repository.
 - `scripts/release-guard.sh` holds the release job's decisions about commits and tags (the
   tip, the repair of a tag, whether a tag is the newest release). A release commit is
   recognised by its subject and by touching nothing but `CHANGELOG.md`, never by its author.
@@ -136,12 +141,10 @@ markdownlint because it is written by semantic-release.
   tag being one that points at a release commit, so a stray hand-made tag does not count.
   Re-running an older run's image job therefore does not take it back. The `image` job runs
   `release-guard.sh` as it is on `production`, because the tag it checks out may predate it.
-- A concurrency group keeps one running and one pending job, and a newer pending job replaces
-  an older one: a queued CI-triggered release can be dropped by a later run or dispatch, and
-  likewise a queued `image` job. GitHub's `queue: max` would keep every pending one, but the
-  pinned actionlint rejects the key (`unexpected key "queue" for "concurrency" section`), so
-  it is not used. Repair a dropped release with a dispatch without `tag`, a dropped image with
-  a dispatch with `tag`.
+- A newer pending job replaces an older one in a concurrency group, so a queued release or
+  `image` job can be dropped: repair a release with a dispatch without `tag`, an image with
+  `tag`. GitHub's documentation has `queue: max` to keep every pending job; the pinned
+  actionlint rejects it.
 
 ## Validation
 
