@@ -26,13 +26,20 @@ repos:
     hooks:
       - id: markdownlint
         args: ['--disable', 'MD013', 'MD033', 'MD041', '--']
-        # Vendored Spec Kit assets, refreshed by the Specify CLI.
-        exclude: '^(\.claude/skills/speckit-|\.specify/(templates|scripts|integrations|workflows)/)'
+        # Vendored Spec Kit assets, refreshed by the Specify CLI; CHANGELOG.md is written by
+        # semantic-release and breaks MD001 and MD012 as generated.
+        exclude: '^(\.claude/skills/speckit-|\.specify/(templates|scripts|integrations|workflows)/|CHANGELOG\.md$)'
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.7
     hooks:
       - id: actionlint
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        files: ^(scripts|\.github/release)/.*\.sh$
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.6

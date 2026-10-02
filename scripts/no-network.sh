@@ -43,14 +43,15 @@ this_host="$(hostname 2>/dev/null || true)"
 # `ip` is not required, and without it a test needing loopback fails loudly rather than
 # reaching outward. The binds are required: they are what closes the resolver, so a
 # failure to apply them is a failure to isolate.
-inner='
+inner="$(cat << 'EOF'
     ip link set lo up 2>/dev/null || true
     mount --bind "$1/nsswitch.conf" /etc/nsswitch.conf || exit 1
     mount --bind "$1/resolv.conf" /etc/resolv.conf || exit 1
     mount --bind "$1/hosts" /etc/hosts || exit 1
     shift
     exec "$@"
-'
+EOF
+)"
 
 rc=0
 if unshare --user --map-root-user --net --mount true 2>/dev/null; then

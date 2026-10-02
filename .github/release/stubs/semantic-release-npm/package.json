@@ -1,0 +1,9 @@
+{
+  "name": "@semantic-release/npm",
+  "version": "0.0.0-stub",
+  "private": true,
+  "type": "module",
+  "description": "Stand-in that keeps the real plugin, and the npm it bundles, out of the release toolchain",
+  "main": "index.js",
+  "exports": "./index.js"
+}

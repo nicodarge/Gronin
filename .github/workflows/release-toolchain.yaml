@@ -1,0 +1,32 @@
+---
+name: Release toolchain
+
+# No `paths` filter, and a hosted runner with no secret: it runs freshly resolved registry code before review.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-toolchain:
+    name: release-toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '>=24.15 <25'
+
+      - name: Install semantic-release
+        run: .github/release/install.sh
+
+      - name: Load the release configuration and audit the install
+        run: node .github/release/check-toolchain.mjs "${RUNNER_TEMP}/semantic-release" .
+
+      - name: Run the tests of the check
+        run: TOOLCHAIN_PREFIX="${RUNNER_TEMP}/semantic-release" node --test .github/release/check-toolchain.test.mjs

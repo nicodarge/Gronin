@@ -76,17 +76,49 @@ takes a position:
 ## Quickstart
 
 Install the binary from the latest release, and make sure the agent it drives (`claude`
-by default, or name another with `--agent`) is on the `PATH`:
+by default, or name another with `--agent`) is on the `PATH`. Download it with its checksums
+and signature, and verify before installing:
 
 ```bash
-curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/gronin-linux-amd64
-curl -sSLO https://github.com/nicodarge/Gronin/releases/latest/download/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS &&
-  chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
+base=https://github.com/nicodarge/Gronin/releases/latest/download
+curl -fsSLO "$base/gronin-linux-amd64"
+curl -fsSLO "$base/SHA256SUMS"
+curl -fsSLO "$base/SHA256SUMS.bundle"
+sha256sum --ignore-missing -c SHA256SUMS
+cosign verify-blob \
+  --bundle SHA256SUMS.bundle \
+  --certificate-identity "https://github.com/nicodarge/Gronin/.github/workflows/release.yaml@refs/heads/production" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
+
+`SHA256SUMS` is signed keylessly by the release workflow, so a bundle that verifies with
+[cosign](https://docs.sigstore.dev/cosign/) ties the checksums, and through them the binary,
+to this repository's release workflow. Each binary has its own `.bundle` in the release too.
+The commands here need cosign 2.4.2 or later. Stop if `sha256sum` or `cosign` reports a
+failure; otherwise install:
+
+```bash
+chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin
 gronin version
 ```
 
-`SHA256SUMS` is itself signed; its `.sig` and `.pem` sit beside it in the release.
+v0.1.0 predates the bundles: its release carries `SHA256SUMS.sig` and `SHA256SUMS.pem`, and
+its identity ends `@refs/tags/v0.1.0`. To install it, set `base` to
+`https://github.com/nicodarge/Gronin/releases/download/v0.1.0`, build a bundle from those
+files and verify it: replace the `curl` line for the bundle and the `cosign` command with
+
+```bash
+curl -fsSLO "$base/SHA256SUMS.sig"
+curl -fsSLO "$base/SHA256SUMS.pem"
+cosign bundle create --artifact SHA256SUMS --signature SHA256SUMS.sig \
+  --certificate SHA256SUMS.pem --out SHA256SUMS.bundle
+cosign verify-blob \
+  --bundle SHA256SUMS.bundle \
+  --certificate-identity "https://github.com/nicodarge/Gronin/.github/workflows/release.yaml@refs/tags/v0.1.0" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
 
 `gronin version` also prints the agent version it found, and says so if it is missing or
 below the floor.
@@ -142,6 +174,14 @@ gronin serve
 
 The longer walkthrough, including what each step refuses, is
 [specs/001-runtime-core/quickstart.md](specs/001-runtime-core/quickstart.md).
+
+## Releases
+
+Releases are cut by semantic-release from the commit history, once CI passes on `production`.
+The tag is `v<version>`, the release notes are on the GitHub release and in `CHANGELOG.md`, and
+`gronin version` prints the tag. Each release carries the binaries, `SHA256SUMS` and their
+signature bundles, and publishes `ghcr.io/nicodarge/gronin:<tag>` and `:latest`. How a version
+is decided and how the pipeline is protected and repaired: [CLAUDE.md](CLAUDE.md), "Releases".
 
 ## Licence
 
