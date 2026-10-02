@@ -126,8 +126,7 @@ jobs:
           go-version-file: runtime/go.mod
       - run: scripts/check-static.sh --self-test
 
-  # The release job's tip, repair and newest-tag decisions live in one script; its self-test
-  # also holds .releaserc's commit message to the subject pattern the script recognises.
+  # Also holds .releaserc's commit message to the release-commit subject pattern.
   release-guard-refuses:
     runs-on: ubuntu-latest
     steps:
