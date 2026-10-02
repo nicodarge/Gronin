@@ -1,14 +1,13 @@
 ---
 name: Release
 
-# Runs when CI finishes on a push to production, so a release is only cut from a commit
-# whose `gate` passed. Nothing triggers on a tag: the artefacts are built in this same run.
-# workflow_dispatch repairs a lost event or a failure after the tag (CLAUDE.md, "Releases").
+# Nothing triggers on a tag: the artefacts are built in the run that cuts the release.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [production]
+  # Repairs a lost event or a failure after the tag (CLAUDE.md, "Releases").
   workflow_dispatch:
     inputs:
       tag:
@@ -17,15 +16,13 @@ on:
         required: false
         default: ''
 
-# Every job declares its own. The workflow-level floor is read-only so a job that forgets
-# gets nothing rather than everything.
+# Read-only floor: a job that forgets to declare its own permissions gets nothing.
 permissions:
   contents: read
 
 jobs:
   release:
-    # The ref guard stops an accident, not an author. CI also runs on pull requests and
-    # branches; only a green push to production counts.
+    # The ref guard stops an accident, not an author; CI also runs on branches and pull requests.
     if: >-
       (github.event_name == 'workflow_run'
       && github.event.workflow_run.conclusion == 'success'
@@ -34,16 +31,13 @@ jobs:
       && github.event.workflow_run.head_repository.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/production')
     runs-on: ubuntu-latest
-    # The key lifetime equals the timeout: semantic-release pushes twice (changelog commit,
-    # then tag) and a key expiring in between would leave a changelog with no tag.
+    # Lifetime strictly above the timeout (1800 s): a key expiring between the two pushes strands a changelog.
     timeout-minutes: 30
     env:
-      KEY_LIFETIME_SECONDS: '1800'
-    # RELEASE_SSH_KEY is an environment secret: a repository secret is readable by a
-    # workflow on any branch.
+      KEY_LIFETIME_SECONDS: '2100'
+    # An environment secret: a repository secret is readable by a workflow on any branch.
     environment: release
-    # Never cancel a run between the tag and the release. `queue: max` would keep every
-    # pending run but the pinned actionlint rejects it, so a dropped one is repaired by hand.
+    # A newer pending run replaces an older one; `queue: max` is rejected by the pinned actionlint.
     concurrency:
       group: release
       cancel-in-progress: false
@@ -55,8 +49,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag || steps.repair.outputs.tag }}
     steps:
-      # Without the key semantic-release falls back to the job token and is refused only
-      # after it has started.
+      # Without the key semantic-release falls back to the job token and is refused late.
       - name: Require the release deploy key
         if: inputs.tag == ''
         env:
@@ -67,15 +60,14 @@ jobs:
             exit 1
           fi
 
-      # No `ssh-key` (it lands in .git/config for the whole job) and no `submodules:` (its
-      # global url.insteadOf routes the push back through the job token).
+      # No `ssh-key` (it lands in .git/config) and no `submodules:` (its insteadOf reroutes the push).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: production
           persist-credentials: true
           fetch-depth: 0
 
-      # A range, not `24`: a cached older 24.x would not satisfy the plugins' `engines`.
+      # A range, not `24`: a cached older 24.x fails the plugins' `engines`.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: inputs.tag == ''
         with:
@@ -107,8 +99,7 @@ jobs:
         if: steps.tip.outputs.current == 'true'
         run: echo "tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
 
-      # The only step besides the check above that holds the key, and it runs no npm: the
-      # step that does never has the key in its environment or in /proc/<pid>/environ.
+      # The only step that holds the key besides the check above, and it runs no npm.
       - name: Load the release deploy key
         id: key
         if: steps.tip.outputs.current == 'true'
@@ -121,10 +112,9 @@ jobs:
             echo "sock=${SSH_AUTH_SOCK}"
             echo "pid=${SSH_AGENT_PID}"
           } >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$RELEASE_SSH_KEY" | ssh-add -t "${KEY_LIFETIME_SECONDS}" -
+          printf '%s\n' "$RELEASE_SSH_KEY" | ssh-add -q -t "${KEY_LIFETIME_SECONDS}" -
 
-      # The dry-run push makes a missing or read-only key fail here with the SSH error,
-      # not by semantic-release falling back to an HTTPS URL built from GITHUB_TOKEN.
+      # The dry-run push fails on a missing key here, not by falling back to an HTTPS URL with the job token.
       - name: Run semantic-release
         if: steps.tip.outputs.current == 'true'
         env:
@@ -146,21 +136,22 @@ jobs:
           git push --dry-run --no-verify origin HEAD:production
           "${RUNNER_TEMP}/semantic-release/node_modules/.bin/semantic-release"
 
-      # `ssh-add -D` through the socket cannot hit another process; the kill is only for
-      # the pid that is still an ssh-agent.
+      # No `ps` here: not every runner image ships procps.
       - name: Stop the ssh-agent
         if: always() && steps.key.outputs.pid != ''
         env:
           SSH_AUTH_SOCK: ${{ steps.key.outputs.sock }}
           SSH_AGENT_PID: ${{ steps.key.outputs.pid }}
         run: |
-          ssh-add -D || true
-          if [ "$(ps -o comm= -p "${SSH_AGENT_PID}")" = "ssh-agent" ]; then
+          set -euo pipefail
+          ssh-add -D 2> /dev/null || true
+          comm=
+          { read -r comm < "/proc/${SSH_AGENT_PID}/comm"; } 2> /dev/null || true
+          if [ "${comm}" = ssh-agent ]; then
             kill "${SSH_AGENT_PID}" || true
           fi
 
-      # The release commit carries the tag, so HEAD now describes the new version; an
-      # unchanged answer means this push released nothing.
+      # The release commit carries the tag, so an unchanged answer means nothing was released.
       - name: Tag after
         id: tag
         if: steps.tip.outputs.current == 'true'
@@ -244,14 +235,12 @@ jobs:
         working-directory: artifacts
         run: sha256sum gronin-* > SHA256SUMS
 
-      # Explicit, not the installer's default, which moves with the installer.
+      # Explicit, since the installer's default moves; older releases carry verification advisories.
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
         with:
-          cosign-release: v2.6.1
+          cosign-release: v2.6.5
 
-      # Keyless, so no long-lived signing key sits in a secret. SHA256SUMS is signed too: a
-      # checksum file nobody signed can be rewritten alongside what it describes. Each
-      # signature is verified against the identity the README documents before it ships.
+      # Each bundle is verified against the identity the README documents before it ships.
       - name: Sign each binary and the checksums
         run: |
           for artifact in artifacts/gronin-* artifacts/SHA256SUMS; do
@@ -273,8 +262,7 @@ jobs:
   image:
     needs: [release, binaries]
     runs-on: ubuntu-latest
-    # Two image jobs must not interleave between deciding `latest` and pushing it. A newer
-    # pending job replaces an older one (see the release job): repair by dispatch with `tag`.
+    # A newer pending job replaces an older one (see the release job): repair by dispatch with `tag`.
     concurrency:
       group: image
       cancel-in-progress: false
@@ -291,8 +279,7 @@ jobs:
         with:
           name: gronin-linux-amd64
 
-      # Decided right before the push, from the live tags. The script is read from production,
-      # not from the checked-out tag, which may predate it.
+      # Read from production, not from the checked-out tag, which may predate the script.
       - name: The tag is the newest release
         id: newest
         env:
