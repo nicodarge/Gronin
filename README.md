@@ -95,7 +95,8 @@ cosign verify-blob \
 `SHA256SUMS` is signed keylessly by the release workflow, so a bundle that verifies with
 [cosign](https://docs.sigstore.dev/cosign/) ties the checksums, and through them the binary,
 to this repository's release workflow. Each binary has its own `.bundle` in the release too.
-Stop if `sha256sum` or `cosign` reports a failure; otherwise install:
+The commands here need cosign 2.4.2 or later. Stop if `sha256sum` or `cosign` reports a
+failure; otherwise install:
 
 ```bash
 chmod +x gronin-linux-amd64 && sudo mv gronin-linux-amd64 /usr/local/bin/gronin

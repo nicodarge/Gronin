@@ -37,14 +37,18 @@ infrastructure hostname is not one of them.
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`
 - Squash merge only: `gh pr merge --squash`
 - Merge once every required check is green — standing approval, given 2026-09-08, for this
-  repository. `gate` is the required check and it needs all the others; no checks reported is
-  not green. This is approval to merge, not to skip the review that precedes it.
+  repository. `gate` needs all the other jobs of `ci.yaml`; the repository's rulesets decide
+  which checks are required (`gh api repos/nicodarge/Gronin/rules/branches/production --jq
+  '.[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context'`
+  lists them); no checks reported is not green. This is approval to merge, not to skip the
+  review that precedes it.
 
 ## Releases
 
 Never create a tag and never write a version by hand. A push to `production` runs CI, and
 when its `gate` passes `.github/workflows/release.yaml` runs semantic-release (`.releaserc`)
-on that commit. The squash commit's whole message decides the version, as the real
+on that commit. semantic-release analyses every commit since the last tag and the highest
+release type wins; with squash merges that is the whole message of each squash, as the real
 `@semantic-release/commit-analyzer` measures it with this `.releaserc`:
 
 - The subject's type: `fix:` and `perf:` give a patch, `feat:` a minor, `!` after the type a
@@ -56,9 +60,10 @@ on that commit. The squash commit's whole message decides the version, as the re
   in a pull request description pasted into a squash body. The keyword alone at the end of the
   line does not count, and neither do a `-`, `+`, `>` or `1.` prefix, `BREAKING-CHANGE`,
   `BREAKING CHANGES` and a mention in the middle of a line.
-- A squash whose subject starts with `Revert "` and whose body says `This reverts commit`
-  followed by at least seven characters gives a patch whatever the type it reverts; without
-  that sentence it releases what its type says.
+- A message that starts with `Revert` or `Revert:` (any case) followed by whitespace, and
+  carries `This reverts commit <hash>` (any case) anywhere after it, with a hash of 7 to 40
+  word characters and no final period needed, gives a patch whatever the type it reverts;
+  without that sentence it releases what its type says.
 
 When a release is cut, the same run builds the binaries from the tag, signs them, attaches
 them to the GitHub release and pushes the image (`gronin:<tag>` and `gronin:latest`). The
@@ -86,7 +91,7 @@ markdownlint because it is written by semantic-release.
   timeout in `release.yaml` and is longer than it. The agent's identities are removed through
   its socket and the agent is stopped right after semantic-release. The workflow fails before
   releasing anything when the secret is empty, and a dry-run push right before
-  semantic-release makes a deleted or read-only key fail with the SSH error rather than
+  semantic-release makes a key GitHub does not accept fail with the SSH error rather than
   semantic-release falling back to an HTTPS URL built from the job token; a missing ruleset
   bypass is not caught there and shows when the changelog commit is pushed. Losing the key
   stops releases loudly.
@@ -96,17 +101,27 @@ markdownlint because it is written by semantic-release.
   without failing anything.
 - The toolchain is pinned with its whole dependency tree in `.github/release/`
   (`package.json`, `package-lock.json`) and installed by `.github/release/install.sh` with
-  `npm ci` outside the workspace, because this is a Go repository with no root
-  `package.json`. `@semantic-release/npm`, and the npm it bundles, carry advisories and
-  nothing here loads them, so `.github/release/stubs/semantic-release-npm` replaces them; it
-  throws if `.releaserc` ever names the plugin. Bump a version in `package.json`, then run
-  `npm install --package-lock-only --ignore-scripts` in that directory and commit both files.
+  `npm ci` outside the workspace, because this is a Go repository with no root `package.json`.
+  `@semantic-release/npm`, and the npm it bundles, carry advisories and nothing here loads
+  them, so `.github/release/stubs/semantic-release-npm` replaces them; it throws if
+  `.releaserc` ever names the plugin. Bump a version in `package.json`, then run `npm install
+  --package-lock-only --ignore-scripts --no-fund` in that directory and commit both files.
   Both workflows that install it ask `actions/setup-node` for a range that satisfies the
   plugins' `engines` and run `npm ci --engine-strict`: keep the two ranges equal.
 - The workflow `release-toolchain.yaml` checks the toolchain on every pull request, on a
-  hosted runner, with no secret: it installs it as the release job does, loads
-  semantic-release and every plugin `.releaserc` names, and runs `npm audit`. It has no
-  `paths` filter, so it can be a required status check without blocking unrelated pull
+  hosted runner, with no secret: it installs it as the release job does, then runs
+  `.github/release/check-toolchain.mjs` and `npm audit` in the install prefix. The script
+  loads `semantic-release` and every plugin `.releaserc` names in `plugins` or under a step
+  key, one child process each, through the installed semantic-release's own plugin loader and
+  validators, so resolution, the shape a plugin entry may have and what a loaded plugin must
+  export are the tool's own rules. It is deliberately stricter than the tool in these ways
+  only: a missing or empty `plugins`, or one that names no plugin by module name, is refused
+  (the tool would use its defaults); a plugin that exits, writes to stderr or does not settle
+  while loading fails, and so does any `npm audit` finding; the loads share one time limit
+  (`LOAD_LIMIT_MS` in the script, well under the job's `timeout-minutes`). It does not follow
+  `extends`. Every failure is one line naming the plugin and the reason. The script is shared
+  byte for byte with the other release repositories: change it everywhere or nowhere. It has
+  no `paths` filter, so it can be a required status check without blocking unrelated pull
   requests; making it one is a setting of the `production: gate green before merge` ruleset,
   outside the files of this repository.
 - `scripts/release-guard.sh` holds the release job's decisions about commits and tags (the
