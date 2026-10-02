@@ -63,7 +63,7 @@ release type wins; with squash merges that is the whole message of each squash, 
 - A message that starts with `Revert` or `Revert:` (any case) followed by whitespace, and
   carries `This reverts commit <hash>` (any case) anywhere after it, with a hash of 7 to 40
   word characters and no final period needed, gives a patch whatever the type it reverts;
-  without that sentence it releases what its type says.
+  without that sentence it releases nothing.
 
 When a release is cut, the same run builds the binaries from the tag, signs them, attaches
 them to the GitHub release and pushes the image (`gronin:<tag>` and `gronin:latest`). The

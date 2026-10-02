@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The release job's decisions: `tip`, `repair` and `newest` read the environment; `--self-test` runs them.
 set -euo pipefail
+export LC_ALL=C # a UTF-8 locale lets [0-9a-f] and [0-9] match other letters and digits
 
 # Must stay in step with `message` in .releaserc (the self-test checks it).
 RELEASE_SUBJECT_RE='^chore\(release\): [0-9]+\.[0-9]+\.[0-9]+ \[skip ci\]$'
@@ -303,7 +304,7 @@ JSON
     run tip EVENT_NAME=push HEAD_SHA="${p}"; check "tip: an event that is neither workflow_run nor workflow_dispatch" 1 "" "::error::EVENT_NAME is neither"
     run tip HEAD_SHA="${p}"; check "tip: no EVENT_NAME" 1 "" "::error::EVENT_NAME is not set"
     run tip EVENT_NAME=workflow_run; check "tip: no HEAD_SHA" 1 "" "::error::HEAD_SHA is not a 40-character"
-    for bad in HEAD "${p:0:12}" "${p:0:39}" "${p}0" "${p^^}" "--all" "--$(printf '0%.0s' {1..38})" "${p};id" "${p} " "${p}"$'\n' "z${p}" "${p:0:20}"$'\n'"${p:20}" "${p}"$'\n::error::injected'; do
+    for bad in HEAD "${p:0:12}" "${p:0:39}" "${p}0" "${p^^}" "--all" "--$(printf '0%.0s' {1..38})" "${p};id" "${p} " "${p}"$'\n' "z${p}" "${p:0:20}"$'\n'"${p:20}" "${p}"$'\n::error::injected' "${p:0:39}é"; do
         run tip EVENT_NAME=workflow_run "HEAD_SHA=${bad}"; check "tip: HEAD_SHA $(printf '%q' "${bad}")" 1 "" "::error::HEAD_SHA is not a 40-character"
         ensure "tip: that value is not echoed: one line of output" test "$(grep -c . <<< "${log}")" = 1
         ensure "tip: that value is not echoed: one annotation" test "$(grep -c '^::' <<< "${log}")" = 1
@@ -413,7 +414,7 @@ JSON
     run repair TAG=v3.0.0; check "repair: genuine commit of another version" 1 "" "does not point at the release commit"
     run repair TAG=v4.0.0; check "repair: tag on a side branch" 1 "" "is not an ancestor"
     run repair TAG=v9.9.9; check "repair: tag that does not exist" 1 "" "does not exist"
-    for bad in 'v1.0' '1.0.1' 'v1.0.1-rc.1' 'v1.0.1; echo pwned' "\$(id)" 'v1.0.1 ' '' $'v1.0.1\nv1.0.0' 'refs/tags/v1.0.1' 'V1.0.1'; do
+    for bad in 'v1.0' '1.0.1' 'v1.0.1-rc.1' 'v1.0.1; echo pwned' "\$(id)" 'v1.0.1 ' '' $'v1.0.1\nv1.0.0' 'refs/tags/v1.0.1' 'V1.0.1' 'v１.0.0'; do
         run repair "TAG=${bad}"; check "repair: malformed tag $(printf '%q' "${bad}")" 1 "" "not of the form"
         ensure "repair: gh never called for that tag" test "$(grep -c . "${GH_LOG}")" = 0
     done
