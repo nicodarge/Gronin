@@ -66,9 +66,9 @@ cmd_tip() {
     local head_sha="${HEAD_SHA:-}" commits sha green ungated=""
     need EVENT_NAME GITHUB_OUTPUT
     case "${EVENT_NAME}" in
-        workflow_run) [[ "${head_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "HEAD_SHA is not a 40-character commit hash: ${head_sha}" ;;
+        workflow_run) [[ "${head_sha}" =~ ^[0-9a-f]{40}$ ]] || fail "HEAD_SHA is not a 40-character commit hash" ;;
         workflow_dispatch) need GITHUB_REPOSITORY ;;
-        *) fail "EVENT_NAME is neither workflow_run nor workflow_dispatch: ${EVENT_NAME}" ;;
+        *) fail "EVENT_NAME is neither workflow_run nor workflow_dispatch" ;;
     esac
     sync_production
 
@@ -254,9 +254,22 @@ JSON
         if "$@"; then n_ok=$((n_ok + 1)); else n_fail=$((n_fail + 1)); echo "FAIL ${label}" >&2; fi
     }
 
+    # expect_failure <check|ensure> <args...>: the assertion must register a failure, or the harness cannot fail
+    expect_failure() {
+        local before=${n_fail}
+        "$@" 2> /dev/null
+        if [ "${n_fail}" -gt "${before}" ]; then
+            n_fail=${before}
+            n_ok=$((n_ok + 1))
+        else
+            n_fail=$((n_fail + 1))
+            echo "FAIL the harness did not notice: $*" >&2
+        fi
+    }
+
     # .releaserc must produce subjects the pattern accepts, and refuse what it must refuse.
     local msg
-    msg="$(jq -r '.plugins[] | select(type == "array" and .[0] == "@semantic-release/git") | .[1].message' "${root}/.releaserc")"
+    msg="$(jq -er '.plugins[] | select(type == "array" and .[0] == "@semantic-release/git") | .[1].message' "${root}/.releaserc" || true)"
     ensure ".releaserc has a git plugin message" test -n "${msg}"
     msg="${msg//\$\{nextRelease.version\}/1.2.3}"
     ensure ".releaserc message (${msg}) has a subject matching the release-subject pattern" accepts "$(subject_of "${msg}")"
@@ -270,6 +283,11 @@ JSON
     # tip, from a workflow_run payload
     mkrepo; commit "fix: one" a.txt; local p; p="$(sha HEAD)"; publish; clone
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}"; check "tip: payload is HEAD" 0 "current=true"
+    expect_failure check "harness: a wrong exit status is noticed" 1 "current=true"
+    expect_failure check "harness: any failure is wanted but the run succeeded" nz "current=true"
+    expect_failure check "harness: a wrong output is noticed" 0 "current=false"
+    expect_failure check "harness: a missing log text is noticed" 0 "current=true" "text that is not in the log"
+    expect_failure ensure "harness: a false condition is noticed" false
 
     mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; relc 1.0.0; publish; clone
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}"; check "tip: only a release commit after the payload" 0 "current=true"
@@ -285,9 +303,14 @@ JSON
     run tip EVENT_NAME=push HEAD_SHA="${p}"; check "tip: an event that is neither workflow_run nor workflow_dispatch" 1 "" "::error::EVENT_NAME is neither"
     run tip HEAD_SHA="${p}"; check "tip: no EVENT_NAME" 1 "" "::error::EVENT_NAME is not set"
     run tip EVENT_NAME=workflow_run; check "tip: no HEAD_SHA" 1 "" "::error::HEAD_SHA is not a 40-character"
-    for bad in HEAD "${p:0:12}" "${p^^}" "--all" "${p};id" "${p} " "z${p}"; do
+    for bad in HEAD "${p:0:12}" "${p:0:39}" "${p}0" "${p^^}" "--all" "--$(printf '0%.0s' {1..38})" "${p};id" "${p} " "${p}"$'\n' "z${p}" "${p:0:20}"$'\n'"${p:20}" "${p}"$'\n::error::injected'; do
         run tip EVENT_NAME=workflow_run "HEAD_SHA=${bad}"; check "tip: HEAD_SHA $(printf '%q' "${bad}")" 1 "" "::error::HEAD_SHA is not a 40-character"
+        ensure "tip: that value is not echoed: one line of output" test "$(grep -c . <<< "${log}")" = 1
+        ensure "tip: that value is not echoed: one annotation" test "$(grep -c '^::' <<< "${log}")" = 1
     done
+    run tip EVENT_NAME=$'workflow_run\n::error::injected' HEAD_SHA="${p}"; check "tip: EVENT_NAME with a newline" 1 "" "::error::EVENT_NAME is neither"
+    ensure "tip: that value is not echoed either" test "$(grep -c '^::' <<< "${log}")" = 1
+    run tip EVENT_NAME=workflow_dispatch GITHUB_REPOSITORY=; check "tip: a dispatch without GITHUB_REPOSITORY" 1 "" "::error::GITHUB_REPOSITORY is not set"
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}" GITHUB_OUTPUT=; check "tip: no GITHUB_OUTPUT" 1 "" "::error::GITHUB_OUTPUT is not set"
 
     mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; commit "chore(release): 9.9.9 [skip ci]" src.go; publish; clone
@@ -297,11 +320,20 @@ JSON
     git commit -q -m "chore(release): 9.9.9 [skip ci]"; publish; clone
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}"; check "tip: release-titled commit touching CHANGELOG.md and code" 0 "current=false"
 
+    mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; commit "docs: rewrite the changelog by hand" CHANGELOG.md; publish; clone
+    run tip EVENT_NAME=workflow_run HEAD_SHA="${p}"; check "tip: a commit touching only CHANGELOG.md is not a release commit without the subject" 0 "current=false"
+
+    mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"
+    echo "${RANDOM}" >> CHANGELOG.md; git add CHANGELOG.md; git commit -q -m "chore(release): 1.0.0 [skip ci]" -m "notes under the subject"; git tag v1.0.0; publish; clone
+    run tip EVENT_NAME=workflow_run HEAD_SHA="${p}"; check "tip: a release commit with a body is judged on its subject" 0 "current=true"
+
     mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; relc 1.0.0; publish; clone
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}" PATH="${t}/bin-fail:${t}/bin:${PATH}" FAIL_GIT_SUBCOMMAND=diff-tree
     check "tip: a failing git diff-tree is an error" 128 ""
     run tip EVENT_NAME=workflow_run HEAD_SHA="${p}" PATH="${t}/bin-fail:${t}/bin:${PATH}" FAIL_GIT_SUBCOMMAND=rev-list
     check "tip: a failing git rev-list is an error" 128 ""
+    run tip EVENT_NAME=workflow_run HEAD_SHA="${p}" PATH="${t}/bin-fail:${t}/bin:${PATH}" FAIL_GIT_SUBCOMMAND=log
+    check "tip: a failing git log is an error" 128 ""
 
     # production moves between the checkout and the step
     mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; publish; clone
@@ -319,8 +351,10 @@ JSON
     ensure "dispatch: the query names the check" grep -q "check_name=gate" "${GH_LOG}"
     ensure "dispatch: the query asks for a full page" grep -q "per_page=100" "${GH_LOG}"
     ensure "dispatch: a newer failing check of another name does not decide" test -n "$(jq -r '.check_runs[] | select(.name == "build") | .conclusion' "${t}/fix/default.json")"
-    for bad in fail garbage object; do
-        run tip EVENT_NAME=workflow_dispatch GH_MODE="${bad}"; check "dispatch: gh answers ${bad}" nz ""
+    run tip EVENT_NAME=workflow_dispatch GH_MODE=fail; check "dispatch: gh fails" 1 "" "HTTP 502"
+    for bad in garbage object; do
+        run tip EVENT_NAME=workflow_dispatch GH_MODE="${bad}"; check "dispatch: gh answers ${bad}" nz "" "error"
+        ensure "dispatch: ${bad} is refused by jq, not by the gate decision" test "$(grep -c 'no successful gate' <<< "${log}")" = 0
     done
     gatefix "${p}" '.check_runs[0].conclusion="failure"'
     run tip EVENT_NAME=workflow_dispatch; check "dispatch: gate failed" 1 "" "no successful gate"
@@ -330,11 +364,24 @@ JSON
     run tip EVENT_NAME=workflow_dispatch; check "dispatch: green gate from another app" 1 "" "no successful gate"
     gatefix "${p}" '.check_runs=[] | .total_count=0'
     run tip EVENT_NAME=workflow_dispatch; check "dispatch: no gate at all" 1 "" "no successful gate"
-    gatefix "${p}" '.check_runs=[.check_runs[0], (.check_runs[0] | .conclusion="failure" | .started_at="2099-01-01T00:00:00Z")]'
-    run tip EVENT_NAME=workflow_dispatch; check "dispatch: older green gate, newer failing re-run" 1 "" "no successful gate"
+    gatefix "${p}" '.check_runs=[(.check_runs[0] | .conclusion="failure" | .started_at="2099-01-01T00:00:00Z"), .check_runs[0]]'
+    run tip EVENT_NAME=workflow_dispatch; check "dispatch: older green gate, newer failing re-run (listed first)" 1 "" "no successful gate"
+    gatefix "${p}" '.check_runs=[.check_runs[0], (.check_runs[0] | .conclusion="failure" | .started_at="2000-01-01T00:00:00Z")]'
+    run tip EVENT_NAME=workflow_dispatch; check "dispatch: newer green gate, older failing run (listed last)" 0 "current=true"
 
     mkrepo; commit "fix: one" a.txt; publish; clone
     run tip EVENT_NAME=workflow_dispatch; check "dispatch: HEAD itself is gated and not a release commit" 0 "current=true"
+
+    mkrepo; commit "fix: one" a.txt; for n in $(seq 1 99); do commit "chore(release): 1.0.${n} [skip ci]" CHANGELOG.md; done; publish; clone
+    run tip EVENT_NAME=workflow_dispatch; check "dispatch: the normal commit is the 100th, inside the window" 0 "current=true"
+
+    mkrepo; commit "fix: one" a.txt; for n in $(seq 1 100); do commit "chore(release): 1.0.${n} [skip ci]" CHANGELOG.md; done; publish; clone
+    run tip EVENT_NAME=workflow_dispatch; check "dispatch: the normal commit is the 101st, outside the window" 1 "" "no commit that is not a release commit"
+    run tip EVENT_NAME=workflow_dispatch HEAD_SHA="$(sha HEAD)"; check "dispatch: a HEAD_SHA in the environment is ignored" 1 "" "no commit that is not a release commit"
+
+    mkrepo; commit "fix: one" a.txt; p="$(sha HEAD)"; commit "docs: rewrite the changelog by hand" CHANGELOG.md; p2="$(sha HEAD)"; publish; clone; gatefix "${p2}"
+    run tip EVENT_NAME=workflow_dispatch; check "dispatch: a CHANGELOG.md-only commit with another subject is not skipped" 0 "current=true"
+    ensure "dispatch: and the gate asked about is that commit's" grep -q "commits/${p2}/check-runs" "${GH_LOG}"
 
     mkrepo; commit "fix: one" a.txt; for n in $(seq 1 101); do commit "chore(release): 1.0.${n} [skip ci]" CHANGELOG.md; done; publish; clone
     run tip EVENT_NAME=workflow_dispatch; check "dispatch: only release commits in the last 100" 1 "" "no commit that is not a release commit"
@@ -348,6 +395,10 @@ JSON
     commit "feat: top" a.txt; git tag v99.0.0
     git checkout -q -b side v1.0.0; commit "fix: side" b.txt; git tag v4.0.0; git checkout -q production
     publish; clone; echo false > "${t}/rel/v1.0.1"
+    run repair TAG=v1.0.0 GITHUB_OUTPUT=; check "repair: no GITHUB_OUTPUT" 1 "" "::error::GITHUB_OUTPUT is not set"
+    ensure "repair: nothing created without GITHUB_OUTPUT" test "$(gh_calls 'release create')" = 0
+    run repair TAG=v1.0.0 GITHUB_REPOSITORY=; check "repair: no GITHUB_REPOSITORY" 1 "" "::error::GITHUB_REPOSITORY is not set"
+    ensure "repair: nothing created without GITHUB_REPOSITORY" test "$(gh_calls 'release create')" = 0
     run repair TAG=v1.0.1; check "repair: genuine annotated release commit, release exists" 0 "tag=v1.0.1"
     ensure "repair: nothing created over an existing release" test "$(gh_calls 'release create')" = 0
     run repair TAG=v1.0.0; check "repair: genuine release commit, no release yet" 0 "tag=v1.0.0"
@@ -367,8 +418,10 @@ JSON
         ensure "repair: gh never called for that tag" test "$(grep -c . "${GH_LOG}")" = 0
     done
     rm -f "${t}/rel/v1.0.0"
-    for bad in fail garbage object; do
-        run repair TAG=v1.0.0 GH_MODE="${bad}"; check "repair: gh answers ${bad}" nz ""
+    run repair TAG=v1.0.0 GH_MODE=fail; check "repair: gh fails" 1 "" "HTTP 502"
+    ensure "repair: no release created after gh failed" test "$(gh_calls 'release create')" = 0
+    for bad in garbage object; do
+        run repair TAG=v1.0.0 GH_MODE="${bad}"; check "repair: gh answers ${bad}" nz "" "error"
         ensure "repair: no release created after gh answered ${bad}" test "$(gh_calls 'release create')" = 0
     done
     echo true > "${t}/rel/v1.1.0"
@@ -380,6 +433,19 @@ JSON
     cd "${t}/w"; commit "fix: two" a.txt; relc 1.1.0; publish
     run repair TAG=v1.1.0; check "repair: production moved on, the tag is only on the remote" 0 "tag=v1.1.0"
     ensure "repair: and it is the newest release tag" grep -q -- "release create v1.1.0 .*--latest=true" "${GH_LOG}"
+
+    # a tag that moved on the remote after the checkout replaces the stale one
+    mkrepo; commit "fix: one" a.txt; git tag v1.0.0; publish; clone
+    cd "${t}/w"; git tag -d v1.0.0 > /dev/null; relc 1.0.0; git push -q -f origin production --tags 2> /dev/null
+    run repair TAG=v1.0.0; check "repair: the tag moved on the remote onto its release commit" 0 "tag=v1.0.0"
+
+    # a tag deleted on the remote after the checkout no longer exists
+    mkrepo; commit "fix: one" a.txt; relc 1.0.0; relc 1.0.1; publish; clone
+    git -C "${t}/w" push -q origin :refs/tags/v1.0.1 2> /dev/null
+    run repair TAG=v1.0.1; check "repair: the tag was deleted on the remote" 1 "" "does not exist"
+
+    run bogus; check "usage: an unknown subcommand" 2 "" "usage:"
+    run ""; check "usage: no subcommand" 2 "" "usage:"
 
     # newest: decided from the live tags of production
     mkrepo; commit "fix: one" a.txt; relc 1.9.0; commit "fix: two" a.txt; relc 1.10.0; commit "fix: three" a.txt; git tag v2.0.0-rc.1
@@ -394,6 +460,11 @@ JSON
     run newest TAG=v1.10.0; check "newest: re-run after v1.11.0 landed (stale clone)" 0 "latest=false"
     git -C "${t}/run" checkout -q v1.11.0
     run newest TAG=v1.11.0; check "newest: v1.11.0" 0 "latest=true"
+
+    # a tag moved on the remote after the checkout replaces the stale one
+    mkrepo; commit "fix: one" a.txt; git tag v1.0.0; publish; clone
+    cd "${t}/w"; git tag -d v1.0.0 > /dev/null; relc 1.0.0; git push -q -f origin production --tags 2> /dev/null
+    run newest TAG=v1.0.0; check "newest: the tag moved on the remote onto its release commit" 0 "latest=true"
 
     # no release tag merged into production at all: the tag being built is not the newest
     mkrepo; commit "fix: one" a.txt; git checkout -q -b side; commit "fix: side" b.txt; relc 3.0.0
