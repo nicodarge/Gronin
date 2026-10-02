@@ -349,6 +349,11 @@ JSON
     git -C "${t}/run" checkout -q v1.11.0
     run newest TAG=v1.11.0; check "newest: v1.11.0" 0 "latest=true"
 
+    # no release tag merged into production at all: the tag being built is not the newest
+    mkrepo; commit "fix: one" a.txt; git checkout -q -b side; commit "fix: side" b.txt; relc 3.0.0
+    git push -q origin side --tags 2> /dev/null; git checkout -q production; publish; clone; git -C "${t}/run" checkout -q v3.0.0
+    run newest TAG=v3.0.0; check "newest: no release tag merged into production" 0 "latest=false"
+
     if [ "${n_fail}" -ne 0 ]; then
         echo "release-guard: self-test FAILED: ${n_fail} failed, ${n_ok} passed" >&2
         exit 1
