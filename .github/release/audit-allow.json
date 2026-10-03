@@ -1,0 +1,7 @@
+[
+  {
+    "id": "GHSA-vfj7-8cjw-p6xm",
+    "reason": "braces (stack exhaustion on deeply nested patterns) is reached through micromatch, which npm ls shows under @semantic-release/commit-analyzer, @semantic-release/git and semantic-release; in the last two the patterns are the `assets` globs and the `branches` of .releaserc, a file this repository controls; no patched release exists",
+    "expires": "2026-12-31"
+  }
+]
