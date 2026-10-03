@@ -21,15 +21,22 @@ function freshDir(label) {
   return dir;
 }
 
-// A fake npm that records its arguments, one per line, in argv.log next to it.
-function binDir(npmExit) {
+// A fake npm that records its arguments, one per line, in argv.log next to it, prints the given text and exits with the given status.
+function binDir(npmExit, output = "") {
   const dir = freshDir("bin");
   if (npmExit !== undefined) {
-    writeFileSync(join(dir, "npm"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(dir, "argv.log")}"\nexit ${npmExit}\n`);
+    writeFileSync(join(dir, "report.json"), output);
+    writeFileSync(join(dir, "npm"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(dir, "argv.log")}"\ncat "${join(dir, "report.json")}"\nexit ${npmExit}\n`);
     chmodSync(join(dir, "npm"), 0o755);
   }
   return dir;
 }
+
+// What npm audit --json prints; a vulnerability is { via: [...] }, an advisory { name, severity, title, url }.
+const report = (vulnerabilities = {}) => JSON.stringify({ auditReportVersion: 2, vulnerabilities, metadata: { vulnerabilities: { total: Object.keys(vulnerabilities).length } } });
+const advisory = (id, name = "braces") => ({ source: 1, name, severity: "high", title: `Problem in ${name}`, url: `https://github.com/advisories/${id}`, range: "<=1.0.0" });
+const ID = "GHSA-vfj7-8cjw-p6xm";
+const OTHER = "GHSA-2222-3333-4444";
 
 const STEPS = "{ verifyConditions: async () => {}, analyzeCommits: async () => {} }";
 const cjs = (body) => `module.exports = ${body};\n`;
@@ -53,12 +60,12 @@ function repo(config, packages = {}) {
 
 const plugin = (body) => ({ "index.js": body });
 
-function check(dir, { npm = 0, limitMs = 60_000, toolchain = prefix } = {}) {
-  const bin = binDir(npm === "missing" ? undefined : npm);
+function check(dir, { npm = 0, audit = report(), today, env = {}, limitMs = 60_000, toolchain = prefix } = {}) {
+  const bin = binDir(npm === "missing" ? undefined : npm, typeof audit === "string" ? audit : JSON.stringify(audit));
   const run = spawnSync(process.execPath, [script, toolchain, dir], {
     cwd: dir,
     encoding: "utf8",
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: work, CHECK_TOOLCHAIN_LIMIT_MS: String(limitMs) },
+    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: work, CHECK_TOOLCHAIN_LIMIT_MS: String(limitMs), ...(today === undefined ? {} : { CHECK_TOOLCHAIN_TODAY: today }), ...env },
     timeout: 120_000,
   });
   return { status: run.status, stdout: run.stdout, lines: run.stderr.split("\n").filter((line) => line !== ""), bin };
@@ -210,11 +217,207 @@ describe("what only this check rejects", () => {
 
   test("the audit runs after a failed load and its failure is reported too", () => {
     const dir = repo({ plugins: ["missing-plugin"] });
-    fails(check(dir, { npm: 1 }), /Cannot find module 'missing-plugin'/, /npm audit failed in .*: exit status 1/);
-    const failing = check(repo({ plugins: ["ct-test-ok"] }, { "ct-test-ok": plugin(cjs(STEPS)) }), { npm: 1 });
-    fails(failing, /npm audit failed in .*: exit status 1/);
-    assert.deepEqual(readFileSync(join(failing.bin, "argv.log"), "utf8").split("\n").filter(Boolean), ["audit", "--audit-level=low", "--no-update-notifier", "--prefix", prefix]);
+    fails(check(dir, { npm: 1, audit: "" }), /Cannot find module 'missing-plugin'/, /npm audit failed in .*: exit status 1, and its output is not JSON/);
+    const failing = check(repo({ plugins: ["ct-test-ok"] }, { "ct-test-ok": plugin(cjs(STEPS)) }), { npm: 1, audit: "" });
+    fails(failing, /npm audit failed in .*: exit status 1, and its output is not JSON/);
+    assert.deepEqual(readFileSync(join(failing.bin, "argv.log"), "utf8").split("\n").filter(Boolean), ["audit", "--json", "--no-update-notifier", "--prefix", prefix]);
     fails(check(repo({ plugins: ["ct-test-ok"] }, { "ct-test-ok": plugin(cjs(STEPS)) }), { npm: "missing" }), /npm audit failed in .*ENOENT/);
+  });
+
+  test("an audit that does not answer within the limit is killed and fails", () => {
+    const dir = repo({ plugins: ["ct-test-ok"] }, { "ct-test-ok": plugin(cjs(STEPS)) });
+    const bin = freshDir("bin");
+    writeFileSync(join(bin, "npm"), "#!/bin/sh\nexec sleep 30\n");
+    chmodSync(join(bin, "npm"), 0o755);
+    const run = spawnSync(process.execPath, [script, prefix, dir], { cwd: dir, encoding: "utf8", env: { PATH: `${bin}:/usr/bin:/bin`, HOME: work, CHECK_TOOLCHAIN_AUDIT_LIMIT_MS: "1500" }, timeout: 20_000 });
+    assert.equal(run.status, 1, run.stderr);
+    assert.match(run.stderr, /npm audit failed in .*: no answer within 1\.5 s/);
+  });
+});
+
+// The audit is judged against the advisories npm reports and the repository's .github/release/audit-allow.json.
+describe("the audit and its allow list", () => {
+  const ok = { "ct-test-ok": plugin(cjs(STEPS)) };
+  const allowRepo = (allow) => {
+    const dir = repo({ plugins: ["ct-test-ok"] }, ok);
+    if (allow !== undefined) {
+      mkdirSync(join(dir, ".github", "release"), { recursive: true });
+      writeFileSync(join(dir, ".github", "release", "audit-allow.json"), typeof allow === "string" ? allow : JSON.stringify(allow));
+    }
+    return dir;
+  };
+  const entry = (extra = {}) => ({ id: ID, reason: "only reads the patterns of .releaserc", expires: "2026-12-31", ...extra });
+  const today = "2026-10-03";
+  const braces = report({ braces: { name: "braces", via: [advisory(ID)] } });
+  const run = (allow, audit, options = {}) => check(allowRepo(allow), { audit, today, ...options });
+
+  test("no advisory passes, with or without an allow file", () => {
+    passes(run(undefined, report()));
+    passes(run([], report()));
+    assert.match(run(undefined, report()).stdout, /npm audit reports no advisory/);
+  });
+
+  test("an advisory that is not listed fails, whatever its severity", () => {
+    fails(run(undefined, braces), new RegExp(`^${ID} \\(high, braces\\): Problem in braces: not allowed; fix it or list it in .github/release/audit-allow.json$`));
+    const low = report({ braces: { name: "braces", via: [{ ...advisory(ID), severity: "low" }] } });
+    fails(run([], low), /GHSA-vfj7-8cjw-p6xm \(low, braces\)/);
+    fails(run([entry({ id: OTHER })], braces), /GHSA-vfj7-8cjw-p6xm .* not allowed/, new RegExp(`^${OTHER} is listed in .* does not report it`));
+  });
+
+  test("a listed advisory passes and is printed with its reason and date", () => {
+    const result = run([entry()], braces);
+    passes(result);
+    assert.match(result.stdout, new RegExp(`^allowed ${ID} until 2026-12-31: only reads the patterns of .releaserc$`, "m"));
+  });
+
+  test("an advisory is allowed on its last day and expired the day after", () => {
+    passes(run([entry({ expires: today })], braces));
+    fails(run([entry({ expires: today })], braces, { today: "2026-10-04" }), new RegExp(`^${ID} .*: allowed until 2026-10-03, which has passed: only reads`));
+    fails(run([entry({ expires: "2020-01-01" })], braces), /allowed until 2020-01-01, which has passed/);
+  });
+
+  test("a listed advisory that npm does not report is stale and fails", () => {
+    fails(run([entry()], report()), new RegExp(`^${ID} is listed in .github/release/audit-allow.json but npm audit does not report it: remove the entry$`));
+  });
+
+  test("the verdict covers every advisory, listed or not", () => {
+    const both = report({ braces: { name: "braces", via: [advisory(ID)] }, other: { name: "other", via: [advisory(OTHER, "other")] } });
+    const result = run([entry()], both);
+    fails(result, new RegExp(`^${OTHER} \\(high, other\\)`));
+    assert.match(result.stdout, new RegExp(`allowed ${ID}`));
+    passes(run([entry(), entry({ id: OTHER })], both));
+  });
+
+  test("chained vulnerabilities resolve to the advisory at the end of the chain", () => {
+    const chain = report({
+      "ct-consumer": { name: "ct-consumer", via: ["micromatch"] },
+      micromatch: { name: "micromatch", via: ["braces"] },
+      braces: { name: "braces", via: [advisory(ID)] },
+    });
+    const result = run([entry()], chain);
+    passes(result);
+    assert.equal(result.stdout.match(/^allowed /gm).length, 1);
+    fails(run(undefined, chain), new RegExp(`^${ID} \\(high, braces\\)`));
+  });
+
+  test("a cycle of vulnerabilities ends, and a vulnerability without any advisory fails", () => {
+    const loop = report({ a: { name: "a", via: ["b"] }, b: { name: "b", via: ["a", advisory(ID, "b")] } });
+    passes(run([entry()], loop));
+    fails(run([], report({ a: { name: "a", via: ["b"] }, b: { name: "b", via: ["a"] } })), /reports a without any advisory/, /reports b without any advisory/);
+    fails(run([], report({ a: { name: "a", via: [] } })), /reports a without any advisory/);
+  });
+
+  test("an advisory whose url carries no GHSA id fails and cannot be listed", () => {
+    const cve = report({ pkg: { name: "pkg", via: [{ ...advisory(ID, "pkg"), url: "https://example.org/CVE-2026-0001" }] } });
+    fails(run([entry()], cve), /advisory of pkg without a GHSA url under https:\/\/github.com\/advisories\/: Problem in pkg/, /is listed in .* does not report it/);
+  });
+
+  test("only a url under github.com/advisories names an advisory", () => {
+    for (const url of [`https://example.org/advisories/${ID}`, `http://github.com/advisories/${ID}`, `https://github.com/advisories/${ID}/`, `https://github.com/advisories/${ID}?x=1`, `https://github.com/other/advisories/${ID}`, ID, undefined, null, [`https://github.com/advisories/${ID}`], { href: `https://github.com/advisories/${ID}` }, 5]) {
+      const odd = report({ braces: { name: "braces", via: [{ ...advisory(ID), url }] } });
+      fails(run([entry()], odd), /advisory of braces without a GHSA url under/, /is listed in .* does not report it/);
+    }
+  });
+
+  test("a report whose count disagrees with its list fails, whatever npm's exit status", () => {
+    const counted = (total, vulnerabilities = {}) => JSON.stringify({ auditReportVersion: 2, vulnerabilities, metadata: { vulnerabilities: { total } } });
+    fails(run([], counted(5)), /the report lists 0 vulnerabilities but counts 5 in its metadata: npm's output changed/);
+    fails(run([entry()], counted(5), { npm: 1 }), /lists 0 vulnerabilities but counts 5/);
+    fails(run([], counted(0, { braces: { name: "braces", via: [advisory(ID)] } })), /lists 1 vulnerabilities but counts 0/);
+    fails(run([], counted(2, { braces: { name: "braces", via: [advisory(ID)] } })), /lists 1 vulnerabilities but counts 2/);
+    for (const metadata of [undefined, {}, { vulnerabilities: {} }, { vulnerabilities: { total: "0" } }, { vulnerabilities: { total: null } }, { vulnerabilities: 0 }, null]) {
+      fails(run([], JSON.stringify({ auditReportVersion: 2, vulnerabilities: {}, metadata })), /the report lists 0 vulnerabilities but counts .* in its metadata/);
+    }
+  });
+
+  test("the test-only date override is refused in GitHub Actions and must be a date", () => {
+    for (const override of ["2020-01-01", ""]) {
+      for (const actions of ["true", "false", "", "0"]) {
+        fails(run([entry()], braces, { env: { GITHUB_ACTIONS: actions }, today: override }), /CHECK_TOOLCHAIN_TODAY .* refused in GitHub Actions/);
+      }
+    }
+    const soon = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    passes(check(allowRepo([entry({ expires: soon })]), { audit: braces, env: { GITHUB_ACTIONS: "true" } }));
+    for (const bad of ["", "tomorrow", "2026-02-30", "2026-10-3"]) {
+      fails(run([entry()], braces, { today: bad }), /CHECK_TOOLCHAIN_TODAY is not a date/);
+    }
+  });
+
+  test("npm audit is read whatever its exit status", () => {
+    passes(run([entry()], braces, { npm: 1 }));
+    passes(run([entry()], braces, { npm: 0 }));
+    fails(run([], braces, { npm: 1 }), /not allowed/);
+  });
+
+  test("an output that is not a report fails", () => {
+    fails(run([entry()], "Segmentation fault\n", { npm: 1 }), /npm audit failed in .*: exit status 1, and its output is not JSON: Segmentation fault/);
+    fails(run([entry()], "", { npm: 0 }), /npm audit failed in .*: exit status 0, and its output is not JSON/);
+    fails(run([entry()], "{", { npm: 0 }), /output is not JSON/);
+    fails(run([entry()], "[]"), /the report is not a JSON object/);
+    fails(run([entry()], "null"), /the report is not a JSON object/);
+    fails(run([entry()], JSON.stringify({ error: { code: "ENOAUDIT", summary: "registry unreachable" } }), { npm: 1 }), /npm audit failed in .*: ENOAUDIT: registry unreachable/);
+    fails(run([entry()], JSON.stringify({ auditReportVersion: 3, vulnerabilities: {} })), /unknown format/);
+    fails(run([entry()], JSON.stringify({ auditReportVersion: 2 })), /unknown format/);
+    fails(run([entry()], JSON.stringify({ auditReportVersion: 2, vulnerabilities: [], metadata: { vulnerabilities: { total: 0 } } })), /unknown format/);
+    fails(run([entry()], JSON.stringify({ auditReportVersion: 2, vulnerabilities: [advisory(ID)], metadata: { vulnerabilities: { total: 1 } } })), /unknown format/);
+    fails(run([], report(), { npm: 1 }), /exit status 1 without any vulnerability in the report/);
+  });
+
+  describe("an allow file that is not valid", () => {
+    const invalid = (allow, pattern) => fails(run(allow, braces), pattern);
+
+    test("not JSON, not an array, not objects", () => {
+      invalid("[", /audit-allow.json is not valid JSON/);
+      invalid("", /audit-allow.json is not valid JSON/);
+      invalid({ id: ID }, /must be an array/);
+      invalid([5], /entry 0 is not an object/);
+      invalid([null], /entry 0 is not an object/);
+      invalid([[]], /entry 0 is not an object/);
+    });
+
+    test("unknown keys, and missing, empty or non-string fields", () => {
+      invalid([entry({ why: "x" })], /entry 0 has an unknown key: why/);
+      for (const key of ["id", "reason", "expires"]) {
+        const missing = entry();
+        delete missing[key];
+        invalid([missing], new RegExp(`entry 0 needs a non-empty string "${key}"`));
+        invalid([entry({ [key]: "" })], new RegExp(`needs a non-empty string "${key}"`));
+        invalid([entry({ [key]: "  " })], new RegExp(`needs a non-empty string "${key}"`));
+        invalid([entry({ [key]: 5 })], new RegExp(`needs a non-empty string "${key}"`));
+      }
+    });
+
+    test("a malformed id", () => {
+      for (const id of ["GHSA-vfj7-8cjw-p6x", "ghsa-vfj7-8cjw-p6xm", "GHSA-VFJ7-8CJW-P6XM", "GHSA-vfj7-8cjw-p6xm-aaaa", "CVE-2026-0001", "GHSA-aeio-8cjw-p6xm", " GHSA-vfj7-8cjw-p6xm"]) {
+        invalid([entry({ id })], /entry 0 has a malformed id/);
+      }
+    });
+
+    test("a malformed date", () => {
+      for (const expires of ["2026-13-01", "2026-02-30", "2026-1-01", "20261231", "2026-12-31T00:00:00Z", "tomorrow", "2026-12-31 "]) {
+        invalid([entry({ expires })], /entry 0 has an expires that is not a YYYY-MM-DD date/);
+      }
+    });
+
+    test("a date more than 180 days ahead", () => {
+      passes(run([entry({ expires: "2027-04-01" })], braces));
+      invalid([entry({ expires: "2027-04-02" })], /entry 0 expires on 2027-04-02, more than 180 days after 2026-10-03/);
+      invalid([entry({ expires: "2999-01-01" })], /more than 180 days/);
+    });
+
+    test("a repeated id", () => {
+      invalid([entry(), entry({ reason: "again" })], /entry 1 repeats the id GHSA-vfj7-8cjw-p6xm/);
+    });
+
+    test("every error is reported", () => {
+      fails(run([entry({ why: 1, expires: "x" }), entry({ id: "nope" })], braces), /unknown key/, /not a YYYY-MM-DD date/, /entry 1 has a malformed id/);
+    });
+
+    test("a file that cannot be read", () => {
+      const dir = allowRepo();
+      mkdirSync(join(dir, ".github", "release", "audit-allow.json"), { recursive: true });
+      fails(check(dir, { audit: braces, today }), /cannot read .github\/release\/audit-allow.json: EISDIR/);
+    });
   });
 });
 

@@ -114,14 +114,31 @@ markdownlint because it is written by semantic-release.
   the script's own tests (`check-toolchain.test.mjs`, `node --test`, with `TOOLCHAIN_PREFIX`).
   The script asks the installed semantic-release for this repository's configuration with the
   tool's own loader, so the configuration file, `extends`, the defaults and every plugin
-  definition are the tool's own, and it runs `npm audit` in the prefix. It is stricter than
+  definition are the tool's own, and it runs `npm audit --json` in the prefix. It is stricter than
   the tool on purpose: it fails a load that is cut short, one that writes to stderr, a process
   that does not end by itself and a load that reports no plugin, and it checks itself first
   against throwaway configurations. It does not validate the rest of the configuration or the
   repository state, runs no plugin step, and a plugin can forge a pass; its time limits are
   `LOAD_LIMIT_MS` and `AUDIT_LIMIT_MS`. The script and its tests are shared byte for byte with the other release
-  repositories: change them everywhere or nowhere. The workflow has no `paths` filter, so it
-  can be a required status check without blocking unrelated pull requests; making it one is a
+  repositories: change them everywhere or nowhere.
+  The audit has no severity threshold: an advisory is fixed or listed, with a reason and an
+  expiry, in `.github/release/audit-allow.json`, the one per-repository file the script reads
+  (no file is an empty list). The file is an array of objects with exactly the keys `id`
+  (`GHSA-xxxx-xxxx-xxxx`, taken from the advisory URL `https://github.com/advisories/<id>`; any
+  other URL fails), `reason` (why it is safe here, with the path by which the package is
+  reached; check it with `npm ls <package> --all` in the install prefix) and `expires`
+  (`YYYY-MM-DD`, at most 180 days after the day of the run in UTC, accepted up to and including
+  that day). The check fails on an unknown key, a malformed id or date, a repeated id, a date
+  too far ahead, invalid JSON, an expired entry, and a listed id that `npm audit` no longer
+  reports (stale): delete the entry with the fix. It also fails when
+  `metadata.vulnerabilities.total` disagrees with the vulnerabilities listed, or when the
+  report has any other format than the one it knows. `CHECK_TOOLCHAIN_TODAY`, which sets the
+  day for the tests, is refused whenever `GITHUB_ACTIONS` is defined. Each accepted advisory
+  is printed as `allowed <id> until <date>: <reason>`. The workflow and the script run from
+  the pull request itself, so a pull request can change or remove the check as well as the
+  allow file: the review of the pull request is the control, not these checks. The workflow
+  has no `paths` filter, so it can be a required status check without blocking unrelated pull
+  requests; making it one is a
   setting of the `production: gate green before merge` ruleset, outside the files of this
   repository.
 - `scripts/release-guard.sh` holds the release job's decisions about commits and tags (the
