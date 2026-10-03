@@ -136,9 +136,9 @@ markdownlint because it is written by semantic-release.
   day for the tests, is refused whenever `GITHUB_ACTIONS` is defined. Each accepted advisory
   is printed as `allowed <id> until <date>: <reason>`. The workflow and the script run from
   the pull request itself, so a pull request can change or remove the check as well as the
-  allow file: the review of the pull request is the control, not these checks.
-  The workflow has no `paths` filter, so it
-  can be a required status check without blocking unrelated pull requests; making it one is a
+  allow file: the review of the pull request is the control, not these checks. The workflow
+  has no `paths` filter, so it can be a required status check without blocking unrelated pull
+  requests; making it one is a
   setting of the `production: gate green before merge` ruleset, outside the files of this
   repository.
 - `scripts/release-guard.sh` holds the release job's decisions about commits and tags (the
