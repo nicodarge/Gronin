@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "baseBranchPatterns": ["production"],
+  "gitAuthor": "Nicolas Dargent <darge.nicolas@gmail.com>",
+  "schedule": ["on monday, wednesday and friday"],
+  "updateNotScheduled": false,
+  "enabledManagers": ["github-actions", "gomod", "npm", "pre-commit"],
+  "prConcurrentLimit": 0,
+  "prHourlyLimit": 0,
+  "pre-commit": {
+    "enabled": true
+  },
+  "postUpdateOptions": ["gomodTidy"],
+  "packageRules": [
+    {
+      "description": "Go modules and the Go directive land in the shipped binary, so they release a patch; the other managers only touch CI and stay chore(deps)",
+      "matchManagers": ["gomod"],
+      "semanticCommitType": "fix"
+    },
+    {
+      "description": "Release toolchain, never shipped in the binary and never automerged: the release job holds the deploy key",
+      "matchManagers": ["npm"],
+      "semanticCommitType": "chore",
+      "automerge": false
+    },
+    {
+      "description": "The Node floor of the release jobs comes from the plugins' engines, not from a release feed",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["node"],
+      "enabled": false
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "semanticCommitType": "chore",
+    "automerge": false
+  }
+}
