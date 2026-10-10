@@ -49,7 +49,7 @@ repos:
       - id: ruff-format
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.13.2
+    rev: v2.14.0
     hooks:
       # -full rather than the default hook: that one lints only what changed, which
       # silently disables every linter that has to see the whole module to say
