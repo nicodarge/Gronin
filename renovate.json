@@ -53,8 +53,22 @@
       "enabled": false
     },
     {
+      "description": "The distroless base has no versioned tag; pin its digest so Renovate can track it",
       "matchManagers": [
         "dockerfile"
+      ],
+      "matchPackageNames": [
+        "gcr.io/distroless/base-debian12"
+      ],
+      "pinDigests": true
+    },
+    {
+      "description": "Only the final stage ships in the image (the alpine stage only creates /data), so only its bumps release a patch",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchDepTypes": [
+        "final"
       ],
       "semanticCommitType": "fix"
     }
