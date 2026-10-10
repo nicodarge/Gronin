@@ -178,6 +178,18 @@ markdownlint because it is written by semantic-release.
   `tag`. GitHub's documentation has `queue: max` to keep every pending job; the pinned
   actionlint rejects it.
 
+## Dependency updates
+
+`renovate.json` configures Renovate. It runs from the scheduled workflow in the Puppet
+repository, which visits only the repositories listed in its `.github/renovate-global.json`
+(this one must be listed there), not from an app installed here. `enabledManagers` is an
+allowlist: `pre-commit` is opt-in and needs its own `pre-commit.enabled`, and a new ecosystem
+added to the repository is ignored until its manager is listed. What ships commits as `fix`
+and so cuts a patch release: Go modules and the `go` directive (they build the binary) and the
+Dockerfile's final stage (its distroless base is digest-pinned, since it has no versioned tag).
+Everything else commits as `chore`: GitHub Actions, pre-commit hook revs, the alpine build
+stage, the release toolchain and lock-file maintenance.
+
 ## Validation
 
 Run `pre-commit run --files <files>` after every modification and fix
