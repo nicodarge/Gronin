@@ -74,13 +74,6 @@
         "final"
       ],
       "semanticCommitType": "fix"
-    },
-    {
-      "description": "Major bumps can reach the release and signing path, which PR CI does not exercise",
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
     }
   ],
   "lockFileMaintenance": {

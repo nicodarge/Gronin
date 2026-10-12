@@ -190,8 +190,8 @@ Dockerfile's final stage (its distroless base is digest-pinned, since it has no 
 Everything else commits as `chore`: GitHub Actions, pre-commit hook revs, the alpine build
 stage, the release toolchain and lock-file maintenance.
 Renovate merges its own pull requests once every check is green (`platformAutomerge` is off: the
-branch protection requires no checks); the npm toolchain, lock-file maintenance and major
-updates stay manual.
+branch protection requires no checks); the npm toolchain and lock-file maintenance stay
+manual.
 
 ## Validation
 
