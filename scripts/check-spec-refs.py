@@ -26,9 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SPECS = ROOT / "specs"
 
 DEFINES = {
-    "FR": re.compile(r"^- \*\*(FR-\d+)\*\*:", re.M),
-    "SC": re.compile(r"^- \*\*(SC-\d+)\*\*:", re.M),
-    "T": re.compile(r"^- \[[ x]\] (T\d+)", re.M),
+    "FR": re.compile(r"^- \*\*(FR-\d+)\*\*:", re.MULTILINE),
+    "SC": re.compile(r"^- \*\*(SC-\d+)\*\*:", re.MULTILINE),
+    "T": re.compile(r"^- \[[ x]\] (T\d+)", re.MULTILINE),
 }
 REFERENCE = re.compile(r"\b((?:FR|SC)-\d+|T\d{2,4})\b")
 

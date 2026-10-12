@@ -28,7 +28,7 @@ except ImportError as exc:  # pragma: no cover - environment problem, not a find
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / "specs/001-runtime-core/contracts/playbook.schema.json"
-FENCE = re.compile(r"^```yaml playbook\s*$(.*?)^```\s*$", re.M | re.S)
+FENCE = re.compile(r"^```yaml playbook\s*$(.*?)^```\s*$", re.MULTILINE | re.DOTALL)
 
 # Interpolation must name its source (FR-039). The schema is the shape layer and cannot
 # express this, so the check that a *documented* example obeys it lives here.
