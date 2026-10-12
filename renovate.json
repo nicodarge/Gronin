@@ -23,6 +23,7 @@
   "automerge": true,
   "automergeType": "pr",
   "platformAutomerge": false,
+  "automergeStrategy": "squash",
   "pre-commit": {
     "enabled": true
   },
