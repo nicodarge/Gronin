@@ -1,3 +1,10 @@
+## [0.2.1](https://github.com/nicodarge/Gronin/compare/v0.2.0...v0.2.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **deps:** pin gcr.io/distroless/base-debian12 docker tag to 7f0c72c ([#74](https://github.com/nicodarge/Gronin/issues/74)) ([4a3867f](https://github.com/nicodarge/Gronin/commit/4a3867f10fe55a39ef9302dc1f2d414fefacc96f))
+
 # [0.2.0](https://github.com/nicodarge/Gronin/compare/v0.1.0...v0.2.0) (2026-10-02)
 
 
