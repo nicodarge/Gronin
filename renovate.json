@@ -20,6 +20,9 @@
   ],
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
+  "automerge": true,
+  "automergeType": "pr",
+  "platformAutomerge": false,
   "pre-commit": {
     "enabled": true
   },
@@ -71,6 +74,13 @@
         "final"
       ],
       "semanticCommitType": "fix"
+    },
+    {
+      "description": "Major bumps can reach the release and signing path, which PR CI does not exercise",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": false
     }
   ],
   "lockFileMaintenance": {

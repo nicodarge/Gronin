@@ -189,6 +189,9 @@ and so cuts a patch release: Go modules and the `go` directive (they build the b
 Dockerfile's final stage (its distroless base is digest-pinned, since it has no versioned tag).
 Everything else commits as `chore`: GitHub Actions, pre-commit hook revs, the alpine build
 stage, the release toolchain and lock-file maintenance.
+Renovate merges its own pull requests once every check is green (`platformAutomerge` is off: the
+branch protection requires no checks); the npm toolchain, lock-file maintenance and major
+updates stay manual.
 
 ## Validation
 
