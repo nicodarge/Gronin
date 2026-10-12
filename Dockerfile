@@ -17,7 +17,7 @@ RUN mkdir -p /data
 # exists for. This base has glibc and the CA certificates the sinks need, no shell, no
 # package manager, and a non-root user — everything scratch was chosen for except the
 # part that made the product impossible.
-FROM gcr.io/distroless/base-debian12:nonroot
+FROM gcr.io/distroless/base-debian12:nonroot@sha256:7f0c72cd138b442ae0deeb69c08b1acf5525439ba251a49ad93c320a061567e5
 
 # --chown here, not a chown in the builder stage: COPY --from does not carry the source
 # stage's ownership across, so the builder's chown was the half doing nothing. Dropping
