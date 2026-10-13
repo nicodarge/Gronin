@@ -1,3 +1,10 @@
+## [0.2.3](https://github.com/nicodarge/Gronin/compare/v0.2.2...v0.2.3) (2026-10-13)
+
+
+### Bug Fixes
+
+* **schedule:** tick an occurrence that fell due while the loop was paused ([#98](https://github.com/nicodarge/Gronin/issues/98)) ([46cd8ac](https://github.com/nicodarge/Gronin/commit/46cd8ac79682f999d311101fb1596e6cd51052b0))
+
 ## [0.2.2](https://github.com/nicodarge/Gronin/compare/v0.2.1...v0.2.2) (2026-10-13)
 
 
