@@ -189,9 +189,10 @@ and so cuts a patch release: Go modules and the `go` directive (they build the b
 Dockerfile's final stage (its distroless base is digest-pinned, since it has no versioned tag).
 Everything else commits as `chore`: GitHub Actions, pre-commit hook revs, the alpine build
 stage, the release toolchain and lock-file maintenance.
-Renovate enables GitHub auto-merge on its pull requests (`platformAutomerge`), so GitHub squash-merges
-each one as soon as its required checks pass, without waiting for the next Renovate run. The `production`
-ruleset requires `gate` and `release-toolchain`, so a merge before they pass is refused server-side.
+Renovate enables GitHub auto-merge on its pull requests (`platformAutomerge`, which needs the
+repository's "Allow auto-merge" setting), so GitHub squash-merges each one as soon as the checks the
+`production` ruleset requires (`gate` and `release-toolchain`) pass, without waiting for the next
+Renovate run.
 Majors and the actions pinned in `release.yaml` are automerged too, by owner decision; the npm
 toolchain and lock-file maintenance stay manual.
 
