@@ -1,3 +1,13 @@
+## [0.2.2](https://github.com/nicodarge/Gronin/compare/v0.2.1...v0.2.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* **deps:** update module go.etcd.io/etcd/client/v3 to v3.7.2 ([#81](https://github.com/nicodarge/Gronin/issues/81)) ([cef7780](https://github.com/nicodarge/Gronin/commit/cef7780738aabbe995581fe659331ed32dce4c67))
+* **deps:** update module golang.org/x/sys to v0.49.0 ([#89](https://github.com/nicodarge/Gronin/issues/89)) ([f4718f6](https://github.com/nicodarge/Gronin/commit/f4718f61716b8fc6370d0b03256bcad98a680151))
+* **deps:** update module modernc.org/sqlite to v1.60.1 ([#91](https://github.com/nicodarge/Gronin/issues/91)) ([ab8f017](https://github.com/nicodarge/Gronin/commit/ab8f01724f2eeb3a147181e52b8339f232b55b8b))
+* satisfy ruff 0.17.0 lint rules in scripts/ ([#95](https://github.com/nicodarge/Gronin/issues/95)) ([3fbeb2b](https://github.com/nicodarge/Gronin/commit/3fbeb2b431d1690ebff6e24a59a428b5d1f741a4))
+
 ## [0.2.1](https://github.com/nicodarge/Gronin/compare/v0.2.0...v0.2.1) (2026-10-12)
 
 
