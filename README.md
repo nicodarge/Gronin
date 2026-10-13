@@ -186,3 +186,5 @@ is decided and how the pipeline is protected and repaired: [CLAUDE.md](CLAUDE.md
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
+
+<!-- ruleset probe -->
