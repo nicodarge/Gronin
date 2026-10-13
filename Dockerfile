@@ -1,6 +1,6 @@
 # A stage that exists only to make a directory. The final image has no shell, so a
 # writable state directory has to arrive already made.
-FROM alpine:3.21 AS filesystem
+FROM alpine:3.24 AS filesystem
 RUN mkdir -p /data
 
 # distroless, not scratch — and that is a correction rather than a preference.
