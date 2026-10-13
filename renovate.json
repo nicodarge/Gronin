@@ -22,7 +22,7 @@
   "prHourlyLimit": 0,
   "automerge": true,
   "automergeType": "pr",
-  "platformAutomerge": false,
+  "platformAutomerge": true,
   "automergeStrategy": "squash",
   "pre-commit": {
     "enabled": true
