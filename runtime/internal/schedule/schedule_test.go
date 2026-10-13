@@ -202,3 +202,53 @@ func TestNothingArmedMeansNothingDue(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// An occurrence that falls due while the loop is paused between a tick and the wait that
+// follows it is not skipped: the wait is taken from the instant the tick covered, so the
+// occurrence is still ahead of it and the next tick fires it. A process stopped and
+// resumed lands here whenever the stop falls between the two, and an occurrence with no
+// successor for a year is then never fired at all.
+func TestAnOccurrenceDueDuringAPauseAfterATickIsStillFired(t *testing.T) {
+	got := &fired{}
+	fires := make(chan time.Time, 1)
+	scheduler := schedule.New(func(ctx context.Context, name string, at time.Time) error {
+		err := got.fire(ctx, name, at)
+		fires <- at
+		return err
+	}, got.miss)
+
+	base := time.Date(2026, 9, 5, 6, 0, 0, 0, time.UTC)
+	scheduler.Add("drift-check", mustParse(t, "0 7 5 9 *"), base)
+
+	// The first reading is the tick's, half an hour before the occurrence. Every later one
+	// is after the pause, half an hour past it.
+	var reads int
+	var mu sync.Mutex
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		reads++
+		if reads == 1 {
+			return base.Add(30 * time.Minute)
+		}
+		return base.Add(90 * time.Minute)
+	}
+
+	ctx, stop := context.WithCancel(t.Context())
+	defer stop()
+	done := make(chan error, 1)
+	go func() { done <- scheduler.Run(ctx, clock, nil) }()
+
+	select {
+	case at := <-fires:
+		if want := time.Date(2026, 9, 5, 7, 0, 0, 0, time.UTC); !at.Equal(want) {
+			t.Fatalf("fired for %v, want %v", at, want)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the occurrence that fell due during the pause never fired")
+	}
+	stop()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run ended with %v", err)
+	}
+}
