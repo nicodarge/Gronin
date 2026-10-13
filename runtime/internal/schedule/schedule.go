@@ -204,8 +204,8 @@ func (s *Scheduler) Run(ctx context.Context, now func() time.Time, log *slog.Log
 		log = slog.New(slog.DiscardHandler)
 	}
 	for {
-		at := now()
-		if err := s.Tick(ctx, at); err != nil {
+		ticked := now()
+		if err := s.Tick(ctx, ticked); err != nil {
 			// A tick's problems do not stop the scheduler — one playbook failing is not
 			// a reason for the others to stop being scheduled — but they are said out
 			// loud. A failure to record a missed occurrence that disappears silently is
@@ -214,15 +214,17 @@ func (s *Scheduler) Run(ctx context.Context, now func() time.Time, log *slog.Log
 				"err", err)
 		}
 
-		at = now()
-		next := s.NextDue(at)
+		// From the instant the tick covered, not from a fresh reading: an occurrence that
+		// fell due since would otherwise lie behind the wait and never be ticked, which is
+		// all of a schedule with no occurrence after it.
+		next := s.NextDue(ticked)
 		var wait time.Duration
 		if next.IsZero() {
 			wait = time.Minute
 		} else {
 			// Against the injected clock, not time.Until: a method that takes a clock
 			// and then reads another one is a seam that only looks like one.
-			wait = next.Sub(at)
+			wait = next.Sub(now())
 		}
 		if wait < time.Second {
 			wait = time.Second

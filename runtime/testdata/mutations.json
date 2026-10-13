@@ -261,6 +261,21 @@
       ]
     },
     {
+      "name": "the wait after a tick is taken from a later reading",
+      "tree": "..",
+      "file": "internal/schedule/schedule.go",
+      "find": "\t\tnext := s.NextDue(ticked)\n",
+      "replace": "\t\tnext := s.NextDue(now())\n",
+      "command": [
+        "go",
+        "test",
+        "./internal/schedule",
+        "-count=1",
+        "-run",
+        "TestAnOccurrenceDueDuringAPauseAfterATickIsStillFired"
+      ]
+    },
+    {
       "name": "one sink failing stops the others",
       "tree": "..",
       "file": "internal/sink/sink.go",
