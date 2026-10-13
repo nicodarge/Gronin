@@ -1,3 +1,11 @@
+## [0.2.4](https://github.com/nicodarge/Gronin/compare/v0.2.3...v0.2.4) (2026-10-13)
+
+
+### Bug Fixes
+
+* **deps:** update module go.uber.org/zap to v1.28.0 ([#88](https://github.com/nicodarge/Gronin/issues/88)) ([4b9d9bb](https://github.com/nicodarge/Gronin/commit/4b9d9bbd6fbfc2aa1a04c0489098d298a8da054c))
+* **deps:** update module golang.org/x/term to v0.47.0 ([#90](https://github.com/nicodarge/Gronin/issues/90)) ([82b079b](https://github.com/nicodarge/Gronin/commit/82b079bb6c0f6869ffae50de31ce548b76581dcd))
+
 ## [0.2.3](https://github.com/nicodarge/Gronin/compare/v0.2.2...v0.2.3) (2026-10-13)
 
 
