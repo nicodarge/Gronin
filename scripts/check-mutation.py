@@ -268,6 +268,7 @@ def repository_root(tree: Path) -> Path | None:
         ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
+        check=False,
     )
     return Path(proc.stdout.strip()).resolve() if proc.returncode == 0 else None
 
@@ -549,7 +550,7 @@ def self_test() -> int:
         tree_only = root / "tracked-repo-tree-only"
         shutil.copytree(tracked_tree, tree_only)
         naive = subprocess.run(
-            ["./test.sh"], cwd=tree_only, capture_output=True, text=True
+            ["./test.sh"], cwd=tree_only, capture_output=True, text=True, check=False
         )
         if naive.returncode == 0:
             failures.append(
@@ -1082,6 +1083,7 @@ def self_test() -> int:
                 ],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             expected_rc = 1 if k == e2e_survivor_shard else 0
             if proc.returncode != expected_rc:
@@ -1107,8 +1109,9 @@ def self_test() -> int:
                 {
                     line.rsplit(" ", 1)[-1]
                     for line in proc.stdout.splitlines()
-                    if line.startswith("check-mutation: killed")
-                    or line.startswith("check-mutation: SURVIVED")
+                    if line.startswith(
+                        ("check-mutation: killed", "check-mutation: SURVIVED")
+                    )
                 }
             )
 
