@@ -38,7 +38,7 @@ repos:
       - id: gitleaks
         alias: gitleaks-range
         name: Detect hardcoded secrets in the commits of the change
-        entry: bash -c 'gitleaks git --redact --verbose --no-banner --log-opts="${GITLEAKS_RANGE:-origin/production..HEAD}"'
+        entry: bash -ec 'r="${GITLEAKS_RANGE:-origin/production..HEAD}"; git rev-list --quiet "$r"; gitleaks git --redact --verbose --no-banner --log-opts="$r"'
         stages: [manual]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
