@@ -1,31 +1,52 @@
 ---
+default_stages: [pre-commit]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # CI is never mid-merge, so without --assume-in-merge this hook scans nothing there
       - id: check-merge-conflict
+        args: [--assume-in-merge]
+        stages: [pre-commit, manual]
       - id: check-yaml
+        stages: [manual]
       - id: check-json
+        stages: [manual]
       - id: end-of-file-fixer
+        stages: [pre-commit]
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        stages: [pre-commit]
       - id: detect-private-key
+        stages: [pre-commit, manual]
+      # Nothing is staged in CI, so without --enforce-all this hook checks no file there
       - id: check-added-large-files
-        args: ['--maxkb=500']
+        args: ['--maxkb=500', '--enforce-all']
+        stages: [pre-commit, manual]
       - id: check-executables-have-shebangs
+        stages: [manual]
       - id: no-commit-to-branch
         args: ['--branch', 'production']
+        stages: [pre-commit]
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
     hooks:
       - id: gitleaks
+        stages: [pre-commit]
+      # The staged scan above sees nothing in CI, so CI scans the commits of the change instead.
+      - id: gitleaks
+        alias: gitleaks-range
+        name: Detect hardcoded secrets in the commits of the change
+        entry: bash -ec 'r="${GITLEAKS_RANGE:-origin/production..HEAD}"; git rev-list --quiet "$r"; gitleaks git --redact --verbose --no-banner --log-opts="$r"'
+        stages: [manual]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.49.1
     hooks:
       - id: markdownlint
         args: ['--disable', 'MD013', 'MD033', 'MD041', '--']
+        stages: [manual]
         # Vendored Spec Kit assets, refreshed by the Specify CLI; CHANGELOG.md is written by
         # semantic-release and breaks MD001 and MD012 as generated.
         exclude: '^(\.claude/skills/speckit-|\.specify/(templates|scripts|integrations|workflows)/|CHANGELOG\.md$)'
@@ -34,19 +55,27 @@ repos:
     rev: v1.7.12
     hooks:
       - id: actionlint
+        stages: [manual]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
         files: ^(scripts|\.github/release)/.*\.sh$
+        stages: [manual]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.1
     hooks:
       - id: ruff
+        name: ruff (fix)
         args: [--fix, --exit-non-zero-on-fix]
+        stages: [pre-commit]
+      - id: ruff
+        name: ruff (check)
+        stages: [manual]
       - id: ruff-format
+        stages: [pre-commit]
 
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.14.0
@@ -55,18 +84,18 @@ repos:
       # silently disables every linter that has to see the whole module to say
       # anything — `unused` first among them.
       - id: golangci-lint-full
-        entry: bash -c 'cd runtime && golangci-lint run --fix'
+        entry: bash -c 'cd runtime && golangci-lint run'
+        stages: [manual]
       - id: golangci-lint-config-verify
         entry: bash -c 'cd runtime && golangci-lint config verify'
+        stages: [manual]
 
   - repo: local
     hooks:
-      # Both are `manual`: they are the merge gate, and CI is where the merge gate
-      # belongs. Run before every push they cost minutes, long enough that git's own
-      # SSH connection idles out and GitHub drops it mid-hook. The CI jobs `suite` and
-      # `mutation` run them on every pull request and on every push to production, so
-      # nothing merges without them. Locally, on demand:
-      #     pre-commit run --hook-stage manual go-suite mutation
+      # Every verifying hook is `manual`: the commit stage only fixes files, and the CI job
+      # `checks` runs the manual stage. These two have CI jobs of their own (`suite` and
+      # `mutation`), so `checks` skips them; they take minutes, long enough that git's own
+      # SSH connection idles out and GitHub drops it mid-hook when run before a push.
       - id: go-suite
         name: the Go suite, hermetic and race-enabled
         entry: scripts/run-suite.sh
@@ -90,6 +119,7 @@ repos:
         entry: scripts/check-doc-examples.py
         language: python
         additional_dependencies: [jsonschema==4.26.0, pyyaml==6.0.3]
+        stages: [manual]
         pass_filenames: false
         always_run: true
 
@@ -97,5 +127,6 @@ repos:
         name: spec identifiers resolve
         entry: scripts/check-spec-refs.py
         language: python
+        stages: [manual]
         pass_filenames: false
         always_run: true

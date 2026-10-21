@@ -17,22 +17,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every static hook, from the file that already pins them. A second pin in this
-  # workflow would be a second thing to bump, and the one that drifts is the copy.
-  # The two heavy hooks are `manual` there and have jobs of their own below;
-  # no-commit-to-branch is a local guard and refuses the production checkout this job
-  # does on a push.
+  # Every verifying static hook, from the file that already pins them. A second pin in
+  # this workflow would be a second thing to bump, and the one that drifts is the copy.
+  # They carry `stages: [manual]` there, so the fixers that run at commit are not re-run
+  # here; the two heavy ones have jobs of their own below.
   checks:
     runs-on: ubuntu-latest
     steps:
+      # The whole history: the gitleaks-range hook scans the commits of the change.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
           go-version-file: runtime/go.mod
-      - run: pipx install pre-commit
       - env:
-          SKIP: no-commit-to-branch
-        run: pre-commit run --all-files --show-diff-on-failure
+          # renovate: datasource=pypi depName=pre-commit
+          PRE_COMMIT_VERSION: 4.7.0
+        run: pipx install "pre-commit==${PRE_COMMIT_VERSION}"
+      - env:
+          SKIP: go-suite,mutation
+          GITLEAKS_RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
   suite:
     runs-on: ubuntu-latest

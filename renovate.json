@@ -12,6 +12,7 @@
   ],
   "updateNotScheduled": false,
   "enabledManagers": [
+    "custom.regex",
     "dockerfile",
     "github-actions",
     "gomod",
@@ -29,6 +30,18 @@
   },
   "postUpdateOptions": [
     "gomodTidy"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "pre-commit pinned in a workflow, under a `# renovate:` comment",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n\\s+PRE_COMMIT_VERSION: (?<currentValue>\\S+)"
+      ]
+    }
   ],
   "packageRules": [
     {

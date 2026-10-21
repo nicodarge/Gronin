@@ -1,15 +1,23 @@
 <!--
 Sync Impact Report
-Version change: 1.3.0 → 1.3.1
-Bump rationale: Principle V's rationale said the repository's switch to public could come at any
-time; the owner made it public on 2026-09-13. The rule itself is unchanged, so PATCH per the
-versioning rule below.
-Modified principles:
-  - V. Nothing From a Real Fleet Enters This Repository — rationale only.
+Version change: 1.3.1 → 1.4.0
+Bump rationale: Development Workflow's validation rule is materially changed, not clarified —
+"`pre-commit run` MUST pass on every changed file before a push" becomes "the commit-stage hooks
+MUST pass on every commit, and every verifying check runs in CI, never repeated locally, except the
+guards against leaks and breakage, which run in both places" — so
+MINOR per the versioning rule below, as 1.2.0 was for the merge clause. What a contributor MUST do
+before a push changes; no principle is added, removed or redefined.
+Modified principles: none.
+Modified sections:
+  - Development Workflow — the commit stage is limited to fixers, instant hygiene checks and
+    secret guards, and every verifying check carries `stages: [manual]` and runs in CI alone. The
+    guards (merge conflicts, private keys, large files, `gitleaks`) are the one exception: they run
+    at commit and in CI, so a `--no-verify` commit, an unhooked clone or a web edit cannot merge
+    past them. The "run the hook set, never the underlying tool" sentence is kept.
 Added sections: none
 Removed sections: none
 Documents brought in line with the new wording in the same change:
-  - CLAUDE.md, docs/roadmap.md, specs/001-runtime-core/tasks.md (T067)
+  - CLAUDE.md, .pre-commit-config.yaml, .github/workflows/ci.yaml
 Templates requiring review:
   - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
     Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
@@ -165,8 +173,12 @@ on 2026-09-08, for this repository. `gate` is the required check and it needs al
 `action_required` from no run at all. It is approval to merge, not to skip the review that
 precedes it.
 
-`pre-commit run` MUST pass on every changed file before a push. Run the hook set, never the
-underlying tool: a hook can load plugins the bare command does not.
+The commit-stage pre-commit hooks (fixers, instant hygiene checks, secret guards) MUST pass on
+every commit. Every verifying check carries `stages: [manual]` and runs in CI, never repeated
+locally. The one exception is the guards against leaks and breakage (merge conflicts, private keys,
+large files, `gitleaks`): they run at commit and in CI, so a `--no-verify` commit, an unhooked clone
+or a web edit cannot merge past them. Run the hook set, never the underlying tool: a hook can load
+plugins the bare command does not.
 
 Documentation states facts. It MUST NOT record a version number or a count that restates
 something the repository already holds: both go stale, nothing fails when they do, and the next
@@ -188,4 +200,4 @@ the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.3.1 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-13
+**Version**: 1.4.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-10-21
