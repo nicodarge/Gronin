@@ -198,11 +198,14 @@ toolchain and lock-file maintenance stay manual.
 
 ## Validation
 
-The commit-stage hooks only fix files (whitespace, end of file, `ruff format`) or run
+The commit-stage hooks only fix files (whitespace, end of file, `ruff --fix`, `ruff format`) or run
 near-instant checks (merge conflicts, private keys, large files, `gitleaks`); let them run on
 commit. Every verifying check (linters, schema and doc checks, the Go suite, the mutation
 harness, builds) carries `stages: [manual]` and runs in CI (`.github/workflows/ci.yaml`),
 never repeated locally.
+
+Every hook names its `stages` (`[pre-commit]` or `[manual]`) and `default_stages` is `[pre-commit]`: a hook
+without them would also run under `--hook-stage manual`, because upstream manifests list `manual`.
 
 ## Tests
 

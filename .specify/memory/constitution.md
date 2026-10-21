@@ -165,8 +165,10 @@ on 2026-09-08, for this repository. `gate` is the required check and it needs al
 `action_required` from no run at all. It is approval to merge, not to skip the review that
 precedes it.
 
-`pre-commit run` MUST pass on every changed file before a push. Run the hook set, never the
-underlying tool: a hook can load plugins the bare command does not.
+The commit-stage pre-commit hooks (fixers, instant hygiene checks, secret guards) MUST pass on
+every commit. Every verifying check carries `stages: [manual]` and runs in CI, never repeated
+locally. Run the hook set, never the underlying tool: a hook can load plugins the bare command
+does not.
 
 Documentation states facts. It MUST NOT record a version number or a count that restates
 something the repository already holds: both go stale, nothing fails when they do, and the next

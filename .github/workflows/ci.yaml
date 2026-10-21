@@ -28,7 +28,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: runtime/go.mod
-      - run: pipx install pre-commit
+      - env:
+          # renovate: datasource=pypi depName=pre-commit
+          PRE_COMMIT_VERSION: 4.7.0
+        run: pipx install "pre-commit==${PRE_COMMIT_VERSION}"
       - env:
           SKIP: go-suite,mutation
         run: pre-commit run --all-files --hook-stage manual --show-diff-on-failure
