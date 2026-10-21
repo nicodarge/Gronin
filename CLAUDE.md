@@ -25,7 +25,7 @@ So the rule is absolute and has no exception for convenience:
   repository.** What ships here is the runtime and the playbooks that work
   against any fleet.
 
-`gitleaks` runs as a pre-commit hook with the extra rules in `.gitleaks.toml`.
+`gitleaks` runs as a commit-stage pre-commit hook, and only there, with the extra rules in `.gitleaks.toml`.
 It is the belt, not the fix — it catches shapes it already knows, and an
 infrastructure hostname is not one of them.
 
@@ -198,9 +198,11 @@ toolchain and lock-file maintenance stay manual.
 
 ## Validation
 
-Run `pre-commit run --files <files>` after every modification and fix
-everything it reports before considering the work complete. Run the hook, not
-the underlying tool — a hook can load plugins the bare command does not.
+The commit-stage hooks only fix files (whitespace, end of file, `ruff format`) or run
+near-instant checks (merge conflicts, private keys, large files, `gitleaks`); let them run on
+commit. Every verifying check (linters, schema and doc checks, the Go suite, the mutation
+harness, builds) carries `stages: [manual]` and runs in CI (`.github/workflows/ci.yaml`),
+never repeated locally.
 
 ## Tests
 

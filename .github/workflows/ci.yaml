@@ -17,11 +17,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every static hook, from the file that already pins them. A second pin in this
-  # workflow would be a second thing to bump, and the one that drifts is the copy.
-  # The two heavy hooks are `manual` there and have jobs of their own below;
-  # no-commit-to-branch is a local guard and refuses the production checkout this job
-  # does on a push.
+  # Every verifying static hook, from the file that already pins them. A second pin in
+  # this workflow would be a second thing to bump, and the one that drifts is the copy.
+  # They carry `stages: [manual]` there, so the fixers that run at commit are not re-run
+  # here; the two heavy ones have jobs of their own below.
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -31,8 +30,8 @@ jobs:
           go-version-file: runtime/go.mod
       - run: pipx install pre-commit
       - env:
-          SKIP: no-commit-to-branch
-        run: pre-commit run --all-files --show-diff-on-failure
+          SKIP: go-suite,mutation
+        run: pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
   suite:
     runs-on: ubuntu-latest
