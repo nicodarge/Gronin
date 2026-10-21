@@ -25,7 +25,8 @@ So the rule is absolute and has no exception for convenience:
   repository.** What ships here is the runtime and the playbooks that work
   against any fleet.
 
-`gitleaks` runs as a commit-stage pre-commit hook, and only there, with the extra rules in `.gitleaks.toml`.
+`gitleaks` runs as a pre-commit hook, on the staged diff at commit and on the commits of the change in CI,
+with the extra rules in `.gitleaks.toml`.
 It is the belt, not the fix — it catches shapes it already knows, and an
 infrastructure hostname is not one of them.
 
@@ -202,7 +203,11 @@ The commit-stage hooks only fix files (whitespace, end of file, `ruff --fix`, `r
 near-instant checks (merge conflicts, private keys, large files, `gitleaks`); let them run on
 commit. Every verifying check (linters, schema and doc checks, the Go suite, the mutation
 harness, builds) carries `stages: [manual]` and runs in CI (`.github/workflows/ci.yaml`),
-never repeated locally.
+never repeated locally. The one exception is the guards against leaks and breakage (merge conflicts,
+private keys, large files, `gitleaks`): they run at commit and in CI, so a `--no-verify` commit, an
+unhooked clone or a web edit cannot merge past them. At commit `gitleaks` scans the staged diff; in
+CI the `gitleaks-range` hook scans the commits of the change (`GITLEAKS_RANGE`, which `ci.yaml` sets),
+because nothing is staged there.
 
 Every hook names its `stages` (`[pre-commit]` or `[manual]`) and `default_stages` is `[pre-commit]`: a hook
 without them would also run under `--hook-stage manual`, because upstream manifests list `manual`.

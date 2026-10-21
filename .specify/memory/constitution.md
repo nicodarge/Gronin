@@ -3,14 +3,17 @@ Sync Impact Report
 Version change: 1.3.1 → 1.4.0
 Bump rationale: Development Workflow's validation rule is materially changed, not clarified —
 "`pre-commit run` MUST pass on every changed file before a push" becomes "the commit-stage hooks
-MUST pass on every commit, and every verifying check runs in CI, never repeated locally" — so
+MUST pass on every commit, and every verifying check runs in CI, never repeated locally, except the
+guards against leaks and breakage, which run in both places" — so
 MINOR per the versioning rule below, as 1.2.0 was for the merge clause. What a contributor MUST do
 before a push changes; no principle is added, removed or redefined.
 Modified principles: none.
 Modified sections:
   - Development Workflow — the commit stage is limited to fixers, instant hygiene checks and
     secret guards, and every verifying check carries `stages: [manual]` and runs in CI alone. The
-    "run the hook set, never the underlying tool" sentence is kept.
+    guards (merge conflicts, private keys, large files, `gitleaks`) are the one exception: they run
+    at commit and in CI, so a `--no-verify` commit, an unhooked clone or a web edit cannot merge
+    past them. The "run the hook set, never the underlying tool" sentence is kept.
 Added sections: none
 Removed sections: none
 Documents brought in line with the new wording in the same change:
@@ -172,8 +175,10 @@ precedes it.
 
 The commit-stage pre-commit hooks (fixers, instant hygiene checks, secret guards) MUST pass on
 every commit. Every verifying check carries `stages: [manual]` and runs in CI, never repeated
-locally. Run the hook set, never the underlying tool: a hook can load plugins the bare command
-does not.
+locally. The one exception is the guards against leaks and breakage (merge conflicts, private keys,
+large files, `gitleaks`): they run at commit and in CI, so a `--no-verify` commit, an unhooked clone
+or a web edit cannot merge past them. Run the hook set, never the underlying tool: a hook can load
+plugins the bare command does not.
 
 Documentation states facts. It MUST NOT record a version number or a count that restates
 something the repository already holds: both go stale, nothing fails when they do, and the next

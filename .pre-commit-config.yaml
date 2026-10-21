@@ -4,8 +4,10 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # CI is never mid-merge, so without --assume-in-merge this hook scans nothing there
       - id: check-merge-conflict
-        stages: [pre-commit]
+        args: [--assume-in-merge]
+        stages: [pre-commit, manual]
       - id: check-yaml
         stages: [manual]
       - id: check-json
@@ -16,10 +18,11 @@ repos:
         args: [--markdown-linebreak-ext=md]
         stages: [pre-commit]
       - id: detect-private-key
-        stages: [pre-commit]
+        stages: [pre-commit, manual]
+      # Nothing is staged in CI, so without --enforce-all this hook checks no file there
       - id: check-added-large-files
-        args: ['--maxkb=500']
-        stages: [pre-commit]
+        args: ['--maxkb=500', '--enforce-all']
+        stages: [pre-commit, manual]
       - id: check-executables-have-shebangs
         stages: [manual]
       - id: no-commit-to-branch
@@ -31,6 +34,12 @@ repos:
     hooks:
       - id: gitleaks
         stages: [pre-commit]
+      # The staged scan above sees nothing in CI, so CI scans the commits of the change instead.
+      - id: gitleaks
+        alias: gitleaks-range
+        name: Detect hardcoded secrets in the commits of the change
+        entry: bash -c 'gitleaks git --redact --verbose --no-banner --log-opts="${GITLEAKS_RANGE:-origin/production..HEAD}"'
+        stages: [manual]
 
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.49.1
