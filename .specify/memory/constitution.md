@@ -1,15 +1,20 @@
 <!--
 Sync Impact Report
-Version change: 1.3.0 → 1.3.1
-Bump rationale: Principle V's rationale said the repository's switch to public could come at any
-time; the owner made it public on 2026-09-13. The rule itself is unchanged, so PATCH per the
-versioning rule below.
-Modified principles:
-  - V. Nothing From a Real Fleet Enters This Repository — rationale only.
+Version change: 1.3.1 → 1.4.0
+Bump rationale: Development Workflow's validation rule is materially changed, not clarified —
+"`pre-commit run` MUST pass on every changed file before a push" becomes "the commit-stage hooks
+MUST pass on every commit, and every verifying check runs in CI, never repeated locally" — so
+MINOR per the versioning rule below, as 1.2.0 was for the merge clause. What a contributor MUST do
+before a push changes; no principle is added, removed or redefined.
+Modified principles: none.
+Modified sections:
+  - Development Workflow — the commit stage is limited to fixers, instant hygiene checks and
+    secret guards, and every verifying check carries `stages: [manual]` and runs in CI alone. The
+    "run the hook set, never the underlying tool" sentence is kept.
 Added sections: none
 Removed sections: none
 Documents brought in line with the new wording in the same change:
-  - CLAUDE.md, docs/roadmap.md, specs/001-runtime-core/tasks.md (T067)
+  - CLAUDE.md, .pre-commit-config.yaml, .github/workflows/ci.yaml
 Templates requiring review:
   - .specify/templates/plan-template.md — no change required by this amendment. Its Constitution
     Check gate is still the unfilled placeholder the 1.1.0 report flagged; that item stays open
@@ -190,4 +195,4 @@ the suite that would have to do the telling. Complexity that a principle
 discourages is allowed only when the pull request states what was tried instead and why it did
 not work.
 
-**Version**: 1.3.1 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-09-13
+**Version**: 1.4.0 | **Ratified**: 2026-09-04 | **Last Amended**: 2026-10-21
