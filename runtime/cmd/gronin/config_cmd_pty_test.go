@@ -55,7 +55,12 @@ func TestConfigSetRestoresTheTerminalOnInterrupt(t *testing.T) {
 	waited := make(chan error, 1)
 	go func() { waited <- cmd.Wait() }()
 	select {
-	case <-waited:
+	case err := <-waited:
+		// A process that exits because of its own signal is expected here, not a failure:
+		// only the terminal-echo assertion below says whether the interrupt was handled.
+		if err != nil {
+			t.Logf("cmd.Wait after SIGINT: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the process did not exit after SIGINT")
 	}
