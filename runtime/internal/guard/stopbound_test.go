@@ -83,7 +83,12 @@ func TestTheStopBound(t *testing.T) {
 	ended := make(chan error, 1)
 	go func() { ended <- cmd.Wait() }()
 	select {
-	case <-ended:
+	case err := <-ended:
+		// The subprocess exits non-zero on purpose (checked below via ExitCode), so Wait
+		// returning a non-nil error here is expected, not a failure.
+		if err != nil {
+			t.Logf("cmd.Wait: %v", err)
+		}
 		if took := time.Since(decided); took > helperStopBound+2*time.Second {
 			t.Fatalf("the process ended %s after the stop decision, past its %s bound",
 				took, helperStopBound)
