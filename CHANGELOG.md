@@ -1,3 +1,10 @@
+## [0.2.6](https://github.com/nicodarge/Gronin/compare/v0.2.5...v0.2.6) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update module go.etcd.io/etcd/client/v3 to v3.7.3 ([#107](https://github.com/nicodarge/Gronin/issues/107)) ([b5ac746](https://github.com/nicodarge/Gronin/commit/b5ac74651b1106d1aa790161fcb01d6842fd2387))
+
 ## [0.2.5](https://github.com/nicodarge/Gronin/compare/v0.2.4...v0.2.5) (2026-10-19)
 
 
